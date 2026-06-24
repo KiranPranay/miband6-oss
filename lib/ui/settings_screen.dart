@@ -7,6 +7,8 @@ import 'device_scan_screen.dart';
 import 'auth_key_screen.dart';
 import 'debug_console.dart';
 import 'notifications_screen.dart';
+import 'theme/tokens.dart';
+import 'theme/app_theme.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -17,15 +19,15 @@ class SettingsScreen extends StatelessWidget {
     final bleManager = context.watch<BLEManager>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F1A),
+      backgroundColor: AppColors.scaffold,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F0F1A),
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'Settings',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: AppText.h1,
         ),
-        iconTheme: const IconThemeData(color: Colors.white70),
+        iconTheme: const IconThemeData(color: AppColors.ink),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -51,9 +53,9 @@ class SettingsScreen extends StatelessWidget {
           if (bleManager.isConnected)
             _SettingsTile(
               icon: Icons.cancel,
-              iconColor: Colors.redAccent,
+              iconColor: AppColors.danger,
               title: 'Disconnect',
-              titleColor: Colors.redAccent,
+              titleColor: AppColors.danger,
               subtitle: 'Stops auto-reconnect',
               onTap: () => bleManager.disconnect(),
             ),
@@ -64,7 +66,7 @@ class SettingsScreen extends StatelessWidget {
           _SectionHeader(title: 'Alerts'),
           _SettingsTile(
             icon: Icons.notifications_active_outlined,
-            iconColor: Colors.tealAccent,
+            iconColor: AppColors.spo2,
             title: 'Notifications',
             subtitle: 'Forward calls, messages & app alerts to the band',
             onTap: () => Navigator.push(
@@ -81,7 +83,8 @@ class SettingsScreen extends StatelessWidget {
             icon: Icons.key_rounded,
             title: 'Auth Key',
             subtitle: authManager.hasKey ? 'Key is set ✓' : 'No key set',
-            subtitleColor: authManager.hasKey ? Colors.green : Colors.orange,
+            subtitleColor:
+                authManager.hasKey ? AppColors.success : AppColors.warning,
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const AuthKeyScreen()),
@@ -109,15 +112,15 @@ class SettingsScreen extends StatelessWidget {
                 ? 'Running gates 0→6 — watch the Debug Log…'
                 : 'Verify HR / battery / fetch on the band (wear it first)',
             iconColor: bleManager.isTestSessionRunning
-                ? Colors.amberAccent
-                : Colors.lightGreenAccent,
+                ? AppColors.warning
+                : AppColors.activity,
             onTap: () => _onRunHardwareTest(context, bleManager),
           ),
           _SettingsTile(
             icon: Icons.notifications_active_outlined,
             title: 'Send Test Notification',
             subtitle: 'Push a test alert to the band',
-            iconColor: Colors.tealAccent,
+            iconColor: AppColors.spo2,
             onTap: () => _onSendTestNotification(context, bleManager),
           ),
         ],
@@ -184,30 +187,31 @@ class _BandStatusCard extends StatelessWidget {
     switch (authState) {
       case AuthState.authenticating:
         authLabel = 'Authenticating…';
-        authColor = Colors.orange;
+        authColor = AppColors.warning;
         break;
       case AuthState.authenticated:
         authLabel = 'Authenticated';
-        authColor = Colors.green;
+        authColor = AppColors.success;
         break;
       case AuthState.failed:
         authLabel = 'Failed';
-        authColor = Colors.red;
+        authColor = AppColors.danger;
         break;
       default:
         authLabel = 'Not Authenticated';
-        authColor = Colors.grey;
+        authColor = AppColors.inkMuted;
     }
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        color: const Color(0xFF1A1A2E),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        color: AppColors.surface,
+        boxShadow: AppShadows.card,
         border: Border.all(
           color: connected
-              ? Colors.green.withOpacity(0.3)
-              : Colors.white.withOpacity(0.08),
+              ? AppColors.success.withValues(alpha: 0.3)
+              : AppColors.divider,
         ),
       ),
       child: Column(
@@ -218,10 +222,11 @@ class _BandStatusCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.07),
+                  color: AppColors.surfaceAlt,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.watch, color: Colors.white70, size: 24),
+                child: const Icon(Icons.watch,
+                    color: AppColors.inkMuted, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -233,7 +238,7 @@ class _BandStatusCard extends StatelessWidget {
                           ? device!.platformName
                           : 'Mi Band',
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: AppColors.ink,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -242,7 +247,7 @@ class _BandStatusCard extends StatelessWidget {
                       Text(
                         device.remoteId.str,
                         style: const TextStyle(
-                          color: Colors.white38,
+                          color: AppColors.inkFaint,
                           fontSize: 11,
                         ),
                       ),
@@ -256,13 +261,13 @@ class _BandStatusCard extends StatelessWidget {
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white38),
+                      strokeWidth: 2, color: AppColors.inkFaint),
                 ),
             ],
           ),
 
           const SizedBox(height: 16),
-          Divider(color: Colors.white.withOpacity(0.07), height: 1),
+          const Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 16),
 
           // ── Status rows ──────────────────────────────────────────
@@ -272,7 +277,7 @@ class _BandStatusCard extends StatelessWidget {
                 child: _StatusPill(
                   label: 'Connection',
                   value: connected ? 'Connected' : 'Disconnected',
-                  color: connected ? Colors.green : Colors.red,
+                  color: connected ? AppColors.success : AppColors.danger,
                 ),
               ),
               const SizedBox(width: 10),
@@ -306,9 +311,9 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,7 +321,7 @@ class _StatusPill extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: color.withOpacity(0.7),
+              color: color.withValues(alpha: 0.7),
               fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
@@ -343,10 +348,10 @@ class _BatteryWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = level > 50
-        ? Colors.green
+        ? AppColors.success
         : level > 20
-            ? Colors.orange
-            : Colors.red;
+            ? AppColors.warning
+            : AppColors.danger;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -393,7 +398,7 @@ class _SectionHeader extends StatelessWidget {
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.85),
+          color: AppColors.primary.withValues(alpha: 0.85),
           letterSpacing: 1.4,
         ),
       ),
@@ -423,17 +428,18 @@ class _SettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 2),
+      margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
+        boxShadow: AppShadows.card,
       ),
       child: ListTile(
-        leading: Icon(icon, color: iconColor ?? Colors.white60, size: 22),
+        leading: Icon(icon, color: iconColor ?? AppColors.inkMuted, size: 22),
         title: Text(
           title,
           style: TextStyle(
-            color: titleColor ?? Colors.white,
+            color: titleColor ?? AppColors.ink,
             fontSize: 15,
             fontWeight: FontWeight.w500,
           ),
@@ -442,13 +448,13 @@ class _SettingsTile extends StatelessWidget {
             ? Text(
                 subtitle!,
                 style: TextStyle(
-                  color: subtitleColor ?? Colors.white38,
+                  color: subtitleColor ?? AppColors.inkFaint,
                   fontSize: 12,
                 ),
               )
             : null,
-        trailing:
-            const Icon(Icons.chevron_right, color: Colors.white24, size: 20),
+        trailing: const Icon(Icons.chevron_right,
+            color: AppColors.inkFaint, size: 20),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),

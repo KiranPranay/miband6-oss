@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/notification_relay.dart';
+import 'theme/tokens.dart';
+import 'theme/app_theme.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -51,17 +53,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             .toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F1A),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F0F1A),
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white70),
-        title: const Text('Notifications',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        iconTheme: const IconThemeData(color: AppColors.ink),
+        title: Text('Notifications',
+            style: AppText.title.copyWith(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(
             tooltip: 'Reload apps',
-            icon: const Icon(Icons.refresh, color: Colors.white60),
+            icon: const Icon(Icons.refresh, color: AppColors.inkMuted),
             onPressed: () => relay.refreshInstalledApps(),
           ),
         ],
@@ -74,18 +75,26 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: TextField(
               controller: _searchCtrl,
-              style: const TextStyle(color: Colors.white),
+              style: AppText.body,
               onChanged: (v) => setState(() => _query = v.toLowerCase()),
               decoration: InputDecoration(
                 hintText: 'Search apps…',
-                hintStyle: const TextStyle(color: Colors.white38),
-                prefixIcon: const Icon(Icons.search, color: Colors.white38),
+                hintStyle: const TextStyle(color: AppColors.inkFaint),
+                prefixIcon: const Icon(Icons.search, color: AppColors.inkFaint),
                 filled: true,
-                fillColor: const Color(0xFF1A1A2E),
+                fillColor: AppColors.surface,
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
                   borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  borderSide: const BorderSide(color: AppColors.primary),
                 ),
               ),
             ),
@@ -95,8 +104,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             child: Row(
               children: [
                 Text('Apps to forward (${relay.selectedCount} selected)',
-                    style: const TextStyle(
-                        color: Colors.white54, fontSize: 12)),
+                    style: AppText.caption),
               ],
             ),
           ),
@@ -115,13 +123,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                             ? (v) =>
                                 relay.setAppSelected(app.package, v ?? false)
                             : null,
-                        activeColor: Colors.lightGreenAccent,
-                        checkColor: Colors.black,
-                        title: Text(app.name,
-                            style: const TextStyle(color: Colors.white)),
+                        activeColor: AppColors.primary,
+                        checkColor: Colors.white,
+                        title: Text(app.name, style: AppText.body),
                         subtitle: Text(app.package,
-                            style: const TextStyle(
-                                color: Colors.white30, fontSize: 11)),
+                            style: AppText.caption
+                                .copyWith(color: AppColors.inkFaint)),
                         controlAffinity: ListTileControlAffinity.trailing,
                         dense: true,
                       );
@@ -145,13 +152,14 @@ class _AccessCard extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 6),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        boxShadow: AppShadows.card,
       ),
       child: Row(
         children: [
           Icon(granted ? Icons.check_circle : Icons.error_outline,
-              color: granted ? Colors.lightGreenAccent : Colors.amberAccent),
+              color: granted ? AppColors.success : AppColors.warning),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -161,15 +169,14 @@ class _AccessCard extends StatelessWidget {
                     granted
                         ? 'Notification access granted'
                         : 'Notification access needed',
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w600)),
+                    style: AppText.title),
                 const SizedBox(height: 2),
                 Text(
                     granted
                         ? 'The app can read notifications to forward them.'
                         : 'Grant access so the app can read notifications.',
-                    style:
-                        const TextStyle(color: Colors.white38, fontSize: 12)),
+                    style: AppText.caption
+                        .copyWith(color: AppColors.inkMuted)),
               ],
             ),
           ),
@@ -193,17 +200,17 @@ class _EnableCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        boxShadow: AppShadows.card,
       ),
       child: SwitchListTile(
         value: relay.enabled,
         onChanged: (v) => relay.setEnabled(v),
-        activeColor: Colors.lightGreenAccent,
-        title: const Text('Forward notifications to band',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-        subtitle: const Text('Selected apps below will alert your band',
-            style: TextStyle(color: Colors.white38, fontSize: 12)),
+        activeThumbColor: AppColors.primary,
+        title: Text('Forward notifications to band', style: AppText.title),
+        subtitle: Text('Selected apps below will alert your band',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted)),
       ),
     );
   }
