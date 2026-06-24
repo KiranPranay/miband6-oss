@@ -9,7 +9,8 @@ import 'core/auth_manager.dart';
 import 'core/ble_manager.dart';
 import 'core/notification_relay.dart';
 
-import 'ui/home_screen.dart';
+import 'ui/home_shell.dart';
+import 'ui/theme/app_theme.dart';
 
 /// Headless trigger for the hardware test session (see MainActivity.kt +
 /// docs/reverse-engineering/capture-logs.md). Lets the adb loop start the test
@@ -92,11 +93,8 @@ class MiBandApp extends StatelessWidget {
     return WithForegroundTask(
       child: MaterialApp(
         title: 'Mi Band',
-        theme: ThemeData(
-          brightness: Brightness.dark,
-          primarySwatch: Colors.blue,
-          useMaterial3: true,
-        ),
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
         home: const _AppRoot(),
       ),
     );
@@ -122,5 +120,5 @@ class _AppRootState extends State<_AppRoot> {
   }
 
   @override
-  Widget build(BuildContext context) => const HomeScreen();
+  Widget build(BuildContext context) => const HomeShell();
 }
