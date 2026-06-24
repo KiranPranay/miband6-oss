@@ -87,7 +87,7 @@ class BLEManager extends ChangeNotifier {
 
   ActivityFetcher? _activityFetcher;
   final ActivityStore activityStore = ActivityStore();
-  final AlertManager alertManager = AlertManager();
+  late final AlertManager alertManager = AlertManager(_logger);
   bool _isFetchingActivity = false;
 
   bool get isConnected => _device != null && _device!.isConnected;

@@ -97,9 +97,31 @@ class SettingsScreen extends StatelessWidget {
                 : Colors.lightGreenAccent,
             onTap: () => _onRunHardwareTest(context, bleManager),
           ),
+          _SettingsTile(
+            icon: Icons.notifications_active_outlined,
+            title: 'Send Test Notification',
+            subtitle: 'Push a test alert to the band',
+            iconColor: Colors.tealAccent,
+            onTap: () => _onSendTestNotification(context, bleManager),
+          ),
         ],
       ),
     );
+  }
+
+  void _onSendTestNotification(BuildContext context, BLEManager bleManager) {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!bleManager.isConnected ||
+        bleManager.authState != AuthState.authenticated) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Connect & authenticate the band first'),
+      ));
+      return;
+    }
+    bleManager.alertManager.sendTest();
+    messenger.showSnackBar(const SnackBar(
+      content: Text('Test notification sent — check your band'),
+    ));
   }
 
   void _onRunHardwareTest(BuildContext context, BLEManager bleManager) {
