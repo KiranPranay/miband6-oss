@@ -1,29 +1,31 @@
 package com.example.band
 
+import android.content.ComponentName
 import android.content.Intent
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Adds a headless trigger for the hardware test session so the loop can be driven
- * over adb with no manual taps:
- *
- *   adb shell am start -n com.example.band/.MainActivity --ez run_hwtest true
- *
- * Cold start: the launch intent's `run_hwtest` extra is stashed and handed to Dart
- * when it calls `checkLaunchTrigger`. Hot (already running): `onNewIntent` pushes
- * `runHardwareTest` straight to Dart. See docs/reverse-engineering/capture-logs.md.
+ * Hosts two platform channels:
+ *  - band/hwtest        : headless hardware-test trigger (adb intent extra).
+ *  - band/notifications : notification-access permission + installed-app list,
+ *                         and (via NotificationBridge) native→Dart notification
+ *                         events captured by BandNotificationListener.
  */
 class MainActivity : FlutterActivity() {
-    private val channelName = "band/hwtest"
-    private var channel: MethodChannel? = null
+    private val hwtestChannelName = "band/hwtest"
+    private val notifChannelName = "band/notifications"
+    private var hwtestChannel: MethodChannel? = null
     private var pending = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-        channel!!.setMethodCallHandler { call, result ->
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+
+        hwtestChannel = MethodChannel(messenger, hwtestChannelName)
+        hwtestChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
                 "checkLaunchTrigger" -> {
                     val p = pending
@@ -36,18 +38,59 @@ class MainActivity : FlutterActivity() {
         if (intent?.getBooleanExtra("run_hwtest", false) == true) {
             pending = true
         }
+
+        val notifChannel = MethodChannel(messenger, notifChannelName)
+        notifChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isAccessGranted" -> result.success(isNotificationAccessGranted())
+                "openAccessSettings" -> {
+                    startActivity(
+                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    result.success(null)
+                }
+                "getInstalledApps" -> result.success(getLaunchableApps())
+                else -> result.notImplemented()
+            }
+        }
+        // Let the system-bound listener reach Dart through this channel.
+        NotificationBridge.channel = notifChannel
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("run_hwtest", false)) {
-            val c = channel
-            if (c != null) {
-                c.invokeMethod("runHardwareTest", null)
-            } else {
-                pending = true
-            }
+            val c = hwtestChannel
+            if (c != null) c.invokeMethod("runHardwareTest", null) else pending = true
         }
+    }
+
+    private fun isNotificationAccessGranted(): Boolean {
+        val flat = Settings.Secure.getString(
+            contentResolver,
+            "enabled_notification_listeners",
+        ) ?: return false
+        val me = ComponentName(this, BandNotificationListener::class.java)
+        return flat.split(":").any {
+            val c = ComponentName.unflattenFromString(it)
+            c != null && c == me
+        }
+    }
+
+    private fun getLaunchableApps(): List<Map<String, String>> {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val seen = HashSet<String>()
+        val apps = ArrayList<Map<String, String>>()
+        for (ri in pm.queryIntentActivities(intent, 0)) {
+            val pkg = ri.activityInfo.packageName ?: continue
+            if (pkg == packageName) continue
+            if (!seen.add(pkg)) continue
+            apps.add(mapOf("package" to pkg, "app" to ri.loadLabel(pm).toString()))
+        }
+        apps.sortBy { (it["app"] ?: "").lowercase() }
+        return apps
     }
 }

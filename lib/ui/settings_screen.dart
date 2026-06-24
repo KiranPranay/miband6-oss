@@ -6,6 +6,7 @@ import '../core/ble_manager.dart';
 import 'device_scan_screen.dart';
 import 'auth_key_screen.dart';
 import 'debug_console.dart';
+import 'notifications_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -56,6 +57,21 @@ class SettingsScreen extends StatelessWidget {
               subtitle: 'Stops auto-reconnect',
               onTap: () => bleManager.disconnect(),
             ),
+
+          const SizedBox(height: 8),
+
+          // ── Notifications ────────────────────────────────────────────
+          _SectionHeader(title: 'Alerts'),
+          _SettingsTile(
+            icon: Icons.notifications_active_outlined,
+            iconColor: Colors.tealAccent,
+            title: 'Notifications',
+            subtitle: 'Forward calls, messages & app alerts to the band',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+            ),
+          ),
 
           const SizedBox(height: 8),
 

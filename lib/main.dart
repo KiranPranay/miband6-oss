@@ -7,6 +7,7 @@ import 'core/logger.dart';
 import 'storage/secure_storage.dart';
 import 'core/auth_manager.dart';
 import 'core/ble_manager.dart';
+import 'core/notification_relay.dart';
 
 import 'ui/home_screen.dart';
 
@@ -22,6 +23,7 @@ void main() {
   final logger = BLELogger();
   final storage = StorageManager(logger);
   final bleManager = BLEManager(logger, storage);
+  final notificationRelay = NotificationRelay(bleManager, logger);
 
   _wireHardwareTestTrigger(bleManager, logger);
 
@@ -32,6 +34,7 @@ void main() {
         Provider.value(value: storage),
         ChangeNotifierProvider(create: (_) => AuthManager(logger, storage)),
         ChangeNotifierProvider.value(value: bleManager),
+        ChangeNotifierProvider.value(value: notificationRelay),
       ],
       child: const MiBandApp(),
     ),
