@@ -203,112 +203,169 @@ class ActivityStore {
     return samplesForDate(date).fold(0, (sum, s) => sum + s.steps);
   }
 
-  List<SleepInterval> _extractSleepIntervals(List<ActivitySample> samples) {
-    final intervals = <SleepInterval>[];
-    if (samples.isEmpty) return intervals;
+  // Sleep-session tuning. MB6 sleep data is noisy — samples arrive at an
+  // irregular cadence (often sub-minute, sometimes duplicated) — so durations
+  // are measured against the wall clock rather than by counting samples.
+  static const int _sessionMergeGapMin = 60; // anchors within this = one session
+  static const int _minSessionSpanMin = 90; // ignore sessions shorter than this
+  static const int _minSessionSleepMin = 60; // …or with less sleep than this
+  static const int _maxSessionSleepMin = 12 * 60; // cap over-merged artifacts
 
-    SleepStage? currentStage;
-    DateTime? intervalStart;
-    int duration = 0;
+  /// Whether a sample looks like the wearer is asleep — used to anchor sessions.
+  bool _isAsleepAnchor(ActivitySample s) {
+    if (s.sleep != null && s.sleep! > 0) return true;
+    final stage = s.sleepStage;
+    return stage != null && stage != SleepStage.awake;
+  }
 
-    for (var i = 0; i < samples.length; i++) {
-      final s = samples[i];
-      final stage = s.sleepStage;
-
-      if (stage != null) {
-        if (currentStage == stage) {
-          duration++;
-        } else {
-          if (currentStage != null && intervalStart != null) {
-            intervals.add(SleepInterval(
-              startTime: intervalStart,
-              endTime: intervalStart.add(Duration(minutes: duration)),
-              stage: currentStage,
-              durationMinutes: duration,
-            ));
-          }
-          currentStage = stage;
-          intervalStart = s.timestamp;
-          duration = 1;
-        }
-      } else {
-        if (currentStage != null && intervalStart != null) {
-          intervals.add(SleepInterval(
-            startTime: intervalStart,
-            endTime: intervalStart.add(Duration(minutes: duration)),
-            stage: currentStage,
-            durationMinutes: duration,
-          ));
-        }
-        currentStage = null;
-        intervalStart = null;
-        duration = 0;
-      }
-    }
-
-    if (currentStage != null && intervalStart != null) {
-      intervals.add(SleepInterval(
-        startTime: intervalStart,
-        endTime: intervalStart.add(Duration(minutes: duration)),
-        stage: currentStage,
-        durationMinutes: duration,
-      ));
-    }
-
-    return intervals;
+  /// Stage of a sample *within a confirmed sleep session*. Here a zero sleep
+  /// byte means deep sleep (low movement) rather than awake; explicit REM/nap
+  /// categories are honored.
+  SleepStage _sessionStage(ActivitySample s) {
+    final cat = SleepStage.fromCategory(s.category);
+    if (cat == SleepStage.rem) return SleepStage.rem;
+    if (cat == SleepStage.nap) return SleepStage.nap;
+    if (s.sleep != null && s.sleep! > 0) return SleepStage.light;
+    return SleepStage.deep;
   }
 
   List<SleepDay> computeSleepDays() {
-    final intervals = _extractSleepIntervals(_samples);
-    if (intervals.isEmpty) return [];
+    if (_samples.isEmpty) return [];
 
-    final days = <SleepDay>[];
-    var currentGroup = <SleepInterval>[intervals.first];
+    // Sort and de-duplicate identical timestamps (the band re-sends overlapping
+    // ranges, and duplicates would otherwise double-count sleep time).
+    final sorted = [..._samples]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final uniq = <ActivitySample>[];
+    int? lastMs;
+    for (final s in sorted) {
+      final ms = s.timestamp.millisecondsSinceEpoch;
+      if (ms == lastMs) continue;
+      uniq.add(s);
+      lastMs = ms;
+    }
 
-    for (var i = 1; i < intervals.length; i++) {
-      final current = intervals[i];
-      final previous = currentGroup.last;
-
-      final gap = current.startTime.difference(previous.endTime).inMinutes;
-      if (gap <= 240) { // 4 hours overlap/gap
-        currentGroup.add(current);
+    // Group asleep anchors into sessions: consecutive anchors no more than
+    // [_sessionMergeGapMin] apart belong to the same night.
+    final sessions = <List<DateTime>>[];
+    DateTime? start, prev;
+    for (final s in uniq) {
+      if (!_isAsleepAnchor(s)) continue;
+      final t = s.timestamp;
+      if (start == null) {
+        start = t;
+        prev = t;
+      } else if (t.difference(prev!).inMinutes <= _sessionMergeGapMin) {
+        prev = t;
       } else {
-        days.add(_buildSleepDay(currentGroup));
-        currentGroup = [current];
+        sessions.add([start, prev]);
+        start = t;
+        prev = t;
       }
     }
+    if (start != null) sessions.add([start, prev!]);
 
-    if (currentGroup.isNotEmpty) {
-      days.add(_buildSleepDay(currentGroup));
+    final days = <SleepDay>[];
+    for (final ses in sessions) {
+      if (ses[1].difference(ses[0]).inMinutes < _minSessionSpanMin) continue;
+      final day = _buildSleepDayFromWindow(uniq, ses[0], ses[1]);
+      final total = day.totalSleepMinutes;
+      // Drop noise (too short) and over-merged artifacts (evening stillness that
+      // bridged into the overnight, producing impossibly long > 12 h "nights").
+      if (total < _minSessionSleepMin || total > _maxSessionSleepMin) continue;
+      days.add(day);
     }
-
     return days;
   }
 
-  SleepDay _buildSleepDay(List<SleepInterval> group) {
-    int light = 0, deep = 0, rem = 0, awake = 0, nap = 0;
-    for (final interval in group) {
-      switch (interval.stage) {
-        case SleepStage.light: light += interval.durationMinutes; break;
-        case SleepStage.deep: deep += interval.durationMinutes; break;
-        case SleepStage.rem: rem += interval.durationMinutes; break;
-        case SleepStage.awake: awake += interval.durationMinutes; break;
-        case SleepStage.nap: nap += interval.durationMinutes; break;
-      }
+  /// Builds a [SleepDay] for the window [start, end]. The total duration is the
+  /// session's wall-clock span (sleep onset → wake) — robust to the band's
+  /// irregular, sometimes sparse sampling — and that span is apportioned across
+  /// stages by the share of samples in each. Contiguous same-stage runs become
+  /// hypnogram intervals.
+  SleepDay _buildSleepDayFromWindow(
+      List<ActivitySample> all, DateTime start, DateTime end) {
+    final win = all
+        .where(
+            (s) => !s.timestamp.isBefore(start) && !s.timestamp.isAfter(end))
+        .toList();
+
+    final spanMin = end.difference(start).inMinutes;
+    final date = DateTime(end.year, end.month, end.day);
+    if (win.isEmpty || spanMin <= 0) {
+      return SleepDay(
+        date: date,
+        intervals: const [],
+        totalLightMinutes: 0,
+        totalDeepMinutes: 0,
+        totalRemMinutes: 0,
+        totalAwakeMinutes: 0,
+        totalNapMinutes: 0,
+      );
     }
 
-    // Use the date of the last interval's end to represent the sleep day
-    final lastTime = group.last.endTime;
-    final date = DateTime(lastTime.year, lastTime.month, lastTime.day);
+    // Apportion the span across stages by each stage's share of the samples.
+    int cLight = 0, cDeep = 0, cRem = 0, cAwake = 0, cNap = 0;
+    for (final s in win) {
+      switch (_sessionStage(s)) {
+        case SleepStage.light:
+          cLight++;
+          break;
+        case SleepStage.deep:
+          cDeep++;
+          break;
+        case SleepStage.rem:
+          cRem++;
+          break;
+        case SleepStage.awake:
+          cAwake++;
+          break;
+        case SleepStage.nap:
+          cNap++;
+          break;
+      }
+    }
+    final n = win.length;
+    int alloc(int c) => (spanMin * c / n).round();
+
+    // Hypnogram intervals from contiguous same-stage runs (real timestamps).
+    final intervals = <SleepInterval>[];
+    SleepStage? runStage;
+    DateTime? runStart;
+    for (final s in win) {
+      final st = _sessionStage(s);
+      if (runStage != st) {
+        if (runStage != null && runStart != null) {
+          final d = s.timestamp.difference(runStart).inMinutes;
+          intervals.add(SleepInterval(
+            startTime: runStart,
+            endTime: s.timestamp,
+            stage: runStage,
+            durationMinutes: d > 0 ? d : 1,
+          ));
+        }
+        runStage = st;
+        runStart = s.timestamp;
+      }
+    }
+    if (runStage != null && runStart != null) {
+      final d = end.difference(runStart).inMinutes;
+      intervals.add(SleepInterval(
+        startTime: runStart,
+        endTime: end,
+        stage: runStage,
+        durationMinutes: d > 0 ? d : 1,
+      ));
+    }
 
     return SleepDay(
       date: date,
-      intervals: group,
-      totalLightMinutes: light,
-      totalDeepMinutes: deep,
-      totalRemMinutes: rem,
-      totalAwakeMinutes: awake,
-      totalNapMinutes: nap,
+      intervals: intervals,
+      totalLightMinutes: alloc(cLight),
+      totalDeepMinutes: alloc(cDeep),
+      totalRemMinutes: alloc(cRem),
+      totalAwakeMinutes: alloc(cAwake),
+      totalNapMinutes: alloc(cNap),
     );
   }
 

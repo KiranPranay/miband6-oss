@@ -29,14 +29,18 @@ class ActivitySample {
   });
 
   SleepStage? get sleepStage {
-    // If we have explicit sleep bytes (8-byte format), use them
-    if (sleep != null) {
-      if (sleep! > 0) return SleepStage.light;
-      if (deepSleep != null && deepSleep! > 0) return SleepStage.deep;
-      if (remSleep != null && remSleep! > 0) return SleepStage.rem;
-    }
-    // Fallback to category-based detection for 4-byte samples or if explicit bytes are 0
-    return SleepStage.fromCategory(category);
+    // An explicit sleep category (4-byte / tagged samples) is authoritative.
+    final cat = SleepStage.fromCategory(category);
+    if (cat != null) return cat;
+    // 8-byte MB6 samples: only the `sleep` byte is a reliable "asleep" signal —
+    // a positive value means (light) sleep. The deepSleep/remSleep bytes proved
+    // to be a constant marker (always 0x80) rather than real per-sample minutes,
+    // so they are deliberately NOT used here — using them classified every
+    // awake daytime sample (sleep byte 0) as "deep" sleep. Deep sleep is instead
+    // inferred per-session in ActivityStore.computeSleepDays(). A zero sleep byte
+    // with no sleep category therefore means awake / not asleep.
+    if (sleep != null && sleep! > 0) return SleepStage.light;
+    return null;
   }
 
   bool get isSleep => sleepStage != null;
