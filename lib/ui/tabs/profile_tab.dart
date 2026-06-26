@@ -11,6 +11,7 @@ import '../widgets/section_header.dart';
 import '../settings_screen.dart';
 import '../notifications_screen.dart';
 import '../debug_console.dart';
+import '../sleep_audio/snore_tracking_screen.dart';
 import '../widgets/coming_soon.dart';
 
 /// Profile / Device screen: identity header, the connected band's status +
@@ -90,6 +91,13 @@ class ProfileTab extends StatelessWidget {
                   color: AppColors.primary,
                   title: 'Notifications',
                   onTap: () => _push(context, const NotificationsScreen()),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _FeatureRow(
+                  icon: Icons.mic_rounded,
+                  color: AppColors.sleep,
+                  title: 'Sleep sounds',
+                  onTap: () => _push(context, const SnoreTrackingScreen()),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _FeatureRow(

@@ -8,6 +8,7 @@ import 'storage/secure_storage.dart';
 import 'core/auth_manager.dart';
 import 'core/ble_manager.dart';
 import 'core/notification_relay.dart';
+import 'core/sleep_audio_controller.dart';
 
 import 'ui/home_shell.dart';
 import 'ui/theme/app_theme.dart';
@@ -25,6 +26,7 @@ void main() {
   final storage = StorageManager(logger);
   final bleManager = BLEManager(logger, storage);
   final notificationRelay = NotificationRelay(bleManager, logger);
+  final sleepAudio = SleepAudioController(logger);
 
   _wireHardwareTestTrigger(bleManager, logger);
 
@@ -36,6 +38,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => AuthManager(logger, storage)),
         ChangeNotifierProvider.value(value: bleManager),
         ChangeNotifierProvider.value(value: notificationRelay),
+        ChangeNotifierProvider.value(value: sleepAudio),
       ],
       child: const MiBandApp(),
     ),

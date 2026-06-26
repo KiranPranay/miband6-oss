@@ -17,8 +17,11 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val hwtestChannelName = "band/hwtest"
     private val notifChannelName = "band/notifications"
+    private val sleepAudioChannelName = "band/sleep_audio"
     private var hwtestChannel: MethodChannel? = null
+    private var sleepAudioChannel: MethodChannel? = null
     private var pending = false
+    private var pendingStopSleepAudio = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -56,6 +59,27 @@ class MainActivity : FlutterActivity() {
         }
         // Let the system-bound listener reach Dart through this channel.
         NotificationBridge.channel = notifChannel
+
+        sleepAudioChannel = MethodChannel(messenger, sleepAudioChannelName)
+        sleepAudioChannel!!.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startService" -> {
+                    SleepAudioService.start(this)
+                    result.success(true)
+                }
+                "stopService" -> {
+                    SleepAudioService.stop(this)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        // Deliver a Stop tapped from the service notification before the channel
+        // existed (cold start).
+        if (pendingStopSleepAudio || intent?.getBooleanExtra("stop_sleep_audio", false) == true) {
+            pendingStopSleepAudio = false
+            sleepAudioChannel!!.invokeMethod("onStopRequested", null)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -64,6 +88,10 @@ class MainActivity : FlutterActivity() {
         if (intent.getBooleanExtra("run_hwtest", false)) {
             val c = hwtestChannel
             if (c != null) c.invokeMethod("runHardwareTest", null) else pending = true
+        }
+        if (intent.getBooleanExtra("stop_sleep_audio", false)) {
+            val c = sleepAudioChannel
+            if (c != null) c.invokeMethod("onStopRequested", null) else pendingStopSleepAudio = true
         }
     }
 

@@ -18,6 +18,11 @@
     <!-- Wake lock to keep CPU alive when screen is off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Opt-in overnight snoring detection (phone microphone, on-device only).
+         Audio is processed in memory and never recorded to disk or uploaded. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
     <application
         android:label="band"
         android:name="${applicationName}"
@@ -54,6 +59,14 @@
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
+
+        <!-- Dedicated microphone foreground service for opt-in sleep-audio
+             sessions. Kept separate from the BLE service so it is only ever
+             started after the user consents and grants RECORD_AUDIO. -->
+        <service
+            android:name=".SleepAudioService"
+            android:foregroundServiceType="microphone"
             android:exported="false" />
 
         <!-- Captures posted notifications to forward to the band. Requires the
