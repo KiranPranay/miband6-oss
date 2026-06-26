@@ -218,15 +218,28 @@ class ActivityStore {
     return stage != null && stage != SleepStage.awake;
   }
 
-  /// Stage of a sample *within a confirmed sleep session*. Here a zero sleep
-  /// byte means deep sleep (low movement) rather than awake; explicit REM/nap
-  /// categories are honored.
+  /// Estimated stage of a sample *within a confirmed sleep session*.
+  ///
+  /// MB6 encodes a deep-sleep intensity in the `deepSleep` byte (byte 6): the
+  /// high bit is a flag, the low 7 bits an intensity (Gadgetbridge masks
+  /// `& 0x7F`). On MB6 the masked values are bimodal — a light-sleep baseline
+  /// cluster (~33–52) and an elevated deep tail — so we separate deep at 52
+  /// (`[_deepIntensityCut]`), not Gadgetbridge's Amazfit-tuned 42, which sits
+  /// inside the baseline cluster and over-counts deep on this band.
+  ///
+  /// This is an ESTIMATE, not a validated measurement: MB6 has no
+  /// SLEEP_SESSION/0x48 stream and never populates the REM byte (byte 7 ≡ 0),
+  /// so REM is only surfaced from an explicit sleep category when present. See
+  /// findings-09.md.
+  static const int _deepIntensityCut = 52;
+
   SleepStage _sessionStage(ActivitySample s) {
     final cat = SleepStage.fromCategory(s.category);
     if (cat == SleepStage.rem) return SleepStage.rem;
     if (cat == SleepStage.nap) return SleepStage.nap;
-    if (s.sleep != null && s.sleep! > 0) return SleepStage.light;
-    return SleepStage.deep;
+    final deep = (s.deepSleep ?? 0) & 0x7F;
+    if (deep > _deepIntensityCut) return SleepStage.deep;
+    return SleepStage.light;
   }
 
   List<SleepDay> computeSleepDays() {

@@ -190,10 +190,11 @@ class SleepAnalysis {
       );
     }
 
+    // Only deep + light: MB6 does not track REM, so we never present a REM
+    // figure as if it were measured (see findings-09.md).
     final stages = [
       mk(SleepStage.deep, 'Deep', 13, 23),
-      mk(SleepStage.light, 'Light', 45, 55),
-      mk(SleepStage.rem, 'REM', 18, 25),
+      mk(SleepStage.light, 'Light', 60, 87),
     ];
 
     // Score: duration (45%), deep band (25%), REM band (15%), efficiency (15%).
@@ -203,10 +204,10 @@ class SleepAnalysis {
       return (100 - d * 4).clamp(0, 100).toDouble();
     }
 
+    // REM is excluded (not measured by MB6) — weight duration, deep, efficiency.
     final durScore = (total / goalMinutes).clamp(0.0, 1.0) * 100;
-    final score = (durScore * 0.45 +
-            band(stages[0].pct, 13, 23) * 0.25 +
-            band(stages[2].pct, 18, 25) * 0.15 +
+    final score = (durScore * 0.55 +
+            band(stages[0].pct, 13, 23) * 0.30 +
             eff * 0.15)
         .round()
         .clamp(0, 100);

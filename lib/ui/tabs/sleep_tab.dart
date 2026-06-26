@@ -175,6 +175,8 @@ class _SleepTabState extends State<SleepTab> {
                 _TimelineCard(day: selected),
                 const SizedBox(height: AppSpacing.xl),
                 const SectionHeader('Sleep stages'),
+                const _StageCaveat(),
+                const SizedBox(height: AppSpacing.md),
                 _StageList(a: analysis),
                 const SizedBox(height: AppSpacing.xl),
                 const SectionHeader('Metrics'),
@@ -745,6 +747,38 @@ class _HypnoPainter extends CustomPainter {
 // ===========================================================================
 // Stage list — minutes, % , healthy range, progress, vs-average
 // ===========================================================================
+
+/// Honest disclosure: MB6 has no dedicated sleep-session stream and doesn't
+/// track REM, so deep/light here are estimates from the band's coarse data.
+class _StageCaveat extends StatelessWidget {
+  const _StageCaveat();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded,
+              size: 15, color: AppColors.inkMuted),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              'Estimated — this band reports deep vs light sleep but does not '
+              'track REM separately.',
+              style: AppText.caption.copyWith(color: AppColors.inkMuted),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _StageList extends StatelessWidget {
   final SleepAnalysis a;
