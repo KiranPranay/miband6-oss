@@ -128,7 +128,7 @@ class _NavItem extends StatelessWidget {
             AnimatedContainer(
               duration: AppMotion.fast,
               curve: AppMotion.ease,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: selected
                     ? dest.color.withValues(alpha: 0.14)

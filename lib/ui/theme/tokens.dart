@@ -75,12 +75,12 @@ class AppShadows {
   AppShadows._();
   static List<BoxShadow> get card => [
         BoxShadow(
-          color: const Color(0xFF161B2E).withValues(alpha: 0.05),
-          blurRadius: 18,
+          color: const Color(0xFF161B2E).withValues(alpha: 0.07),
+          blurRadius: 20,
           offset: const Offset(0, 8),
         ),
         BoxShadow(
-          color: const Color(0xFF161B2E).withValues(alpha: 0.025),
+          color: const Color(0xFF161B2E).withValues(alpha: 0.04),
           blurRadius: 3,
           offset: const Offset(0, 1),
         ),
