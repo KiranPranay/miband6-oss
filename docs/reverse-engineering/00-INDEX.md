@@ -14,6 +14,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-03.md` | Hardware test-session instrumentation (gated runner + auto-probe). |
 | `findings-08.md` | **SpO2 parser fix** — type 0x25 is 1 version byte + N×65-byte records (ts uint32 LE + spo2 `&0x7F`); hand-decoded real bytes → 98/99 %. |
 | `findings-09.md` | **Sleep-stage decode** — MB6 has no 0x48 session stream + never sets the REM byte; deep is the masked deepSleep byte (`&0x7F > 52`, data-driven). Deep 6 m → 1 h23 m (17 %); REM omitted as untracked. |
+| `findings-10.md` | **Sleep-audio (mic snoring)** — privacy model + Android mic-FGS design; hardware verification (capture, screen-off survival, clean stop, no audio persisted/transmitted). Feature doc: `../sleep-audio.md`. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
 | `test-results-NN.md` | Per-run results template (fill after each hardware run; never overwrite). |

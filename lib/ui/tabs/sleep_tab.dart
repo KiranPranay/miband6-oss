@@ -5,6 +5,9 @@ import 'package:provider/provider.dart';
 import '../../core/ble_manager.dart';
 import '../../core/activity_sample.dart';
 import '../../core/sleep_analysis.dart';
+import '../../core/sleep_audio_controller.dart';
+import '../../storage/snore_store.dart';
+import '../sleep_audio/snore_tracking_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
@@ -183,6 +186,9 @@ class _SleepTabState extends State<SleepTab> {
                 _MetricsGrid(a: analysis),
                 const SizedBox(height: AppSpacing.lg),
                 _RecommendationsCard(recs: analysis.recommendations),
+                const SizedBox(height: AppSpacing.xl),
+                const SectionHeader('Sleep sounds'),
+                const _SnoringSection(),
                 const SizedBox(height: AppSpacing.xl),
                 const SectionHeader('This week'),
                 _WeeklySummary(a: analysis, nights: _perNight(days)),
@@ -1428,4 +1434,220 @@ class _SessionRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// ===========================================================================
+// Sleep sounds (phone-microphone snoring) — opt-in, on-device
+// ===========================================================================
+
+class _SnoringSection extends StatelessWidget {
+  const _SnoringSection();
+
+  void _open(BuildContext context) => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const SnoreTrackingScreen()),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final audio = context.watch<SleepAudioController>();
+    if (audio.isListening) {
+      return _SnoreListeningCard(onTap: () => _open(context));
+    }
+    final s = audio.lastSession;
+    if (s == null) {
+      return _SnoreOptIn(onStart: () => _open(context));
+    }
+    return _SnoreResult(session: s, onTrackAgain: () => _open(context));
+  }
+}
+
+class _SnoreOptIn extends StatelessWidget {
+  final VoidCallback onStart;
+  const _SnoreOptIn({required this.onStart});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onStart,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: const Icon(Icons.mic_rounded,
+                color: AppColors.primary, size: 22),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Track snoring with your phone', style: AppText.title),
+                const SizedBox(height: 2),
+                Text('On-device and private — no audio is saved.',
+                    style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnoreListeningCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _SnoreListeningCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: const BoxDecoration(
+                color: AppColors.danger, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text('Listening for snoring…', style: AppText.title),
+          ),
+          Text('View', style: AppText.label.copyWith(color: AppColors.primary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnoreResult extends StatelessWidget {
+  final SnoreSession session;
+  final VoidCallback onTrackAgain;
+  const _SnoreResult({required this.session, required this.onTrackAgain});
+
+  @override
+  Widget build(BuildContext context) {
+    final sum = session.summary;
+    final none = sum.eventCount == 0;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(Icons.mic_rounded,
+                    color: AppColors.primary, size: 19),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Snoring', style: AppText.title),
+                    Text('from phone microphone',
+                        style: AppText.caption
+                            .copyWith(color: AppColors.inkFaint)),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: onTrackAgain,
+                icon: const Icon(Icons.refresh_rounded,
+                    color: AppColors.inkMuted),
+                tooltip: 'Track again tonight',
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (none)
+            Text('No snoring detected',
+                style: AppText.metricSm.copyWith(color: AppColors.success))
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text('${sum.totalMinutes}', style: AppText.metric),
+                const SizedBox(width: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text('min snoring', style: AppText.label),
+                ),
+                const Spacer(),
+                Text('${sum.eventCount} episode${sum.eventCount == 1 ? '' : 's'}',
+                    style: AppText.label.copyWith(color: AppColors.inkMuted)),
+              ],
+            ),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            height: 30,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _SnoreTimelinePainter(session),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Text(_SleepTabState.clock(session.start),
+                  style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+              const Spacer(),
+              Text(_SleepTabState.clock(session.end),
+                  style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnoreTimelinePainter extends CustomPainter {
+  final SnoreSession session;
+  _SnoreTimelinePainter(this.session);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final track = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, size.height / 2 - 4, size.width, 8),
+      const Radius.circular(4),
+    );
+    canvas.drawRRect(track, Paint()..color = AppColors.surfaceAlt);
+
+    final spanMs = session.end.difference(session.start).inMilliseconds;
+    if (spanMs <= 0) return;
+    for (final e in session.events) {
+      final x0 = (e.start.difference(session.start).inMilliseconds / spanMs) *
+          size.width;
+      final w = (e.durationSeconds * 1000 / spanMs) * size.width;
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(x0.clamp(0, size.width), size.height / 2 - 6,
+            w.clamp(3.0, size.width), 12),
+        const Radius.circular(3),
+      );
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..color = AppColors.primary.withValues(alpha: 0.4 + e.peak * 0.6),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SnoreTimelinePainter old) =>
+      old.session != session;
 }
