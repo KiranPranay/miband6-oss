@@ -148,6 +148,14 @@ class SleepDay {
     final m = totalSleepMinutes % 60;
     return '${h}h ${m}m';
   }
+
+  /// The clock time this session began / ended (from its intervals).
+  DateTime? get startTime =>
+      intervals.isEmpty ? null : intervals.first.startTime;
+  DateTime? get endTime => intervals.isEmpty ? null : intervals.last.endTime;
+
+  /// A short session is treated as a nap rather than a main night's sleep.
+  bool get isNap => totalSleepMinutes < 3 * 60;
 }
 
 /// SPO2 reading.

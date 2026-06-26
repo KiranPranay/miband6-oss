@@ -207,8 +207,8 @@ class ActivityStore {
   // irregular cadence (often sub-minute, sometimes duplicated) — so durations
   // are measured against the wall clock rather than by counting samples.
   static const int _sessionMergeGapMin = 60; // anchors within this = one session
-  static const int _minSessionSpanMin = 90; // ignore sessions shorter than this
-  static const int _minSessionSleepMin = 60; // …or with less sleep than this
+  static const int _minSessionSpanMin = 25; // ignore sessions shorter than this
+  static const int _minSessionSleepMin = 20; // …or with less sleep than this
   static const int _maxSessionSleepMin = 12 * 60; // cap over-merged artifacts
 
   /// Whether a sample looks like the wearer is asleep — used to anchor sessions.
