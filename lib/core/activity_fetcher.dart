@@ -313,22 +313,36 @@ class ActivityFetcher {
         .toList();
   }
 
+  /// Parse SpO2 history (fetch type 0x25 = SPO2_NORMAL).
+  ///
+  /// Layout (Gadgetbridge FetchSpo2NormalOperation, verified by hand-decoding
+  /// real bytes — see findings-08.md):
+  ///   [0]  version byte (== 2)
+  ///   then N records of 65 bytes each:
+  ///     [rec+0..3]  uint32 LE Unix-seconds timestamp
+  ///     [rec+4]     spo2 — value = byte & 0x7F (high bit = auto measurement)
+  ///     [rec+5..64] padding
   List<Spo2Reading> _parseSpo2Data() {
-    if (_dataBuffer.isEmpty || _fetchStartTime == null) return [];
-    const sampleSize = 2;
-    final sampleCount = _dataBuffer.length ~/ sampleSize;
-    final readings = <Spo2Reading>[];
+    final data = _dataBuffer;
+    const recSize = 65;
+    if (data.length < 1 + recSize) return [];
+    if (data[0] != 2) {
+      _logger.e('SpO2: unexpected version ${data[0]} (len ${data.length})');
+      return [];
+    }
 
-    for (var i = 0; i < sampleCount; i++) {
-      final offset = i * sampleSize;
-      if (offset + sampleSize > _dataBuffer.length) break;
-      
-      final spo2Value = _dataBuffer[offset];
-      if (spo2Value > 0 && spo2Value <= 100) {
-        final ts = _fetchStartTime!.add(Duration(minutes: i));
+    final readings = <Spo2Reading>[];
+    for (var off = 1; off + recSize <= data.length; off += recSize) {
+      final tsSec = data[off] |
+          (data[off + 1] << 8) |
+          (data[off + 2] << 16) |
+          (data[off + 3] << 24);
+      final value = data[off + 4] & 0x7F; // strip the auto/manual flag bit
+      // Drop padding records (zero timestamp) and non-physiological values.
+      if (tsSec > 0 && value >= 70 && value <= 100) {
         readings.add(Spo2Reading(
-          timestamp: ts,
-          value: spo2Value,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(tsSec * 1000),
+          value: value,
         ));
       }
     }

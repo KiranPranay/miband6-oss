@@ -131,6 +131,7 @@ class _SleepTabState extends State<SleepTab> {
             session: selected,
             allDays: days,
             hr: store.hrReadings,
+            spo2: store.spo2Readings,
           );
 
     return CustomScrollView(
@@ -916,6 +917,13 @@ class _MetricsGrid extends StatelessWidget {
         sub: a.avgHr != null ? 'bpm' : 'no data',
       ),
       _MetricTile(
+        icon: Icons.water_drop_rounded,
+        color: AppColors.spo2,
+        label: 'Blood oxygen',
+        value: a.avgSpo2 != null ? '${a.avgSpo2}%' : '—',
+        sub: a.avgSpo2 != null ? 'avg SpO₂' : 'no data',
+      ),
+      _MetricTile(
         icon: Icons.hotel_rounded,
         color: AppColors.sleep,
         label: 'Time in bed',
@@ -928,6 +936,13 @@ class _MetricsGrid extends StatelessWidget {
         label: 'Wake-ups',
         value: '${a.wakeCount}',
         sub: a.wakeCount == 0 ? 'undisturbed' : 'times',
+      ),
+      _MetricTile(
+        icon: Icons.monitor_heart_rounded,
+        color: AppColors.heart,
+        label: 'Resting HR',
+        value: a.restingHr != null ? '${a.restingHr}' : '—',
+        sub: a.restingHr != null ? 'bpm' : 'no data',
       ),
     ];
     return Column(
@@ -942,6 +957,12 @@ class _MetricsGrid extends StatelessWidget {
           Expanded(child: cells[2]),
           const SizedBox(width: AppSpacing.md),
           Expanded(child: cells[3]),
+        ]),
+        const SizedBox(height: AppSpacing.md),
+        Row(children: [
+          Expanded(child: cells[4]),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(child: cells[5]),
         ]),
       ],
     );

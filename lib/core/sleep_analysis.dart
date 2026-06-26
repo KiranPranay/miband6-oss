@@ -55,6 +55,8 @@ class SleepAnalysis {
   final int efficiencyPct;
   final int wakeCount;
   final int? avgHr;
+  final int? restingHr;
+  final int? avgSpo2;
   final int timeInBedMin;
   final List<StageStat> stages;
   final List<SleepInsight> insights;
@@ -76,6 +78,8 @@ class SleepAnalysis {
     required this.efficiencyPct,
     required this.wakeCount,
     required this.avgHr,
+    required this.restingHr,
+    required this.avgSpo2,
     required this.timeInBedMin,
     required this.stages,
     required this.insights,
@@ -90,6 +94,7 @@ class SleepAnalysis {
     required SleepDay session,
     required List<SleepDay> allDays,
     required List<HeartRateReading> hr,
+    required List<Spo2Reading> spo2,
     int goalMinutes = 480,
   }) {
     final total = session.totalSleepMinutes;
@@ -125,6 +130,7 @@ class SleepAnalysis {
         session.intervals.where((iv) => iv.stage == SleepStage.awake).length;
 
     int? avgHr;
+    int? restingHr;
     if (st != null && en != null) {
       final w = hr
           .where((r) =>
@@ -133,6 +139,27 @@ class SleepAnalysis {
           .toList();
       if (w.isNotEmpty) {
         avgHr = (w.reduce((a, b) => a + b) / w.length).round();
+        final sorted = [...w]..sort();
+        final take = (sorted.length * 0.1).ceil().clamp(1, sorted.length);
+        final low = sorted.take(take);
+        restingHr = (low.reduce((a, b) => a + b) / low.length).round();
+      }
+    }
+
+    int? avgSpo2;
+    {
+      bool ok(Spo2Reading r) => r.value >= 70 && r.value <= 100;
+      List<int> pool = const [];
+      if (st != null && en != null) {
+        pool = spo2
+            .where((r) =>
+                ok(r) && !r.timestamp.isBefore(st) && !r.timestamp.isAfter(en))
+            .map((r) => r.value)
+            .toList();
+      }
+      if (pool.isEmpty) pool = spo2.where(ok).map((r) => r.value).toList();
+      if (pool.isNotEmpty) {
+        avgSpo2 = (pool.reduce((a, b) => a + b) / pool.length).round();
       }
     }
 
@@ -266,6 +293,8 @@ class SleepAnalysis {
       efficiencyPct: eff,
       wakeCount: wake,
       avgHr: avgHr,
+      restingHr: restingHr,
+      avgSpo2: avgSpo2,
       timeInBedMin: span,
       stages: stages,
       insights: insights,

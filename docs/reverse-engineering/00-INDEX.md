@@ -12,6 +12,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-01.md` | Setup, Gadgetbridge extraction, Notify package map, hypothesis test. |
 | `findings-02.md` | Notify deep-dive (HR/fetch/battery/device-model) + implementation. |
 | `findings-03.md` | Hardware test-session instrumentation (gated runner + auto-probe). |
+| `findings-08.md` | **SpO2 parser fix** — type 0x25 is 1 version byte + N×65-byte records (ts uint32 LE + spo2 `&0x7F`); hand-decoded real bytes → 98/99 %. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
 | `test-results-NN.md` | Per-run results template (fill after each hardware run; never overwrite). |
@@ -71,6 +72,13 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
   Huami 2021 **sign-key/ECDH** auth (findings-06). Ported `ECDH_B163` +
   Huami2021 chunked transport (unit-tested) and implemented the sign-key handshake
   (findings-07) → **all 7 gates pass, HR works** on the real band.
+- **08** (2026-06-26): **SpO2 parser fix.** The fetch type (0x25) was right but
+  the record layout was never decoded — the parser read one byte every 2 bytes,
+  so reading 1 (the version byte `0x02`) gave "2 %" then stride-2 junk
+  (2/25/45/69 %). Re-derived the layout from Gadgetbridge `FetchSpo2NormalOperation`
+  (1 version byte + N×65-byte records: uint32-LE seconds + spo2 `&0x7F`), captured
+  the real 131-byte buffer over adb and hand-decoded both records → **98 % / 99 %**.
+  Fixed `_parseSpo2Data`; restored the SpO2 metric in the UI. No transport changes.
 - **03** (2026-06-24): hardware test-session instrumentation — gated runner
   (`hardware_test_session.dart`) running gates 0→6 halt-on-fail with one greppable
   `MB6TEST GATEn` banner each, capture-on-fail dumps (Gate 3 GATT code, Gate 6 raw
