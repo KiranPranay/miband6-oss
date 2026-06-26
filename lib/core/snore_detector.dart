@@ -39,7 +39,7 @@ class SnoreConfig {
   final int minEventWindows; // sustained windows required for an event
   final int maxGapWindows; // sub-threshold windows tolerated mid-episode
   final double floorMarginDb; // dB above the adaptive floor to count as loud
-  final double minBandRatio; // low/mid band-energy ratio gate (snore is low-freq)
+  final double minBandRatio; // light low-band gate: drop clearly high-freq hiss
   final double floorAdaptRate; // EMA rate for the noise floor (quiet windows)
   final double loudnessSpanDb; // dB above floor mapped to loudness 1.0
 
@@ -48,7 +48,13 @@ class SnoreConfig {
     this.minEventWindows = 3,
     this.maxGapWindows = 1,
     this.floorMarginDb = 10.0,
-    this.minBandRatio = 0.55,
+    // The primary discriminators are amplitude (above the adaptive floor) and
+    // duration (sustained). The band-ratio gate is deliberately light — it only
+    // rejects clearly high-frequency broadband (hiss/static); a stricter value
+    // risks rejecting real snoring, whose received spectrum varies a lot with
+    // the room and mic. Distinguishing snoring from sustained speech is a known
+    // v1 limitation (see docs/sleep-audio.md).
+    this.minBandRatio = 0.30,
     this.floorAdaptRate = 0.03,
     this.loudnessSpanDb = 35.0,
   });

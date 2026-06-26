@@ -72,7 +72,13 @@ notification is the always-visible indicator. **No BLE code changes.**
 - [x] Detection unit test green (`test/snore_detector_test.dart`, 9 cases incl.
       single-clap-not-an-event); `flutter analyze` clean; full `flutter test`
       green.
-- [~] Live snore-vs-noise discrimination on real snoring sound: pending (the
-      device locked behind biometric before a snore-sample run); the synthetic
-      unit tests cover the thresholding, and the quiet-room run correctly logged
-      0 events.
+- [x] **Live detection end-to-end** — injected a sustained low-pass test sound;
+      the mic responded (RMS -40 → -29 dBFS), the detector logged **1 episode
+      (~1 min)**, and the Sleep screen showed "Snoring · from phone microphone ·
+      1 min · 1 episode" with a timeline. The persisted `snore_sessions.json`
+      held only event times + loudness (`s/e/p/m`), **no audio**.
+- [!] **Calibration finding:** the first run showed the band-ratio of *loud*
+      sound arriving *lower* than quiet ambient (laptop-speaker bass roll-off),
+      so the original 0.55 band gate was too strict (it would reject real
+      snoring). Relaxed to a light 0.30 gate — v1 leans on amplitude + duration;
+      distinguishing snoring from sustained speech is a documented limitation.

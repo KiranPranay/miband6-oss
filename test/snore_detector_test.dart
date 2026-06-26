@@ -40,11 +40,13 @@ void main() {
       expect(d.events, isEmpty);
     });
 
-    test('loud but broadband sound (voice/TV) is NOT snoring', () {
+    test('loud high-frequency hiss/static is NOT snoring', () {
+      // Clearly high-frequency broadband (low band-ratio) is rejected by the
+      // light band gate even though it is sustained and loud.
       final d = _run([
         quiet(), quiet(),
-        (db: -22, band: 0.40), (db: -22, band: 0.42),
-        (db: -22, band: 0.38), (db: -22, band: 0.41),
+        (db: -22, band: 0.20), (db: -22, band: 0.22),
+        (db: -22, band: 0.18), (db: -22, band: 0.21),
         quiet(), quiet(),
       ]);
       expect(d.events, isEmpty);

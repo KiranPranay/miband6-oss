@@ -57,17 +57,30 @@ Per 3 s window, the controller computes two cheap features from the PCM (no FFT)
 
 - Maintains an **adaptive noise floor** (EMA over quiet windows) — so a silent and
   a noisy room both work; there is **no hardcoded dB threshold**.
-- A window is snore-like if `rmsDb > floor + 10 dB` **and** `bandRatio ≥ 0.55`.
+- A window is snore-like if `rmsDb > floor + 10 dB` **and** `bandRatio ≥ 0.30`.
+  The **primary** discriminators are amplitude (above the floor) and **duration**;
+  the band-ratio gate is deliberately light (drops only clearly high-frequency
+  hiss/static).
 - A **snore event** = a run of ≥ 3 consecutive snore-like windows (≥ 9 s),
   tolerating one sub-threshold gap window mid-episode. So a single clap (1 window)
-  or a brief broadband voice is **not** logged.
+  is **not** logged.
 - Per event it stores start, end, peak and mean loudness (0..1 above floor).
 
 Tunables (`SnoreConfig`): window 3 s, min 3 windows, max gap 1 window, floor
-margin 10 dB, min band ratio 0.55, floor adapt rate 0.03. Covered by
+margin 10 dB, min band ratio 0.30, floor adapt rate 0.03. Covered by
 `test/snore_detector_test.dart` (sustained run → event; single clap → none;
-broadband → none; adaptive floor in a noisy room; gap tolerance; multiple
-episodes; summary aggregation).
+high-frequency hiss → none; adaptive floor in a noisy room; gap tolerance;
+multiple episodes; summary aggregation).
+
+**Calibration note / known limitation.** The received snore spectrum varies a lot
+with the room and microphone. A hardware run (playing low-passed test audio
+through a laptop speaker) showed the band-ratio of *loud* sound arriving lower
+than quiet ambient — speaker/mic colouration — so an aggressive band gate would
+reject real snoring. v1 therefore leans on amplitude + duration and keeps the
+band gate light. Distinguishing snoring from *sustained* speech is consequently a
+known v1 limitation (a single clap/short noise is still rejected by the duration
+gate). Tightening this would need calibration against real labelled snoring
+audio.
 
 > This detects **sound consistent with snoring** — it is **not** a medical
 > diagnosis. No apnea/medical claims are made anywhere.
