@@ -8,6 +8,7 @@ import '../../core/sleep_analysis.dart';
 import '../../core/sleep_audio_controller.dart';
 import '../../storage/snore_store.dart';
 import '../sleep_audio/snore_tracking_screen.dart';
+import '../widgets/coming_soon.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
@@ -174,6 +175,8 @@ class _SleepTabState extends State<SleepTab> {
                 _ScoreHero(a: analysis),
                 const SizedBox(height: AppSpacing.lg),
                 _InsightsCard(insights: analysis.insights),
+                const SizedBox(height: AppSpacing.lg),
+                const _AiAnalysisCard(),
                 const SizedBox(height: AppSpacing.lg),
                 _TimelineCard(day: selected),
                 const SizedBox(height: AppSpacing.xl),
@@ -635,6 +638,94 @@ class _InsightsCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Deliberate "coming soon" placeholder for the AI summary the review wants.
+/// NOT a templated sentence pretending to be AI — a clearly-labelled preview.
+class _AiAnalysisCard extends StatelessWidget {
+  const _AiAnalysisCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const ComingSoonScreen(
+            title: 'AI Analysis',
+            description:
+                'Personalized AI summaries of your sleep trends — in development.',
+            icon: Icons.auto_awesome_rounded,
+            gradient: [AppColors.primary, AppColors.sleep],
+          ),
+        )),
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                AppColors.primary.withValues(alpha: 0.10),
+                AppColors.sleep.withValues(alpha: 0.10),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.auto_awesome_rounded,
+                    color: AppColors.primary, size: 20),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text('AI Analysis', style: AppText.title),
+                        const SizedBox(width: AppSpacing.sm),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(AppRadii.pill),
+                          ),
+                          child: Text('SOON',
+                              style: AppText.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                  fontSize: 10)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Personalized summaries of your sleep trends — in development.',
+                      style: AppText.caption.copyWith(color: AppColors.inkMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1441,7 +1532,78 @@ class _WeeklySummary extends StatelessWidget {
             Container(width: 1, height: 34, color: AppColors.divider),
             Expanded(child: stat[3]),
           ]),
+          if (a.sleepDebtMin != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Divider(height: 1, color: AppColors.divider),
+            ),
+            _SleepDebtRow(
+                debtMin: a.sleepDebtMin!,
+                nights: a.baselineNightCount,
+                goalMin: a.goalMin),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// Real, auditable: accumulated shortfall vs goal over the recent nights. Tap
+/// reveals the math basis (no hidden "health score").
+class _SleepDebtRow extends StatelessWidget {
+  final int debtMin;
+  final int nights;
+  final int goalMin;
+  const _SleepDebtRow(
+      {required this.debtMin, required this.nights, required this.goalMin});
+
+  void _explain(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Sleep debt'),
+        content: Text(
+          'The total sleep you fell short of your '
+          '${_SleepTabState.fmtMinutes(goalMin)} goal across your last $nights '
+          'nights — each night counts only the minutes below goal (never '
+          'negative). Catch up gradually; you can’t fully "repay" it in one '
+          'night.',
+          style: AppText.body.copyWith(color: AppColors.inkMuted),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it')),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = debtMin <= 60
+        ? AppColors.success
+        : (debtMin <= 240 ? AppColors.warning : AppColors.danger);
+    return InkWell(
+      onTap: () => _explain(context),
+      borderRadius: BorderRadius.circular(AppRadii.sm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+        child: Row(
+          children: [
+            Icon(Icons.account_balance_wallet_rounded, size: 18, color: color),
+            const SizedBox(width: AppSpacing.sm),
+            Text('Sleep debt', style: AppText.label.copyWith(color: AppColors.ink)),
+            const SizedBox(width: 6),
+            const Icon(Icons.info_outline_rounded,
+                size: 13, color: AppColors.inkFaint),
+            const Spacer(),
+            Text(
+              debtMin <= 0 ? 'None' : _SleepTabState.fmtMinutes(debtMin),
+              style: AppText.title.copyWith(color: color),
+            ),
+          ],
+        ),
       ),
     );
   }

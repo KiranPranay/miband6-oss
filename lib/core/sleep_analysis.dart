@@ -88,6 +88,10 @@ class SleepAnalysis {
   final bool hasPersonalBaseline;
   final int baselineNightCount;
   final int baselineNightsNeeded;
+
+  /// Accumulated shortfall vs goal over recent post-fix nights (minutes).
+  /// Null until [hasPersonalBaseline]. Auditable: Σ max(0, goal − night).
+  final int? sleepDebtMin;
   final SleepDay? bestNight;
   final SleepDay? worstNight;
 
@@ -116,6 +120,7 @@ class SleepAnalysis {
     required this.hasPersonalBaseline,
     required this.baselineNightCount,
     required this.baselineNightsNeeded,
+    required this.sleepDebtMin,
     required this.bestNight,
     required this.worstNight,
   });
@@ -167,6 +172,14 @@ class SleepAnalysis {
             .round()
         : null;
     final vsAvg = weekAvg != null ? total - weekAvg : null;
+
+    // Sleep debt = accumulated shortfall vs the goal over the recent post-fix
+    // nights (each night's missed minutes, never negative). Real + auditable;
+    // gated on the same baseline as everything else.
+    final sleepDebt = hasBaseline
+        ? basePool.fold<int>(
+            0, (a, d) => a + math.max(0, goalMinutes - d.totalSleepMinutes))
+        : null;
 
     // Efficiency = time asleep / time in bed (the session span).
     final st = session.startTime;
@@ -381,6 +394,7 @@ class SleepAnalysis {
       hasPersonalBaseline: hasBaseline,
       baselineNightCount: baselineNightCount,
       baselineNightsNeeded: _minBaselineNights,
+      sleepDebtMin: sleepDebt,
       bestNight: best,
       worstNight: worst,
     );
