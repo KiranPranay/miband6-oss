@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'activity_sample.dart';
+import 'baseline.dart';
 
 /// How a stage compares to its healthy range.
 enum MetricStatus { below, normal, above }
@@ -128,11 +129,11 @@ class SleepAnalysis {
   /// Personal baselines only use nights on/after this date — when the sleep
   /// parser was fixed (findings-09) and clean capture began. Earlier nights are
   /// unreliable and excluded. (Documented in docs/sleep-baseline.md.)
-  static final DateTime _baselineCutoff = DateTime(2026, 6, 26);
+  static final DateTime _baselineCutoff = Baseline.cutoff;
 
   /// Minimum post-fix nights before any "your average / your normal range"
   /// language is shown.
-  static const int _minBaselineNights = 7;
+  static const int _minBaselineNights = Baseline.minSamples;
 
   factory SleepAnalysis.compute({
     required SleepDay session,

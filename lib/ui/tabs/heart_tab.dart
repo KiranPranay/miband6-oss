@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/ble_manager.dart';
 import '../../core/activity_sample.dart';
+import '../../core/heart_analysis.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
@@ -12,8 +13,13 @@ import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
 import '../widgets/segmented_toggle.dart';
 
-/// The Heart screen: live BPM hero with realtime start/stop, a Today/Week
-/// heart-rate trend chart, min/avg/max summary tiles and a resting HR card.
+/// The Heart screen — a heart-health view, not a bare sensor dashboard: a hero
+/// leading with status + resting HR + trend, rule-based insights, a referenced
+/// trend chart, and (gated) personal comparisons. No HRV → no stress/recovery
+/// number here (stress is a separate "coming soon"; recovery is omitted).
+///
+/// Colour roles: pink = live heart data, purple = trends/resting, green =
+/// healthy status, amber = warnings.
 class HeartTab extends StatefulWidget {
   const HeartTab({super.key});
 
@@ -24,7 +30,6 @@ class HeartTab extends StatefulWidget {
 class _HeartTabState extends State<HeartTab> {
   int _range = 0; // 0 = Today, 1 = Week
 
-  /// Heart-rate readings filtered to the selected range, sorted ascending.
   List<HeartRateReading> _filtered(List<HeartRateReading> all) {
     if (all.isEmpty) return const [];
     final now = DateTime.now();
@@ -36,17 +41,22 @@ class _HeartTabState extends State<HeartTab> {
               !r.timestamp.isBefore(today) && r.timestamp.isBefore(tomorrow))
           .toList();
     }
-    // Week: last 7 days (inclusive of today).
-    final cutoff = DateTime(now.year, now.month, now.day)
-        .subtract(const Duration(days: 6));
+    final cutoff =
+        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
     return all.where((r) => !r.timestamp.isBefore(cutoff)).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BLEManager>();
-    final readings = _filtered(ble.activityStore.hrReadings);
+    final store = ble.activityStore;
+    final readings = _filtered(store.hrReadings);
     final isActive = ble.isRealtimeHeartRateActive;
+    final heart = HeartAnalysis.compute(
+      currentBpm: ble.heartRate,
+      hrReadings: store.hrReadings,
+      samples: store.samples,
+    );
 
     return CustomScrollView(
       slivers: [
@@ -58,13 +68,15 @@ class _HeartTabState extends State<HeartTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: AppSpacing.sm),
-                _HeroCard(
-                  bpm: ble.heartRate,
+                _HeartHero(
+                  heart: heart,
                   measuring: isActive,
                   onToggle: () => isActive
                       ? ble.stopRealtimeHeartRate()
                       : ble.startRealtimeHeartRate(),
                 ),
+                const SizedBox(height: AppSpacing.lg),
+                _InsightsCard(insights: heart.insights),
                 const SizedBox(height: AppSpacing.lg),
                 SectionHeader(
                   'Trend',
@@ -83,8 +95,6 @@ class _HeartTabState extends State<HeartTab> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 _SummaryRow(readings: readings),
-                const SizedBox(height: AppSpacing.lg),
-                _RestingCard(readings: readings),
               ],
             ),
           ),
@@ -116,15 +126,11 @@ class _HeartTabState extends State<HeartTab> {
                 Text('Heart', style: AppText.h1),
                 const SizedBox(height: AppSpacing.xs),
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Icon(Icons.favorite_rounded,
+                    const Icon(Icons.favorite_rounded,
                         size: 14, color: AppColors.heart),
                     const SizedBox(width: AppSpacing.xs),
-                    Text(
-                      '${bpm ?? '--'} BPM now',
-                      style: AppText.label,
-                    ),
+                    Text('${bpm ?? '--'} BPM now', style: AppText.label),
                   ],
                 ),
               ],
@@ -136,30 +142,213 @@ class _HeartTabState extends State<HeartTab> {
   }
 }
 
-/// Hero card: pulsing heart ring + a filled Start/Stop realtime pill button.
-class _HeroCard extends StatelessWidget {
-  final int? bpm;
+// ===========================================================================
+// Hero — status + resting prominence + trend (not a bare number)
+// ===========================================================================
+
+Color _statusColor(HrStatus s) {
+  switch (s) {
+    case HrStatus.normal:
+      return AppColors.success;
+    case HrStatus.elevated:
+      return AppColors.warning;
+    case HrStatus.low:
+      return AppColors.sleep;
+  }
+}
+
+String _statusLabel(HrStatus s) {
+  switch (s) {
+    case HrStatus.normal:
+      return 'Normal';
+    case HrStatus.elevated:
+      return 'Elevated';
+    case HrStatus.low:
+      return 'Low';
+  }
+}
+
+({String text, IconData icon, Color color}) _trendChip(HrTrend t) {
+  switch (t) {
+    case HrTrend.stable:
+      return (text: 'Stable', icon: Icons.trending_flat_rounded, color: AppColors.sleep);
+    case HrTrend.rising:
+      return (text: 'Rising', icon: Icons.trending_up_rounded, color: AppColors.warning);
+    case HrTrend.falling:
+      return (text: 'Easing', icon: Icons.trending_down_rounded, color: AppColors.sleep);
+    case HrTrend.unknown:
+      return (text: 'Building data', icon: Icons.more_horiz_rounded, color: AppColors.inkFaint);
+  }
+}
+
+class _HeartHero extends StatelessWidget {
+  final HeartAnalysis heart;
   final bool measuring;
   final VoidCallback onToggle;
-
-  const _HeroCard({
-    required this.bpm,
-    required this.measuring,
-    required this.onToggle,
-  });
+  const _HeartHero(
+      {required this.heart, required this.measuring, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
+    final cur = heart.currentBpm;
+    final status = heart.currentStatus;
+    final tc = _trendChip(heart.trend);
+
     return AppCard(
-      padding: const EdgeInsets.symmetric(
-          vertical: AppSpacing.xl, horizontal: AppSpacing.lg),
+      padding: const EdgeInsets.all(AppSpacing.xl),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PulsingHeartRing(bpm: bpm, size: 180, measuring: measuring),
-          const SizedBox(height: AppSpacing.xl),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              PulsingHeartRing(bpm: cur, size: 116, measuring: measuring),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text('Current', style: AppText.label),
+                        if (measuring) ...[
+                          const SizedBox(width: AppSpacing.sm),
+                          _LiveBadge(),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(cur != null && cur > 0 ? '$cur' : '--',
+                            style: AppText.metric.copyWith(color: AppColors.heart)),
+                        const SizedBox(width: 4),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text('bpm', style: AppText.unit),
+                        ),
+                        if (status != null) ...[
+                          const SizedBox(width: AppSpacing.sm),
+                          _Pill(
+                              text: _statusLabel(status),
+                              color: _statusColor(status)),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(tc.icon, size: 15, color: tc.color),
+                        const SizedBox(width: 5),
+                        Text('Trend · ${tc.text}',
+                            style: AppText.caption.copyWith(color: tc.color)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: AppSpacing.md),
+          // Resting HR gets prominence — it's the health-relevant number.
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.sleep.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.self_improvement_rounded,
+                    color: AppColors.sleep, size: 20),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Resting heart rate', style: AppText.title),
+                    Text(heart.restingLabel,
+                        style: AppText.caption
+                            .copyWith(color: AppColors.inkMuted)),
+                  ],
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(heart.restingHr != null ? '${heart.restingHr}' : '--',
+                      style: AppText.metric.copyWith(color: AppColors.sleep)),
+                  const SizedBox(width: 3),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text('bpm', style: AppText.unit),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
           _RealtimeButton(active: measuring, onTap: onToggle),
         ],
       ),
+    );
+  }
+}
+
+class _LiveBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.heart.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+                color: AppColors.heart, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text('LIVE',
+              style: AppText.caption.copyWith(
+                  color: AppColors.heart,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10,
+                  letterSpacing: 0.5)),
+        ],
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _Pill({required this.text, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(text,
+          style: AppText.caption
+              .copyWith(color: color, fontWeight: FontWeight.w700)),
     );
   }
 }
@@ -179,29 +368,23 @@ class _RealtimeButton extends StatelessWidget {
         child: AnimatedContainer(
           duration: AppMotion.fast,
           curve: AppMotion.ease,
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xl, vertical: AppSpacing.md),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
           decoration: BoxDecoration(
             color: active ? AppColors.heartSoft : AppColors.heart,
             borderRadius: BorderRadius.circular(AppRadii.pill),
             boxShadow: active ? null : AppShadows.glow(AppColors.heart),
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                active ? Icons.stop_rounded : Icons.favorite_rounded,
-                size: 18,
-                color: active ? AppColors.heart : Colors.white,
-              ),
+              Icon(active ? Icons.stop_rounded : Icons.favorite_rounded,
+                  size: 18, color: active ? AppColors.heart : Colors.white),
               const SizedBox(width: AppSpacing.sm),
-              Text(
-                active ? 'Stop' : 'Measure live',
-                style: AppText.label.copyWith(
-                  color: active ? AppColors.heart : Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+              Text(active ? 'Stop live monitoring' : 'Measure live',
+                  style: AppText.label.copyWith(
+                      color: active ? AppColors.heart : Colors.white,
+                      fontWeight: FontWeight.w800)),
             ],
           ),
         ),
@@ -210,7 +393,61 @@ class _RealtimeButton extends StatelessWidget {
   }
 }
 
-/// The Today/Week heart-rate line chart.
+// ===========================================================================
+// Insights
+// ===========================================================================
+
+class _InsightsCard extends StatelessWidget {
+  final List<HeartInsight> insights;
+  const _InsightsCard({required this.insights});
+
+  @override
+  Widget build(BuildContext context) {
+    if (insights.isEmpty) return const SizedBox.shrink();
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lightbulb_rounded,
+                  size: 18, color: AppColors.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Insights', style: AppText.title),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          for (var i = 0; i < insights.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  insights[i].good
+                      ? Icons.check_circle_rounded
+                      : Icons.info_rounded,
+                  size: 18,
+                  color:
+                      insights[i].good ? AppColors.success : AppColors.warning,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(insights[i].text,
+                      style: AppText.body.copyWith(color: AppColors.ink)),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Trend chart
+// ===========================================================================
+
 class _HeartRateChart extends StatelessWidget {
   final List<HeartRateReading> readings;
   final bool week;
@@ -225,7 +462,6 @@ class _HeartRateChart extends StatelessWidget {
       );
     }
 
-    // X is the index (evenly spaced); timestamps are kept for axis + tooltips.
     final spots = <FlSpot>[
       for (var i = 0; i < readings.length; i++)
         FlSpot(i.toDouble(), readings[i].value.toDouble()),
@@ -234,12 +470,10 @@ class _HeartRateChart extends StatelessWidget {
     final values = readings.map((r) => r.value).toList();
     var minV = values.reduce((a, b) => a < b ? a : b).toDouble();
     var maxV = values.reduce((a, b) => a > b ? a : b).toDouble();
-    // Pad the vertical range so the curve isn't glued to the edges.
     minV = (minV - 8).clamp(0, double.infinity);
     maxV = maxV + 8;
     if (maxV - minV < 20) maxV = minV + 20;
     final yInterval = ((maxV - minV) / 3).clamp(1, double.infinity).toDouble();
-
     final lastIndex = (readings.length - 1).toDouble();
     final labelStep = readings.length <= 1 ? 1.0 : lastIndex / 3;
 
@@ -290,11 +524,9 @@ class _HeartRateChart extends StatelessWidget {
                         '${t.minute.toString().padLeft(2, '0')}';
                 return Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.xs),
-                  child: Text(
-                    text,
-                    style:
-                        AppText.caption.copyWith(color: AppColors.inkFaint),
-                  ),
+                  child: Text(text,
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkFaint)),
                 );
               },
             ),
@@ -304,15 +536,11 @@ class _HeartRateChart extends StatelessWidget {
           touchTooltipData: LineTouchTooltipData(
             getTooltipColor: (_) => AppColors.ink,
             getTooltipItems: (touched) => touched
-                .map(
-                  (s) => LineTooltipItem(
-                    '${s.y.round()} bpm',
-                    AppText.label.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                )
+                .map((s) => LineTooltipItem(
+                      '${s.y.round()} bpm',
+                      AppText.label.copyWith(
+                          color: Colors.white, fontWeight: FontWeight.w700),
+                    ))
                 .toList(),
           ),
         ),
@@ -342,7 +570,10 @@ class _HeartRateChart extends StatelessWidget {
   }
 }
 
-/// Three mini tiles: Min / Avg / Max BPM from the filtered readings.
+// ===========================================================================
+// Min / Avg / Max
+// ===========================================================================
+
 class _SummaryRow extends StatelessWidget {
   final List<HeartRateReading> readings;
   const _SummaryRow({required this.readings});
@@ -359,7 +590,6 @@ class _SummaryRow extends StatelessWidget {
       avgStr = '$avgV';
       maxStr = '$maxV';
     }
-
     return Row(
       children: [
         Expanded(child: _MiniStat(label: 'Min', value: minStr)),
@@ -390,12 +620,10 @@ class _MiniStat extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Flexible(
-                child: Text(
-                  value,
-                  style: AppText.metricSm.copyWith(color: AppColors.heart),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(value,
+                    style: AppText.metricSm.copyWith(color: AppColors.heart),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ),
               if (value != '--') ...[
                 const SizedBox(width: 3),
@@ -408,76 +636,6 @@ class _MiniStat extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(label, style: AppText.label),
-        ],
-      ),
-    );
-  }
-}
-
-/// Resting heart rate card — computed as the average of the lowest 10% of
-/// readings (a friendlier estimate than a raw single minimum).
-class _RestingCard extends StatelessWidget {
-  final List<HeartRateReading> readings;
-  const _RestingCard({required this.readings});
-
-  @override
-  Widget build(BuildContext context) {
-    String resting = '--';
-    if (readings.isNotEmpty) {
-      final values = readings.map((r) => r.value).toList()..sort();
-      final take = (values.length * 0.1).ceil().clamp(1, values.length);
-      final lowest = values.take(take);
-      final avgLow = (lowest.reduce((a, b) => a + b) / lowest.length).round();
-      resting = '$avgLow';
-    }
-
-    return AppCard(
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.heart.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(AppRadii.sm),
-            ),
-            child: Icon(Icons.bedtime_rounded,
-                color: AppColors.heart, size: 22),
-          ),
-          const SizedBox(width: AppSpacing.lg),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Resting heart rate', style: AppText.title),
-                const SizedBox(height: 2),
-                Text(
-                  readings.isEmpty
-                      ? 'Wear your band to track resting HR'
-                      : 'Your calmest beats over this range',
-                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                resting,
-                style: AppText.metric.copyWith(color: AppColors.heart),
-              ),
-              if (resting != '--') ...[
-                const SizedBox(width: 3),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text('bpm', style: AppText.unit),
-                ),
-              ],
-            ],
-          ),
         ],
       ),
     );
