@@ -17,6 +17,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-10.md` | **Sleep-audio (mic snoring)** — privacy model + Android mic-FGS design; hardware verification (capture, screen-off survival, clean stop, no audio persisted/transmitted). Feature doc: `../sleep-audio.md`. |
 | `findings-11.md` | **Sleep screen trust pass** — auditable score breakdown, gated personalization (post-fix nights), sleep-debt (gated), recovery omitted, AI "coming soon". Docs: `../sleep-score.md`, `../sleep-baseline.md`, `../deferred-sleep-metrics.md`. |
 | `findings-12.md` | **Heart screen trust pass** — status/trend hero + resting prominence, real HR-vs-activity correlation, zone-banded chart, gated weekly summary (shared `Baseline`), Day/Week/Month. No "Heart Score" (trend/status instead); Stress "coming soon", Recovery omitted (no HRV). Docs: `../heart-score.md`. |
+| `findings-13.md` | **Activity screen trust pass** — coach hero (status/pace), insights, sedentary stretch, active/brisk minutes (step-cadence; intensity rejected as noisy), Day/Week/Month, gated comparisons/streaks, decomposable Activity Score. **Fixes a ~4.3× step over-count** (band repeats each minute's count across sub-minute samples). Floors omitted (no altimeter). Docs: `../activity-score.md`. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
 | `test-results-NN.md` | Per-run results template (fill after each hardware run; never overwrite). |
@@ -83,6 +84,16 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
   (1 version byte + N×65-byte records: uint32-LE seconds + spo2 `&0x7F`), captured
   the real 131-byte buffer over adb and hand-decoded both records → **98 % / 99 %**.
   Fixed `_parseSpo2Data`; restored the SpO2 metric in the UI. No transport changes.
+- **13** (2026-06-28): **Activity screen trust pass.** Pure `ActivityAnalysis`
+  engine (status/pace, sedentary stretch, active/brisk minutes, peak hour, gated
+  comparisons/streaks, decomposable Activity Score). On-device data revealed the
+  band emits each minute's step count across ~5 sub-minute samples, so the store's
+  `Σ steps` over-counted ~4.3× (4,538-step day → 19,592); added `stepsPerMinute()`
+  and routed the store's aggregation through it (now matches the band counter
+  exactly). Intensity found unreliable for movement (high even at rest) → step
+  cadence used instead. Floors omitted (no altimeter); percentages never clamped.
+  UI only + that aggregation fix; verified on Pixel. Docs: `findings-13.md`,
+  `../activity-score.md`.
 - **12** (2026-06-27): **Heart screen trust pass.** Reframed the bare BPM
   dashboard into a heart-health view: `HeartAnalysis` engine (status, resting
   prominence, trend, real HR-vs-activity correlation, gated weekly stats),
