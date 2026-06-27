@@ -18,6 +18,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-11.md` | **Sleep screen trust pass** — auditable score breakdown, gated personalization (post-fix nights), sleep-debt (gated), recovery omitted, AI "coming soon". Docs: `../sleep-score.md`, `../sleep-baseline.md`, `../deferred-sleep-metrics.md`. |
 | `findings-12.md` | **Heart screen trust pass** — status/trend hero + resting prominence, real HR-vs-activity correlation, zone-banded chart, gated weekly summary (shared `Baseline`), Day/Week/Month. No "Heart Score" (trend/status instead); Stress "coming soon", Recovery omitted (no HRV). Docs: `../heart-score.md`. |
 | `findings-13.md` | **Activity screen trust pass** — coach hero (status/pace), insights, sedentary stretch, active/brisk minutes (step-cadence; intensity rejected as noisy), Day/Week/Month, gated comparisons/streaks, decomposable Activity Score. **Fixes a ~4.3× step over-count** (band repeats each minute's count across sub-minute samples). Floors omitted (no altimeter). Docs: `../activity-score.md`. |
+| `findings-14.md` | **Today screen trust pass** — composite Health Score that COMPOSES Sleep+Activity+Heart-status (breakdown shown, missing inputs named, Heart has no number), briefing, aggregated insights, salience-ordered cards that deep-link to detail tabs, gated trends, goal cluster, watch-status block. **No Recovery (no HRV), no Hydration (no sensor).** Docs: `../health-score.md`. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
 | `test-results-NN.md` | Per-run results template (fill after each hardware run; never overwrite). |
@@ -84,6 +85,17 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
   (1 version byte + N×65-byte records: uint32-LE seconds + spo2 `&0x7F`), captured
   the real 131-byte buffer over adb and hand-decoded both records → **98 % / 99 %**.
   Fixed `_parseSpo2Data`; restored the SpO2 metric in the UI. No transport changes.
+- **14** (2026-06-28): **Today screen trust pass.** Rebuilt the homepage as a
+  health briefing that COMPOSES the three engines via a pure `DailySummary`:
+  composite Health Score (Sleep 0.40 + Activity 0.35 + Heart-status 0.25,
+  re-normalised over available components, breakdown always shown, Heart has no
+  number), data-driven briefing, aggregated attention-first insights, summary
+  cards ordered by a discrete salience rule that deep-link into the detail tabs,
+  gated trend chips, a Steps+Sleep goal cluster (unclamped %) and an informative
+  band-status block. Refused the homepage traps: **no Recovery score (no HRV),
+  no Hydration (no sensor)**. Verified the step over-count fix propagated (Today
+  shows corrected totals = band counter). UI composition only. Docs:
+  `findings-14.md`, `../health-score.md`.
 - **13** (2026-06-28): **Activity screen trust pass.** Pure `ActivityAnalysis`
   engine (status/pace, sedentary stretch, active/brisk minutes, peak hour, gated
   comparisons/streaks, decomposable Activity Score). On-device data revealed the
