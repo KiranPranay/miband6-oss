@@ -29,8 +29,20 @@ class ActivityTab extends StatefulWidget {
 class _ActivityTabState extends State<ActivityTab> {
   static const int _stepGoal = 10000;
 
-  // 0 = Today, 1 = Week.
+  // 0 = Today, 1 = Week, 2 = Month.
   int _range = 0;
+
+  /// Offer Month only when there's data spanning beyond a week (honesty over
+  /// polish — no empty ranges), mirroring the Heart screen.
+  List<String> _ranges(ActivityStore store) {
+    final now = DateTime.now();
+    final cutoff = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: 8));
+    final hasOlder = store.samples.any((s) => s.timestamp.isBefore(cutoff));
+    return hasOlder
+        ? const ['Today', 'Week', 'Month']
+        : const ['Today', 'Week'];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +50,8 @@ class _ActivityTabState extends State<ActivityTab> {
     final store = ble.activityStore;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final isWeek = _range == 1;
+    final ranges = _ranges(store);
+    if (_range >= ranges.length) _range = ranges.length - 1;
 
     // The coaching engine derives everything (status/pace, sedentary, active
     // minutes, gated comparisons) from data we already capture.
@@ -52,8 +65,11 @@ class _ActivityTabState extends State<ActivityTab> {
       dailyGoal: _stepGoal,
     );
 
-    final last7 = List<DateTime>.generate(
-        7, (i) => today.subtract(Duration(days: 6 - i)));
+    // Days shown in the chart for Week (7) / Month (30), oldest → newest.
+    final chartDays = _range == 0
+        ? const <DateTime>[]
+        : List<DateTime>.generate(_range == 2 ? 30 : 7,
+            (i) => today.subtract(Duration(days: (_range == 2 ? 29 : 6) - i)));
 
     // ── Supporting metrics (always "today"; distance/calories are today-only) ─
     final distanceKm = ble.metrics.distanceMeters / 1000.0;
@@ -98,45 +114,61 @@ class _ActivityTabState extends State<ActivityTab> {
                 const SizedBox(height: AppSpacing.sm),
 
                 // 2. Steps hero ring with status + pace context.
-                _StepsHero(a: activity, isWeek: isWeek),
+                _StepsHero(a: activity, range: _range),
 
                 const SizedBox(height: AppSpacing.lg),
 
                 // 2b. Insights (rule-based, labelled).
                 _InsightsCard(insights: activity.insights),
 
-                // 2c. Sedentary analysis — today's longest waking inactive run.
-                if (todaySamples.any((s) => !s.isSleep)) ...[
+                // 2c. Building-baseline note — explains why comparisons/streaks
+                //     aren't shown yet (Today view only, until the gate passes).
+                if (_range == 0 && !activity.hasPersonalBaseline) ...[
+                  _BaselineNote(
+                      count: activity.baselineDayCount,
+                      needed: activity.baselineDaysNeeded),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+
+                // 2d. Sedentary analysis — today's longest waking inactive run.
+                if (_range == 0 && todaySamples.any((s) => !s.isSleep)) ...[
                   _SedentaryCard(a: activity),
                   const SizedBox(height: AppSpacing.lg),
                 ],
 
-                // 3. Section header with Today/Week toggle.
+                // 3. Section header with Today/Week/Month toggle.
                 SectionHeader(
                   'Steps',
                   trailing: SegmentedToggle(
-                    options: const ['Today', 'Week'],
+                    options: ranges,
                     index: _range,
                     accent: AppColors.activity,
                     onChanged: (i) => setState(() => _range = i),
                   ),
                 ),
 
-                // 4. Steps chart — movement summary (Today) / highest day (Week).
+                // 4. Steps chart — movement summary (Today) / highest day (else).
                 ChartCard(
-                  title: isWeek ? 'Steps this week' : 'Steps today',
-                  subtitle: isWeek
-                      ? _weekSummary(activity)
-                      : _movementSummary(activity),
+                  title: _range == 0
+                      ? 'Steps today'
+                      : (_range == 1 ? 'Steps this week' : 'Steps this month'),
+                  subtitle: _range == 0
+                      ? _movementSummary(activity)
+                      : _highestDaySummary(chartDays, store),
                   height: 200,
-                  child: isWeek
-                      ? _WeekStepsChart(days: last7, store: store)
-                      : _HourlyStepsChart(
-                          hourly: store.getStepsByHour(today),
-                        ),
+                  child: _range == 0
+                      ? _HourlyStepsChart(hourly: store.getStepsByHour(today))
+                      : _DailyStepsChart(days: chartDays, store: store),
                 ),
 
                 const SizedBox(height: AppSpacing.lg),
+
+                // 4b. Gated weekly summary (Week view).
+                if (_range == 1) ...[
+                  const SectionHeader('This week'),
+                  _PeriodSummaryCard(a: activity),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
 
                 // 5. Supporting metrics grid (today). Distance & calories are
                 //    today-only (no historical source); HR is the average during
@@ -222,16 +254,26 @@ class _ActivityTabState extends State<ActivityTab> {
 
 class _StepsHero extends StatelessWidget {
   final ActivityAnalysis a;
-  final bool isWeek;
+  final int range; // 0=Today, 1=Week, 2=Month
 
-  const _StepsHero({required this.a, required this.isWeek});
+  const _StepsHero({required this.a, required this.range});
 
   @override
   Widget build(BuildContext context) {
     final reduced = AppMotion.reduced(context);
-    final steps = isWeek ? a.weekSteps : a.todaySteps;
-    final goal = isWeek ? a.weeklyGoal : a.dailyGoal;
-    final pct = isWeek ? a.weeklyGoalPct : a.dailyGoalPct; // true, unclamped
+    final isToday = range == 0;
+    final steps = range == 0
+        ? a.todaySteps
+        : (range == 1 ? a.weekSteps : a.monthSteps);
+    final goal = range == 0
+        ? a.dailyGoal
+        : (range == 1 ? a.weeklyGoal : a.monthlyGoal);
+    final pct = range == 0
+        ? a.dailyGoalPct
+        : (range == 1 ? a.weeklyGoalPct : a.monthlyGoalPct); // true, unclamped
+    final title = range == 0
+        ? 'Daily steps'
+        : (range == 1 ? 'Weekly steps' : 'Monthly steps');
     final sweep = (pct / 100).clamp(0.0, 1.0); // visual sweep only
     final over = steps - goal;
     final st = _statusStyle(a.status);
@@ -280,15 +322,12 @@ class _StepsHero extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Flexible(
-                      child: Text(isWeek ? 'Weekly steps' : 'Daily steps',
-                          style: AppText.title),
-                    ),
+                    Flexible(child: Text(title, style: AppText.title)),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 // Status pill gets prominence (Today only — pace is a today idea).
-                if (!isWeek)
+                if (isToday)
                   Pill(a.statusLabel, color: st.color, icon: st.icon),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
@@ -301,9 +340,9 @@ class _StepsHero extends StatelessWidget {
                   Text('${_grp(over)} above goal',
                       style: AppText.label.copyWith(color: AppColors.success))
                 else
-                  Text('${_grp(isWeek ? -over : a.stepsToGo)} to go',
+                  Text('${_grp(isToday ? a.stepsToGo : -over)} to go',
                       style: AppText.label),
-                if (!isWeek && a.paceDetail.isNotEmpty) ...[
+                if (isToday && a.paceDetail.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(a.paceDetail,
                       style:
@@ -418,11 +457,21 @@ const _weekdayNames = [
   'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
 ];
 
-/// One-line "highest day" summary shown above the weekly chart.
-String? _weekSummary(ActivityAnalysis a) {
-  if (a.weekBestDay == null || a.weekBestDaySteps <= 0) return null;
-  final name = _weekdayNames[(a.weekBestDay!.weekday - 1).clamp(0, 6)];
-  return 'Highest day: $name · ${_grp(a.weekBestDaySteps)}';
+/// One-line "highest day" summary shown above the week/month chart, computed
+/// from the corrected per-day totals so it matches the bars.
+String? _highestDaySummary(List<DateTime> days, ActivityStore store) {
+  var best = 0;
+  DateTime? bd;
+  for (final d in days) {
+    final t = store.totalStepsForDate(d);
+    if (t > best) {
+      best = t;
+      bd = d;
+    }
+  }
+  if (bd == null || best <= 0) return null;
+  final name = _weekdayNames[(bd.weekday - 1).clamp(0, 6)];
+  return 'Highest day: $name · ${_grp(best)}';
 }
 
 /// Mirrors StatCard's shape but shows "--" — used when a metric has no data
@@ -552,6 +601,185 @@ class _RingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RingPainter old) =>
       old.progress != progress || old.color != color || old.track != track;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Gated comparisons — building-baseline note + weekly summary card.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Explains why personal comparisons/streaks aren't shown yet — the shared
+/// Baseline gate (post-fix days). Mirrors the Sleep/Heart building note.
+class _BaselineNote extends StatelessWidget {
+  final int count;
+  final int needed;
+  const _BaselineNote({required this.count, required this.needed});
+
+  @override
+  Widget build(BuildContext context) {
+    final frac = (count / needed).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.activity.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.activity.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.insights_rounded,
+                  size: 15, color: AppColors.activity),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text('Building your baseline · $count of $needed days',
+                    style: AppText.caption.copyWith(
+                        color: AppColors.ink, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            child: SizedBox(
+              height: 5,
+              child: Stack(children: [
+                Container(color: AppColors.surfaceAlt),
+                FractionallySizedBox(
+                  widthFactor: frac,
+                  child: Container(color: AppColors.activity),
+                ),
+              ]),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Comparisons (vs yesterday / last week) and streaks unlock after '
+            '$needed clean days of data.',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Weekly summary: building note until the gate passes, then real per-day
+/// averages, vs-last-week, best day and streak — all gated.
+class _PeriodSummaryCard extends StatelessWidget {
+  final ActivityAnalysis a;
+  const _PeriodSummaryCard({required this.a});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!a.hasPersonalBaseline) {
+      return _BaselineNote(
+          count: a.baselineDayCount, needed: a.baselineDaysNeeded);
+    }
+    final vs = a.vsLastWeekSteps;
+    final bestName = a.bestDay != null
+        ? _weekdayNames[(a.bestDay!.weekday - 1).clamp(0, 6)]
+        : '—';
+    return AppCard(
+      child: Column(
+        children: [
+          Row(children: [
+            Expanded(
+                child: _CenterStat(
+                    label: 'Daily average',
+                    value: a.weekAvgSteps != null
+                        ? _grp(a.weekAvgSteps!)
+                        : '—')),
+            Container(width: 1, height: 34, color: AppColors.divider),
+            Expanded(
+                child: _CenterStat(
+                    label: 'Best day',
+                    value: a.bestDaySteps != null
+                        ? '$bestName · ${_grp(a.bestDaySteps!)}'
+                        : '—')),
+          ]),
+          if (vs != null || a.activeStreakDays != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Divider(height: 1, color: AppColors.divider),
+            ),
+            Row(children: [
+              if (vs != null)
+                Expanded(child: _VsRow(delta: vs)),
+              if (vs != null && a.activeStreakDays != null)
+                Container(width: 1, height: 24, color: AppColors.divider),
+              if (a.activeStreakDays != null)
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.local_fire_department_rounded,
+                          size: 16, color: AppColors.calories),
+                      const SizedBox(width: 6),
+                      Text('${a.activeStreakDays}-day streak',
+                          style: AppText.caption
+                              .copyWith(color: AppColors.inkMuted)),
+                    ],
+                  ),
+                ),
+            ]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CenterStat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _CenterStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(label, style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+        const SizedBox(height: 4),
+        Text(value,
+            textAlign: TextAlign.center,
+            style: AppText.title.copyWith(color: AppColors.activity)),
+      ],
+    );
+  }
+}
+
+/// Signed weekly-average change vs the previous 7 days (more steps = good).
+class _VsRow extends StatelessWidget {
+  final int delta;
+  const _VsRow({required this.delta});
+
+  @override
+  Widget build(BuildContext context) {
+    final up = delta >= 0;
+    final color = delta == 0
+        ? AppColors.inkMuted
+        : (up ? AppColors.success : AppColors.warning);
+    final icon = delta == 0
+        ? Icons.trending_flat_rounded
+        : (up ? Icons.trending_up_rounded : Icons.trending_down_rounded);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            delta == 0
+                ? 'same as last week'
+                : '${_grp(delta.abs())} ${up ? 'more' : 'fewer'} vs last week',
+            style: AppText.caption.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -685,11 +913,13 @@ class _HourlyStepsChart extends StatelessWidget {
   }
 }
 
-/// Last 7 days' step totals as bars. X labels are weekday initials.
-class _WeekStepsChart extends StatelessWidget {
+/// Daily step totals as bars (7 days for Week, 30 for Month). Bar width and the
+/// x-axis label cadence adapt to the day count. Totals use the corrected
+/// per-minute aggregation (see [stepsPerMinute]).
+class _DailyStepsChart extends StatelessWidget {
   final List<DateTime> days;
   final ActivityStore store;
-  const _WeekStepsChart({required this.days, required this.store});
+  const _DailyStepsChart({required this.days, required this.store});
 
   static const _initials = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -704,12 +934,17 @@ class _WeekStepsChart extends StatelessWidget {
       );
     }
 
+    final many = days.length > 10; // month view
+    final barWidth = many ? 5.0 : 18.0;
+    final labelEvery = many ? 7 : 1; // weekly ticks in month view
+
     final maxSteps = totals.fold<int>(0, (a, b) => math.max(a, b));
     final maxY = (maxSteps * 1.2).ceilToDouble().clamp(10.0, double.infinity);
 
     return BarChart(
       BarChartData(
-        alignment: BarChartAlignment.spaceAround,
+        alignment:
+            many ? BarChartAlignment.spaceBetween : BarChartAlignment.spaceAround,
         maxY: maxY,
         backgroundColor: Colors.transparent,
         gridData: FlGridData(
@@ -736,10 +971,15 @@ class _WeekStepsChart extends StatelessWidget {
                 if (i < 0 || i >= days.length) {
                   return const SizedBox.shrink();
                 }
-                final weekday = days[i].weekday; // 1=Mon .. 7=Sun
+                if (many && i % labelEvery != 0) {
+                  return const SizedBox.shrink();
+                }
+                final d = days[i];
+                final label =
+                    many ? '${d.day}/${d.month}' : _initials[d.weekday - 1];
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text(_initials[weekday - 1],
+                  child: Text(label,
                       style: AppText.caption
                           .copyWith(color: AppColors.inkFaint)),
                 );
@@ -774,7 +1014,7 @@ class _WeekStepsChart extends StatelessWidget {
               barRods: [
                 BarChartRodData(
                   toY: totals[i].toDouble(),
-                  width: 18,
+                  width: barWidth,
                   color: AppColors.activity,
                   borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(6)),

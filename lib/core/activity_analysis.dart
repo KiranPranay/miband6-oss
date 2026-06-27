@@ -72,10 +72,13 @@ class ActivityAnalysis {
   final int? leastActiveHour;
   final int leastActiveHourSteps;
 
-  // ── Weekly (steps only) ──────────────────────────────────────────────────
+  // ── Weekly / monthly (steps only) ────────────────────────────────────────
   final int weekSteps; // trailing 7 incl. today
   final int weeklyGoal;
   final int weeklyGoalPct; // UNCLAMPED
+  final int monthSteps; // trailing 30 incl. today
+  final int monthlyGoal;
+  final int monthlyGoalPct; // UNCLAMPED
   final int weekBestDaySteps; // best of the 7 shown days (descriptive)
   final DateTime? weekBestDay;
 
@@ -121,6 +124,9 @@ class ActivityAnalysis {
     required this.weekSteps,
     required this.weeklyGoal,
     required this.weeklyGoalPct,
+    required this.monthSteps,
+    required this.monthlyGoal,
+    required this.monthlyGoalPct,
     required this.weekBestDaySteps,
     required this.weekBestDay,
     required this.hasPersonalBaseline,
@@ -365,6 +371,14 @@ class ActivityAnalysis {
     final weeklyGoalPct =
         weeklyGoal <= 0 ? 0 : (weekSteps / weeklyGoal * 100).round();
 
+    final monthlyGoal = dailyGoal * 30;
+    var monthSteps = todaySteps;
+    for (var i = 1; i < 30; i++) {
+      monthSteps += totalFor(today.subtract(Duration(days: i)));
+    }
+    final monthlyGoalPct =
+        monthlyGoal <= 0 ? 0 : (monthSteps / monthlyGoal * 100).round();
+
     // Descriptive "highest day" of the 7 shown bars (matches the chart totals).
     int weekBestDaySteps = 0;
     DateTime? weekBestDay;
@@ -512,6 +526,11 @@ class ActivityAnalysis {
       insights.add(ActivityInsight(
           true, '$briskMinutes brisk minutes (≥60 steps/min)'));
     }
+    if (hasBaseline && vsYesterdaySteps != null && vsYesterdaySteps != 0) {
+      final up = vsYesterdaySteps > 0;
+      insights.add(ActivityInsight(up,
+          '${_commas(vsYesterdaySteps.abs())} ${up ? 'more' : 'fewer'} steps than yesterday'));
+    }
     if (hasBaseline && vsLastWeekSteps != null && vsLastWeekSteps != 0) {
       final up = vsLastWeekSteps > 0;
       insights.add(ActivityInsight(up,
@@ -564,6 +583,9 @@ class ActivityAnalysis {
       weekSteps: weekSteps,
       weeklyGoal: weeklyGoal,
       weeklyGoalPct: weeklyGoalPct,
+      monthSteps: monthSteps,
+      monthlyGoal: monthlyGoal,
+      monthlyGoalPct: monthlyGoalPct,
       weekBestDaySteps: weekBestDaySteps,
       weekBestDay: weekBestDay,
       hasPersonalBaseline: hasBaseline,
