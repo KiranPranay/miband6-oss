@@ -458,7 +458,7 @@ class ActivityAnalysis {
     // ── Optional decomposable score (only with real per-minute data today) ────
     int? activityScore;
     final scoreComponents = <ActivityScoreComponent>[];
-    if (waking.isNotEmpty || todaySteps > 0) {
+    if ((waking.isNotEmpty || todaySteps > 0) && dailyGoal > 0) {
       final stepsScore =
           ((todaySteps / dailyGoal).clamp(0.0, 1.0) * 100).round();
       final activeScore =

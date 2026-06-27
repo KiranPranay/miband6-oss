@@ -217,5 +217,12 @@ void main() {
       expect(a.activityScore, expected);
       expect(a.activityScore, inInclusiveRange(0, 100));
     });
+
+    test('no score when the goal is invalid (no fake perfect sub-score)', () {
+      final today = [for (var m = 0; m < 10; m++) _s(at(9, m), steps: 60)];
+      final a = run(today: today, dailyGoal: 0);
+      expect(a.activityScore, isNull);
+      expect(a.scoreComponents, isEmpty);
+    });
   });
 }

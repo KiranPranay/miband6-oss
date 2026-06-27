@@ -51,7 +51,10 @@ class _ActivityTabState extends State<ActivityTab> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final ranges = _ranges(store);
-    if (_range >= ranges.length) _range = ranges.length - 1;
+    // Effective range — clamp for display without mutating state inside build()
+    // (e.g. if Month disappears after data is pruned). The stored _range is only
+    // changed via the toggle's setState below.
+    final range = _range >= ranges.length ? ranges.length - 1 : _range;
 
     // The coaching engine derives everything (status/pace, sedentary, active
     // minutes, gated comparisons) from data we already capture.
@@ -66,10 +69,10 @@ class _ActivityTabState extends State<ActivityTab> {
     );
 
     // Days shown in the chart for Week (7) / Month (30), oldest → newest.
-    final chartDays = _range == 0
+    final chartDays = range == 0
         ? const <DateTime>[]
-        : List<DateTime>.generate(_range == 2 ? 30 : 7,
-            (i) => today.subtract(Duration(days: (_range == 2 ? 29 : 6) - i)));
+        : List<DateTime>.generate(range == 2 ? 30 : 7,
+            (i) => today.subtract(Duration(days: (range == 2 ? 29 : 6) - i)));
 
     // ── Supporting metrics (always "today"; distance/calories are today-only) ─
     final distanceKm = ble.metrics.distanceMeters / 1000.0;
@@ -114,7 +117,7 @@ class _ActivityTabState extends State<ActivityTab> {
                 const SizedBox(height: AppSpacing.sm),
 
                 // 2. Steps hero ring with status + pace context.
-                _StepsHero(a: activity, range: _range),
+                _StepsHero(a: activity, range: range),
 
                 const SizedBox(height: AppSpacing.lg),
 
@@ -123,7 +126,7 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 // 2c. Building-baseline note — explains why comparisons/streaks
                 //     aren't shown yet (Today view only, until the gate passes).
-                if (_range == 0 && !activity.hasPersonalBaseline) ...[
+                if (range == 0 && !activity.hasPersonalBaseline) ...[
                   _BaselineNote(
                       count: activity.baselineDayCount,
                       needed: activity.baselineDaysNeeded),
@@ -131,7 +134,7 @@ class _ActivityTabState extends State<ActivityTab> {
                 ],
 
                 // 2d. Sedentary analysis — today's longest waking inactive run.
-                if (_range == 0 && todaySamples.any((s) => !s.isSleep)) ...[
+                if (range == 0 && todaySamples.any((s) => !s.isSleep)) ...[
                   _SedentaryCard(a: activity),
                   const SizedBox(height: AppSpacing.lg),
                 ],
@@ -141,7 +144,7 @@ class _ActivityTabState extends State<ActivityTab> {
                   'Steps',
                   trailing: SegmentedToggle(
                     options: ranges,
-                    index: _range,
+                    index: range,
                     accent: AppColors.activity,
                     onChanged: (i) => setState(() => _range = i),
                   ),
@@ -149,14 +152,14 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 // 4. Steps chart — movement summary (Today) / highest day (else).
                 ChartCard(
-                  title: _range == 0
+                  title: range == 0
                       ? 'Steps today'
-                      : (_range == 1 ? 'Steps this week' : 'Steps this month'),
-                  subtitle: _range == 0
+                      : (range == 1 ? 'Steps this week' : 'Steps this month'),
+                  subtitle: range == 0
                       ? _movementSummary(activity)
                       : _highestDaySummary(chartDays, store),
                   height: 200,
-                  child: _range == 0
+                  child: range == 0
                       ? _HourlyStepsChart(hourly: store.getStepsByHour(today))
                       : _DailyStepsChart(days: chartDays, store: store),
                 ),
@@ -164,7 +167,7 @@ class _ActivityTabState extends State<ActivityTab> {
                 const SizedBox(height: AppSpacing.lg),
 
                 // 4b. Gated weekly summary (Week view).
-                if (_range == 1) ...[
+                if (range == 1) ...[
                   const SectionHeader('This week'),
                   _PeriodSummaryCard(a: activity),
                   const SizedBox(height: AppSpacing.lg),
@@ -225,14 +228,14 @@ class _ActivityTabState extends State<ActivityTab> {
                 ]),
 
                 // 6. Activity score (Today) — decomposed into real components.
-                if (_range == 0 && activity.activityScore != null) ...[
+                if (range == 0 && activity.activityScore != null) ...[
                   const SizedBox(height: AppSpacing.lg),
                   const SectionHeader('Activity score'),
                   _ScoreCard(a: activity),
                 ],
 
                 // 7. Recommendations (Today) — action-oriented, non-medical.
-                if (_range == 0 && activity.recommendations.isNotEmpty) ...[
+                if (range == 0 && activity.recommendations.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.lg),
                   const SectionHeader('Recommendations'),
                   _RecommendationsCard(items: activity.recommendations),
@@ -692,8 +695,10 @@ class _PeriodSummaryCard extends StatelessWidget {
           count: a.baselineDayCount, needed: a.baselineDaysNeeded);
     }
     final vs = a.vsLastWeekSteps;
-    final bestName = a.bestDay != null
-        ? _weekdayNames[(a.bestDay!.weekday - 1).clamp(0, 6)]
+    // "Best day" of THIS week (matches the chart's highest-day line), not the
+    // all-time best — same section must use the same reference period.
+    final bestName = a.weekBestDay != null
+        ? _weekdayNames[(a.weekBestDay!.weekday - 1).clamp(0, 6)]
         : '—';
     return AppCard(
       child: Column(
@@ -709,8 +714,8 @@ class _PeriodSummaryCard extends StatelessWidget {
             Expanded(
                 child: _CenterStat(
                     label: 'Best day',
-                    value: a.bestDaySteps != null
-                        ? '$bestName · ${_grp(a.bestDaySteps!)}'
+                    value: a.weekBestDaySteps > 0
+                        ? '$bestName · ${_grp(a.weekBestDaySteps)}'
                         : '—')),
           ]),
           if (vs != null || a.activeStreakDays != null) ...[
