@@ -102,6 +102,9 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 const SizedBox(height: AppSpacing.lg),
 
+                // 2b. Insights (rule-based, labelled).
+                _InsightsCard(insights: activity.insights),
+
                 // 3. Section header with Today/Week toggle.
                 SectionHeader(
                   'Steps',
@@ -281,6 +284,63 @@ class _StepsHero extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Insights — rule-based, labelled (green check / amber info).
+// ─────────────────────────────────────────────────────────────────────────
+
+class _InsightsCard extends StatelessWidget {
+  final List<ActivityInsight> insights;
+  const _InsightsCard({required this.insights});
+
+  @override
+  Widget build(BuildContext context) {
+    if (insights.isEmpty) return const SizedBox.shrink();
+    return Column(
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.lightbulb_rounded,
+                      size: 18, color: AppColors.primary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text('Insights', style: AppText.title),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              for (var i = 0; i < insights.length; i++) ...[
+                if (i > 0) const SizedBox(height: AppSpacing.sm),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      insights[i].good
+                          ? Icons.check_circle_rounded
+                          : Icons.info_rounded,
+                      size: 18,
+                      color: insights[i].good
+                          ? AppColors.success
+                          : AppColors.warning,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(insights[i].text,
+                          style: AppText.body.copyWith(color: AppColors.ink)),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+      ],
     );
   }
 }
