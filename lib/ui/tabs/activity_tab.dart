@@ -223,12 +223,26 @@ class _ActivityTabState extends State<ActivityTab> {
                     label: 'Steps',
                   ),
                 ]),
+
+                // 6. Activity score (Today) — decomposed into real components.
+                if (_range == 0 && activity.activityScore != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  const SectionHeader('Activity score'),
+                  _ScoreCard(a: activity),
+                ],
+
+                // 7. Recommendations (Today) — action-oriented, non-medical.
+                if (_range == 0 && activity.recommendations.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  const SectionHeader('Recommendations'),
+                  _RecommendationsCard(items: activity.recommendations),
+                ],
               ],
             ),
           ),
         ),
 
-        // 6. Bottom spacer so the floating nav never covers content.
+        // Bottom spacer so the floating nav never covers content.
         const SliverToBoxAdapter(child: SizedBox(height: 96)),
       ],
     );
@@ -778,6 +792,151 @@ class _VsRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Activity score — a number ONLY because it decomposes into real, shown,
+// weighted components (steps vs goal, active minutes, movement breaks).
+// ─────────────────────────────────────────────────────────────────────────
+
+class _ScoreCard extends StatelessWidget {
+  final ActivityAnalysis a;
+  const _ScoreCard({required this.a});
+
+  String _band(int s) => s >= 85
+      ? 'Excellent'
+      : (s >= 70 ? 'Good' : (s >= 50 ? 'Fair' : 'Low'));
+
+  @override
+  Widget build(BuildContext context) {
+    final score = a.activityScore!;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text('$score',
+                          style: AppText.metric
+                              .copyWith(color: AppColors.activity)),
+                      Text(' / 100', style: AppText.unit),
+                    ],
+                  ),
+                  Text(_band(score),
+                      style: AppText.label
+                          .copyWith(color: AppColors.activity)),
+                ],
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Text(
+                  'Built from the parts below — no hidden inputs.',
+                  style:
+                      AppText.caption.copyWith(color: AppColors.inkMuted),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: AppSpacing.md),
+          for (var i = 0; i < a.scoreComponents.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            _ScoreRow(c: a.scoreComponents[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ScoreRow extends StatelessWidget {
+  final ActivityScoreComponent c;
+  const _ScoreRow({required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('${c.label}  ·  ${(c.weight * 100).round()}%',
+                  style: AppText.label.copyWith(color: AppColors.ink)),
+            ),
+            Text(c.detail,
+                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+          child: SizedBox(
+            height: 6,
+            child: Stack(children: [
+              Container(color: AppColors.surfaceAlt),
+              FractionallySizedBox(
+                widthFactor: (c.score / 100).clamp(0.0, 1.0),
+                child: Container(color: AppColors.activity),
+              ),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Recommendations — action-oriented, non-medical nudges from real data.
+// ─────────────────────────────────────────────────────────────────────────
+
+class _RecommendationsCard extends StatelessWidget {
+  final List<String> items;
+  const _RecommendationsCard({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 5),
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                      color: AppColors.activity, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(items[i],
+                      style: AppText.body.copyWith(color: AppColors.ink)),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          Text('Activity tips, not medical advice.',
+              style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+        ],
+      ),
     );
   }
 }
