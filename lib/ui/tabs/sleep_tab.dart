@@ -179,6 +179,10 @@ class _SleepTabState extends State<SleepTab> {
                 const SizedBox(height: AppSpacing.xl),
                 const SectionHeader('Sleep stages'),
                 const _StageCaveat(),
+                if (!analysis.hasPersonalBaseline) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  _BaselineNote(a: analysis),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 _StageList(a: analysis),
                 const SizedBox(height: AppSpacing.xl),
@@ -935,6 +939,66 @@ class _StageCaveat extends StatelessWidget {
   }
 }
 
+/// Shown until enough post-fix nights exist for a trustworthy personal
+/// baseline. Explains why stages are compared to population ranges, not "your
+/// average", so the absence of personalization is understood, not a bug.
+class _BaselineNote extends StatelessWidget {
+  final SleepAnalysis a;
+  const _BaselineNote({required this.a});
+
+  @override
+  Widget build(BuildContext context) {
+    final n = a.baselineNightCount;
+    final need = a.baselineNightsNeeded;
+    final frac = (n / need).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.insights_rounded,
+                  size: 15, color: AppColors.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text('Building your baseline · $n of $need nights',
+                    style: AppText.caption.copyWith(
+                        color: AppColors.ink, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            child: SizedBox(
+              height: 5,
+              child: Stack(children: [
+                Container(color: AppColors.surfaceAlt),
+                FractionallySizedBox(
+                  widthFactor: frac,
+                  child: Container(color: AppColors.primary),
+                ),
+              ]),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Until then, stages are compared to general healthy ranges. Your '
+            'personal "normal range" unlocks after $need clean nights.',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StageList extends StatelessWidget {
   final SleepAnalysis a;
   const _StageList({required this.a});
@@ -945,7 +1009,10 @@ class _StageList extends StatelessWidget {
       children: [
         for (var i = 0; i < a.stages.length; i++) ...[
           if (i > 0) const SizedBox(height: AppSpacing.md),
-          _StageRow(stat: a.stages[i], totalMin: a.durationMin),
+          _StageRow(
+              stat: a.stages[i],
+              totalMin: a.durationMin,
+              hasBaseline: a.hasPersonalBaseline),
         ],
       ],
     );
@@ -955,7 +1022,9 @@ class _StageList extends StatelessWidget {
 class _StageRow extends StatelessWidget {
   final StageStat stat;
   final int totalMin;
-  const _StageRow({required this.stat, required this.totalMin});
+  final bool hasBaseline;
+  const _StageRow(
+      {required this.stat, required this.totalMin, required this.hasBaseline});
 
   Color get _color {
     switch (stat.stage) {
@@ -968,14 +1037,16 @@ class _StageRow extends StatelessWidget {
     }
   }
 
+  // Status is vs the population healthy *range* (always valid), not a personal
+  // average — so it's labelled "range", and is honest before a baseline exists.
   ({String text, Color color}) get _status {
     switch (stat.status) {
       case MetricStatus.below:
-        return (text: 'Below average', color: AppColors.warning);
+        return (text: 'Below range', color: AppColors.warning);
       case MetricStatus.above:
-        return (text: 'Above average', color: AppColors.primary);
+        return (text: 'Above range', color: AppColors.primary);
       case MetricStatus.normal:
-        return (text: 'Normal', color: AppColors.success);
+        return (text: 'In range', color: AppColors.success);
     }
   }
 
@@ -1029,12 +1100,14 @@ class _StageRow extends StatelessWidget {
               Text('${stat.pct}%',
                   style: AppText.label.copyWith(color: AppColors.inkMuted)),
               const Spacer(),
-              Text(
-                stat.deltaVsAvg == 0
-                    ? 'on average'
-                    : '${stat.deltaVsAvg > 0 ? '+' : '−'}${_SleepTabState.fmtMinutes(stat.deltaVsAvg.abs())} vs avg',
-                style: AppText.caption.copyWith(color: AppColors.inkMuted),
-              ),
+              // "vs your average" only once a real personal baseline exists.
+              if (hasBaseline)
+                Text(
+                  stat.deltaVsAvg == 0
+                      ? 'on your average'
+                      : '${stat.deltaVsAvg > 0 ? '+' : '−'}${_SleepTabState.fmtMinutes(stat.deltaVsAvg.abs())} vs your avg',
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
+                ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -1309,6 +1382,25 @@ class _WeeklySummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!a.hasPersonalBaseline) {
+      return AppCard(
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_month_rounded,
+                size: 18, color: AppColors.primary),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                'Weekly averages appear once you have '
+                '${a.baselineNightsNeeded} clean nights '
+                '(${a.baselineNightCount} so far).',
+                style: AppText.body.copyWith(color: AppColors.inkMuted),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final stat = <Widget>[
       _MiniStat(
         label: 'Average',

@@ -81,6 +81,13 @@ class SleepAnalysis {
   final int? weekAvgMin;
   final int? consistencyPct;
   final int? consistencySpreadMin; // bedtime range (max-min) over recent nights
+
+  /// Personalization gate: true once enough post-fix nights exist to trust a
+  /// personal baseline. Until then the UI shows population ranges + a
+  /// "building your baseline (N/[needed])" note instead of "your average".
+  final bool hasPersonalBaseline;
+  final int baselineNightCount;
+  final int baselineNightsNeeded;
   final SleepDay? bestNight;
   final SleepDay? worstNight;
 
@@ -106,9 +113,21 @@ class SleepAnalysis {
     required this.weekAvgMin,
     required this.consistencyPct,
     required this.consistencySpreadMin,
+    required this.hasPersonalBaseline,
+    required this.baselineNightCount,
+    required this.baselineNightsNeeded,
     required this.bestNight,
     required this.worstNight,
   });
+
+  /// Personal baselines only use nights on/after this date — when the sleep
+  /// parser was fixed (findings-09) and clean capture began. Earlier nights are
+  /// unreliable and excluded. (Documented in docs/sleep-baseline.md.)
+  static final DateTime _baselineCutoff = DateTime(2026, 6, 26);
+
+  /// Minimum post-fix nights before any "your average / your normal range"
+  /// language is shown.
+  static const int _minBaselineNights = 7;
 
   factory SleepAnalysis.compute({
     required SleepDay session,
@@ -131,13 +150,22 @@ class SleepAnalysis {
     }
     final vsYesterday = prev != null ? total - prev.totalSleepMinutes : null;
 
-    final recent =
-        nights.length <= 7 ? nights : nights.sublist(nights.length - 7);
-    final weekAvg = recent.isEmpty
-        ? null
-        : (recent.map((d) => d.totalSleepMinutes).reduce((a, b) => a + b) /
-                recent.length)
-            .round();
+    // Personal baselines use ONLY nights recorded after the parser fix
+    // (findings-09) — earlier nights are unreliable and would skew the baseline
+    // (the SpO2 mistake again). Everything "your average / vs your baseline" is
+    // gated on a minimum sample of post-fix nights (see docs/sleep-baseline.md).
+    final postFix =
+        nights.where((d) => !d.date.isBefore(_baselineCutoff)).toList();
+    final baselineNightCount = postFix.length;
+    final hasBaseline = baselineNightCount >= _minBaselineNights;
+    final basePool =
+        postFix.length <= 7 ? postFix : postFix.sublist(postFix.length - 7);
+
+    final weekAvg = hasBaseline
+        ? (basePool.map((d) => d.totalSleepMinutes).reduce((a, b) => a + b) /
+                basePool.length)
+            .round()
+        : null;
     final vsAvg = weekAvg != null ? total - weekAvg : null;
 
     // Efficiency = time asleep / time in bed (the session span).
@@ -184,8 +212,8 @@ class SleepAnalysis {
     }
 
     int stageAvg(SleepStage s) {
-      if (recent.isEmpty) return 0;
-      final vals = recent.map((d) => _stageMin(d, s)).toList();
+      if (basePool.isEmpty) return 0;
+      final vals = basePool.map((d) => _stageMin(d, s)).toList();
       return (vals.reduce((a, b) => a + b) / vals.length).round();
     }
 
@@ -193,7 +221,8 @@ class SleepAnalysis {
       final m = _stageMin(session, s);
       final pct = total > 0 ? (m / total * 100).round() : 0;
       final target = (total * (low + high) / 2 / 100).round();
-      final delta = m - stageAvg(s);
+      // vs-average only when a real baseline exists; otherwise 0 (UI hides it).
+      final delta = hasBaseline ? m - stageAvg(s) : 0;
       final status = pct < low
           ? MetricStatus.below
           : (pct > high ? MetricStatus.above : MetricStatus.normal);
@@ -260,9 +289,10 @@ class SleepAnalysis {
                 ? 'Fair'
                 : 'Poor';
 
-    // Bedtime consistency over recent nights (lower spread = higher %).
+    // Bedtime consistency over recent post-fix nights (gated like other
+    // baselines — only meaningful with enough clean nights).
     int? consistency;
-    final bedMins = recent
+    final bedMins = (hasBaseline ? basePool : const <SleepDay>[])
         .map((d) => d.startTime)
         .whereType<DateTime>()
         // shift small-hours bedtimes past midnight so 23:30 and 01:00 are close
@@ -284,7 +314,7 @@ class SleepAnalysis {
     }
 
     SleepDay? best, worst;
-    for (final n in recent) {
+    for (final n in (hasBaseline ? basePool : const <SleepDay>[])) {
       if (best == null || n.totalSleepMinutes > best.totalSleepMinutes) {
         best = n;
       }
@@ -348,6 +378,9 @@ class SleepAnalysis {
       weekAvgMin: weekAvg,
       consistencyPct: consistency,
       consistencySpreadMin: bedSpreadMin,
+      hasPersonalBaseline: hasBaseline,
+      baselineNightCount: baselineNightCount,
+      baselineNightsNeeded: _minBaselineNights,
       bestNight: best,
       worstNight: worst,
     );
