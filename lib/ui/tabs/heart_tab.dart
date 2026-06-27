@@ -91,10 +91,20 @@ class _HeartTabState extends State<HeartTab> {
                   title: 'Heart rate',
                   subtitle: _range == 0 ? 'Today' : 'Last 7 days',
                   height: 220,
-                  child: _HeartRateChart(readings: readings, week: _range == 1),
+                  child: _HeartRateChart(
+                    readings: readings,
+                    week: _range == 1,
+                    zones: heart.zones,
+                  ),
                 ),
+                const SizedBox(height: AppSpacing.sm),
+                const _ZoneLegend(),
                 const SizedBox(height: AppSpacing.lg),
                 _SummaryRow(readings: readings),
+                if (_range == 0 && heart.highest != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _HighestCard(event: heart.highest!),
+                ],
               ],
             ),
           ),
@@ -145,6 +155,17 @@ class _HeartTabState extends State<HeartTab> {
 // ===========================================================================
 // Hero — status + resting prominence + trend (not a bare number)
 // ===========================================================================
+
+Color _zoneColor(String label) {
+  switch (label) {
+    case 'Resting':
+      return AppColors.sleep;
+    case 'Elevated':
+      return AppColors.warning;
+    default: // Normal
+      return AppColors.success;
+  }
+}
 
 Color _statusColor(HrStatus s) {
   switch (s) {
@@ -451,7 +472,9 @@ class _InsightsCard extends StatelessWidget {
 class _HeartRateChart extends StatelessWidget {
   final List<HeartRateReading> readings;
   final bool week;
-  const _HeartRateChart({required this.readings, required this.week});
+  final List<HrZone> zones;
+  const _HeartRateChart(
+      {required this.readings, required this.week, required this.zones});
 
   @override
   Widget build(BuildContext context) {
@@ -468,14 +491,44 @@ class _HeartRateChart extends StatelessWidget {
     ];
 
     final values = readings.map((r) => r.value).toList();
-    var minV = values.reduce((a, b) => a < b ? a : b).toDouble();
-    var maxV = values.reduce((a, b) => a > b ? a : b).toDouble();
-    minV = (minV - 8).clamp(0, double.infinity);
-    maxV = maxV + 8;
+    final rawMin = values.reduce((a, b) => a < b ? a : b).toDouble();
+    final rawMax = values.reduce((a, b) => a > b ? a : b).toDouble();
+    final avg = (values.reduce((a, b) => a + b) / values.length);
+    var minV = (rawMin - 8).clamp(0, double.infinity).toDouble();
+    var maxV = rawMax + 8;
     if (maxV - minV < 20) maxV = minV + 20;
     final yInterval = ((maxV - minV) / 3).clamp(1, double.infinity).toDouble();
     final lastIndex = (readings.length - 1).toDouble();
     final labelStep = readings.length <= 1 ? 1.0 : lastIndex / 3;
+
+    // Labelled HR-zone bands, each clipped to the visible y-range so only the
+    // zones the data actually touches are tinted.
+    final bands = <HorizontalRangeAnnotation>[];
+    for (final z in zones) {
+      final lo = z.low.toDouble().clamp(minV, maxV);
+      final hi = z.high.toDouble().clamp(minV, maxV);
+      if (hi - lo <= 0.5) continue;
+      bands.add(HorizontalRangeAnnotation(
+        y1: lo,
+        y2: hi,
+        color: _zoneColor(z.label).withValues(alpha: 0.07),
+      ));
+    }
+
+    HorizontalLine marker(double y, Color c, String label) => HorizontalLine(
+          y: y,
+          color: c.withValues(alpha: 0.55),
+          strokeWidth: 1,
+          dashArray: const [4, 4],
+          label: HorizontalLineLabel(
+            show: true,
+            alignment: Alignment.topLeft,
+            padding: const EdgeInsets.only(left: 2, bottom: 2),
+            style: AppText.caption.copyWith(
+                color: c, fontSize: 9, fontWeight: FontWeight.w700),
+            labelResolver: (_) => label,
+          ),
+        );
 
     return LineChart(
       LineChartData(
@@ -491,6 +544,14 @@ class _HeartRateChart extends StatelessWidget {
               const FlLine(color: AppColors.divider, strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
+        rangeAnnotations: RangeAnnotations(horizontalRangeAnnotations: bands),
+        extraLinesData: ExtraLinesData(
+          horizontalLines: [
+            marker(rawMin, AppColors.sleep, 'min'),
+            marker(avg, AppColors.inkMuted, 'avg'),
+            marker(rawMax, AppColors.heart, 'max'),
+          ],
+        ),
         titlesData: FlTitlesData(
           topTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -564,6 +625,116 @@ class _HeartRateChart extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Zone legend (labels the chart's HR-zone bands)
+// ===========================================================================
+
+class _ZoneLegend extends StatelessWidget {
+  const _ZoneLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget item(Color c, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                  color: c.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: 5),
+            Text(label,
+                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          ],
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.xs,
+        children: [
+          item(AppColors.sleep, 'Resting <60'),
+          item(AppColors.success, 'Normal 60–100'),
+          item(AppColors.warning, 'Elevated 100+'),
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Highest reading today + activity context (real correlation)
+// ===========================================================================
+
+class _HighestCard extends StatelessWidget {
+  final HeartEvent event;
+  const _HighestCard({required this.event});
+
+  String _time(DateTime t) {
+    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    final m = t.minute.toString().padLeft(2, '0');
+    final ap = t.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $ap';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // "during activity" is honest context from the concurrent sample — never an
+    // invented exercise type. At rest, an elevated peak is worth a softer flag.
+    final active = event.duringActivity;
+    final contextLabel = active ? 'during activity' : 'while at rest';
+    final accent = active
+        ? AppColors.success
+        : (event.bpm > 100 ? AppColors.warning : AppColors.inkMuted);
+
+    return AppCard(
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.heart.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.arrow_upward_rounded,
+                color: AppColors.heart, size: 22),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Highest today', style: AppText.label),
+                const SizedBox(height: 2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text('${event.bpm}',
+                        style:
+                            AppText.metricSm.copyWith(color: AppColors.heart)),
+                    const SizedBox(width: 3),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text('bpm · ${_time(event.time)}',
+                          style: AppText.caption
+                              .copyWith(color: AppColors.inkMuted)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          _Pill(text: contextLabel, color: accent),
         ],
       ),
     );
