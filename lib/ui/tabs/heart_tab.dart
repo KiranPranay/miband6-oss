@@ -28,7 +28,7 @@ class HeartTab extends StatefulWidget {
 }
 
 class _HeartTabState extends State<HeartTab> {
-  int _range = 0; // 0 = Today, 1 = Week
+  int _range = 0; // 0 = Today, 1 = Week, 2 = Month
 
   List<HeartRateReading> _filtered(List<HeartRateReading> all) {
     if (all.isEmpty) return const [];
@@ -41,15 +41,31 @@ class _HeartTabState extends State<HeartTab> {
               !r.timestamp.isBefore(today) && r.timestamp.isBefore(tomorrow))
           .toList();
     }
-    final cutoff =
-        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
+    final days = _range == 2 ? 29 : 6; // Week = last 7 days, Month = last 30
+    final cutoff = DateTime(now.year, now.month, now.day)
+        .subtract(Duration(days: days));
     return all.where((r) => !r.timestamp.isBefore(cutoff)).toList();
+  }
+
+  /// Only offer ranges that have real data behind them (honesty over polish):
+  /// "Month" appears only when readings actually span beyond a week.
+  List<String> _ranges(List<HeartRateReading> all) {
+    if (all.isEmpty) return const ['Today', 'Week'];
+    final now = DateTime.now();
+    final weekAgo =
+        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 7));
+    final hasOlder = all.any((r) => r.timestamp.isBefore(weekAgo));
+    return hasOlder
+        ? const ['Today', 'Week', 'Month']
+        : const ['Today', 'Week'];
   }
 
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BLEManager>();
     final store = ble.activityStore;
+    final ranges = _ranges(store.hrReadings);
+    if (_range >= ranges.length) _range = ranges.length - 1;
     final readings = _filtered(store.hrReadings);
     final isActive = ble.isRealtimeHeartRateActive;
     final heart = HeartAnalysis.compute(
@@ -81,7 +97,7 @@ class _HeartTabState extends State<HeartTab> {
                 SectionHeader(
                   'Trend',
                   trailing: SegmentedToggle(
-                    options: const ['Today', 'Week'],
+                    options: ranges,
                     index: _range,
                     accent: AppColors.heart,
                     onChanged: (i) => setState(() => _range = i),
@@ -89,11 +105,13 @@ class _HeartTabState extends State<HeartTab> {
                 ),
                 ChartCard(
                   title: 'Heart rate',
-                  subtitle: _range == 0 ? 'Today' : 'Last 7 days',
+                  subtitle: _range == 0
+                      ? 'Today'
+                      : (_range == 1 ? 'Last 7 days' : 'Last 30 days'),
                   height: 220,
                   child: _HeartRateChart(
                     readings: readings,
-                    week: _range == 1,
+                    week: _range >= 1,
                     zones: heart.zones,
                   ),
                 ),
@@ -104,6 +122,11 @@ class _HeartTabState extends State<HeartTab> {
                 if (_range == 0 && heart.highest != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   _HighestCard(event: heart.highest!),
+                ],
+                if (_range == 1) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  const SectionHeader('This week'),
+                  _WeekSummaryCard(heart: heart),
                 ],
               ],
             ),
@@ -809,6 +832,177 @@ class _MiniStat extends StatelessWidget {
           Text(label, style: AppText.label),
         ],
       ),
+    );
+  }
+}
+
+// ===========================================================================
+// Weekly summary (gated personal stats + vs last week)
+// ===========================================================================
+
+class _WeekSummaryCard extends StatelessWidget {
+  final HeartAnalysis heart;
+  const _WeekSummaryCard({required this.heart});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!heart.hasPersonalBaseline) {
+      return _HeartBaselineNote(
+          count: heart.baselineDayCount, needed: heart.baselineDaysNeeded);
+    }
+    String v(int? x) => x != null ? '$x' : '—';
+    return AppCard(
+      child: Column(
+        children: [
+          Row(children: [
+            Expanded(child: _CenterStat(label: 'Average', value: v(heart.weekAvg))),
+            Container(width: 1, height: 34, color: AppColors.divider),
+            Expanded(
+                child: _CenterStat(
+                    label: 'Resting',
+                    value: v(heart.weekResting),
+                    accent: AppColors.sleep)),
+          ]),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Divider(height: 1, color: AppColors.divider),
+          ),
+          Row(children: [
+            Expanded(child: _CenterStat(label: 'Highest', value: v(heart.weekHigh))),
+            Container(width: 1, height: 34, color: AppColors.divider),
+            Expanded(child: _CenterStat(label: 'Lowest', value: v(heart.weekLow))),
+          ]),
+          if (heart.vsLastWeekAvg != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Divider(height: 1, color: AppColors.divider),
+            ),
+            _VsLastWeekRow(delta: heart.vsLastWeekAvg!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Building-state note — personal weekly comparisons unlock only after enough
+/// clean post-fix days (the shared [Baseline] gate). Mirrors the Sleep screen.
+class _HeartBaselineNote extends StatelessWidget {
+  final int count;
+  final int needed;
+  const _HeartBaselineNote({required this.count, required this.needed});
+
+  @override
+  Widget build(BuildContext context) {
+    final frac = (count / needed).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.sleep.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.sleep.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.insights_rounded, size: 15, color: AppColors.sleep),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text('Building your baseline · $count of $needed days',
+                    style: AppText.caption.copyWith(
+                        color: AppColors.ink, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            child: SizedBox(
+              height: 5,
+              child: Stack(children: [
+                Container(color: AppColors.surfaceAlt),
+                FractionallySizedBox(
+                  widthFactor: frac,
+                  child: Container(color: AppColors.sleep),
+                ),
+              ]),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Until then, your heart rate is compared to general healthy ranges. '
+            'Weekly averages and "vs last week" unlock after $needed clean days.',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CenterStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color accent;
+  const _CenterStat(
+      {required this.label, required this.value, this.accent = AppColors.heart});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(label, style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(value, style: AppText.title.copyWith(color: accent)),
+            if (value != '—') ...[
+              const SizedBox(width: 3),
+              Text('bpm', style: AppText.unit),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Signed change in weekly average vs the previous 7 days. A lower average HR is
+/// the favourable direction, so down = green, up = amber.
+class _VsLastWeekRow extends StatelessWidget {
+  final int delta; // weekAvg - prevWeekAvg
+  const _VsLastWeekRow({required this.delta});
+
+  @override
+  Widget build(BuildContext context) {
+    final improved = delta <= 0;
+    final color = delta == 0
+        ? AppColors.inkMuted
+        : (improved ? AppColors.success : AppColors.warning);
+    final icon = delta == 0
+        ? Icons.trending_flat_rounded
+        : (improved ? Icons.trending_down_rounded : Icons.trending_up_rounded);
+    final text = delta == 0
+        ? 'Same as last week'
+        : '${delta.abs()} bpm ${improved ? 'lower' : 'higher'} than last week';
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: AppSpacing.sm),
+        Text('vs last week',
+            style: AppText.label.copyWith(color: AppColors.ink)),
+        const Spacer(),
+        Flexible(
+          child: Text(text,
+              textAlign: TextAlign.end,
+              style: AppText.caption.copyWith(color: color)),
+        ),
+      ],
     );
   }
 }
