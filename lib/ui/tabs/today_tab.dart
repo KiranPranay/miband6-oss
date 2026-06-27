@@ -12,18 +12,26 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
-import '../widgets/stat_card.dart';
 
 /// The hero "Today" dashboard: greeting + connection status, a pulsing live
 /// heart-rate ring with a measure/stop control, the day's key stats, a steps
 /// goal progress bar and a last-synced footer. Pull-to-refresh triggers a
 /// one-shot HR measurement.
 class TodayTab extends StatefulWidget {
-  const TodayTab({super.key});
+  /// Switches the bottom-nav to the given tab index (1=Heart, 2=Activity,
+  /// 3=Sleep) so the summary cards can deep-link into the detail screens.
+  final void Function(int index)? onNavigate;
+
+  const TodayTab({super.key, this.onNavigate});
 
   @override
   State<TodayTab> createState() => _TodayTabState();
 }
+
+/// Bottom-nav indices for the detail tabs (see HomeShell).
+const int _heartTab = 1;
+const int _activityTab = 2;
+const int _sleepTab = 3;
 
 class _TodayTabState extends State<TodayTab> {
   static const int _stepsGoal = 10000;
@@ -129,12 +137,13 @@ class _TodayTabState extends State<TodayTab> {
       dailyGoal: _stepsGoal,
     );
     final spo2Readings = store.spo2Readings;
+    final spo2Last = spo2Readings.isNotEmpty ? spo2Readings.last.value : null;
     final summary = DailySummary.compute(
       sleep: sleep,
       heart: heart,
       activity: activity,
       now: now,
-      spo2: spo2Readings.isNotEmpty ? spo2Readings.last.value : null,
+      spo2: spo2Last,
     );
 
     return RefreshIndicator(
@@ -170,9 +179,9 @@ class _TodayTabState extends State<TodayTab> {
                     const SizedBox(height: AppSpacing.lg),
                   ],
 
-                  // --- Stats grid ---
-                  const SectionHeader('Stats'),
-                  _buildStatsGrid(ble, activity),
+                  // --- Linked summary cards (summary + navigation) ---
+                  const SectionHeader('Your day'),
+                  _buildSummaryCards(sleep, heart, activity, spo2Last),
                   const SizedBox(height: AppSpacing.lg),
 
                   // --- Steps goal ---
@@ -286,66 +295,82 @@ class _TodayTabState extends State<TodayTab> {
   }
 
   // ---------------------------------------------------------------------------
-  // Stats grid
+  // Linked summary cards — glanceable summary + tap-through to the detail tab.
+  // (Today = summary + navigation; the detail tabs hold the depth.)
   // ---------------------------------------------------------------------------
 
-  Widget _buildStatsGrid(BLEManager ble, ActivityAnalysis activity) {
-    final m = ble.metrics;
-    final spo2 = ble.activityStore.spo2Readings;
-    final spo2Value = spo2.isNotEmpty ? spo2.last.value : 0;
+  String _durLabel(int min) {
+    final h = min ~/ 60;
+    final m = min % 60;
+    if (h == 0) return '${m}m';
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
 
-    final cards = <Widget>[
-      StatCard(
-        icon: Icons.directions_walk_rounded,
-        color: AppColors.activity,
-        value: activity.todaySteps, // corrected per-minute total (band counter)
-        label: 'Steps',
-      ),
-      StatCard(
-        icon: Icons.straighten_rounded,
-        color: AppColors.distance,
-        value: m.distanceMeters / 1000,
-        decimals: 2,
-        unit: 'km',
-        label: 'Distance',
-      ),
-      StatCard(
-        icon: Icons.local_fire_department_rounded,
-        color: AppColors.calories,
-        value: m.calories,
-        unit: 'kcal',
-        label: 'Calories',
-      ),
-      StatCard(
-        icon: Icons.water_drop_rounded,
-        color: AppColors.spo2,
-        value: spo2Value,
-        unit: '%',
-        label: 'SpO2',
-      ),
+  String _heartWord(HrStatus? s) {
+    switch (s) {
+      case HrStatus.elevated:
+        return 'Elevated';
+      case HrStatus.low:
+        return 'Low';
+      case HrStatus.normal:
+        return 'Normal';
+      case null:
+        return '—';
+    }
+  }
+
+  Widget _buildSummaryCards(SleepAnalysis? sleep, HeartAnalysis heart,
+      ActivityAnalysis activity, int? spo2) {
+    final nav = widget.onNavigate;
+
+    // Heart line: "79 bpm · Normal · resting 59" (omit parts we don't have).
+    final bpm = heart.currentBpm ?? heart.todayAvg;
+    final heartParts = <String>[
+      if (bpm != null) '$bpm bpm',
+      if (heart.currentStatus != null) _heartWord(heart.currentStatus),
+      if (heart.restingHr != null) 'resting ${heart.restingHr}',
+      if (bpm == null && heart.restingHr == null) 'No reading yet',
     ];
 
-    // Two-column grid via Row/Expanded — flex distributes the available width
-    // safely (no manual width math that could go negative under transient
-    // constraints, which previously crashed layout).
+    final spo2Label = spo2 == null
+        ? null
+        : (spo2 >= 98 ? 'Excellent' : (spo2 >= 95 ? 'Good' : 'Low'));
+
     return Column(
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: cards[0]),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(child: cards[1]),
-          ],
+        _SummaryCard(
+          domain: TodayDomain.sleep,
+          icon: Icons.bedtime_rounded,
+          title: 'Last night',
+          value: sleep != null
+              ? '${_durLabel(sleep.durationMin)} · ${sleep.rating}'
+              : 'Not recorded last night',
+          onTap: nav == null ? null : () => nav(_sleepTab),
         ),
         const SizedBox(height: AppSpacing.md),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: cards[2]),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(child: cards[3]),
-          ],
+        _SummaryCard(
+          domain: TodayDomain.activity,
+          icon: Icons.directions_walk_rounded,
+          title: 'Activity',
+          value:
+              '${_formatThousands(activity.todaySteps)} steps · ${activity.dailyGoalPct}% goal',
+          onTap: nav == null ? null : () => nav(_activityTab),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _SummaryCard(
+          domain: TodayDomain.heart,
+          icon: Icons.favorite_rounded,
+          title: 'Heart',
+          value: heartParts.join(' · '),
+          onTap: nav == null ? null : () => nav(_heartTab),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _SummaryCard(
+          domain: TodayDomain.spo2,
+          icon: Icons.water_drop_rounded,
+          title: 'Blood oxygen',
+          value: spo2 != null ? '$spo2% · $spo2Label' : 'No reading yet',
+          onTap: null, // SpO2 has no dedicated detail tab
         ),
       ],
     );
@@ -623,6 +648,60 @@ class _ComponentRow extends StatelessWidget {
               style: AppText.caption.copyWith(color: AppColors.inkMuted)),
         ),
       ],
+    );
+  }
+}
+
+/// A glanceable per-domain summary that links into its detail tab.
+class _SummaryCard extends StatelessWidget {
+  final TodayDomain domain;
+  final IconData icon;
+  final String title;
+  final String value;
+  final VoidCallback? onTap;
+  const _SummaryCard({
+    required this.domain,
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _domainColor(domain);
+    return AppCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppText.label),
+                const SizedBox(height: 2),
+                Text(value,
+                    style: AppText.title.copyWith(color: AppColors.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          if (onTap != null)
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.inkFaint, size: 22),
+        ],
+      ),
     );
   }
 }

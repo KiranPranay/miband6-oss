@@ -47,12 +47,13 @@ class _HomeShellState extends State<HomeShell> {
       extendBody: true,
       body: IndexedStack(
         index: _index,
-        children: const [
-          TodayTab(),
-          HeartTab(),
-          ActivityTab(),
-          SleepTab(),
-          ProfileTab(),
+        children: [
+          // Today's summary cards deep-link into the detail tabs.
+          TodayTab(onNavigate: (i) => setState(() => _index = i)),
+          const HeartTab(),
+          const ActivityTab(),
+          const SleepTab(),
+          const ProfileTab(),
         ],
       ),
       bottomNavigationBar: _FloatingNav(
