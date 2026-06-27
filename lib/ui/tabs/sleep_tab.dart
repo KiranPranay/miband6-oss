@@ -313,8 +313,109 @@ class _ScoreHero extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             _DeltaLine(deltaMin: a.vsYesterdayMin!),
           ],
+          const SizedBox(height: AppSpacing.lg),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: AppSpacing.md),
+          _ScoreBreakdown(components: a.scoreComponents),
         ],
       ),
+    );
+  }
+}
+
+/// Shows the weighted sub-scores that make up the overall score, so "86" next to
+/// "Deep 11m" is explained rather than mistrusted.
+class _ScoreBreakdown extends StatelessWidget {
+  final List<ScoreComponent> components;
+  const _ScoreBreakdown({required this.components});
+
+  Color _barColor(int sub) {
+    if (sub >= 80) return AppColors.success;
+    if (sub >= 50) return AppColors.warning;
+    return AppColors.danger;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('What makes up this score',
+            style: AppText.caption.copyWith(
+                color: AppColors.inkMuted, fontWeight: FontWeight.w700)),
+        const SizedBox(height: AppSpacing.sm),
+        for (var i = 0; i < components.length; i++) ...[
+          if (i > 0) const SizedBox(height: AppSpacing.sm),
+          _ScoreRow(c: components[i], color: _barColor(components[i].score)),
+        ],
+      ],
+    );
+  }
+}
+
+class _ScoreRow extends StatelessWidget {
+  final ScoreComponent c;
+  final Color color;
+  const _ScoreRow({required this.c, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final reduced = AppMotion.reduced(context);
+    final frac = (c.score / 100).clamp(0.0, 1.0);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 92,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(c.label, style: AppText.label.copyWith(color: AppColors.ink)),
+              Text('${(c.weight * 100).round()}% weight',
+                  style: AppText.caption.copyWith(
+                      color: AppColors.inkFaint, fontSize: 10)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            child: SizedBox(
+              height: 7,
+              child: Stack(children: [
+                Container(color: AppColors.surfaceAlt),
+                LayoutBuilder(builder: (context, cc) {
+                  final w = cc.maxWidth * frac;
+                  final bar = Container(
+                      width: w,
+                      decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: BorderRadius.circular(AppRadii.pill)));
+                  if (reduced) return bar;
+                  return TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: w),
+                    duration: AppMotion.slow,
+                    curve: AppMotion.ease,
+                    builder: (context, ww, _) => Container(
+                        width: ww,
+                        decoration: BoxDecoration(
+                            color: color,
+                            borderRadius: BorderRadius.circular(AppRadii.pill))),
+                  );
+                }),
+              ]),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        SizedBox(
+          width: 38,
+          child: Text('${c.score}%',
+              textAlign: TextAlign.right,
+              style: AppText.label
+                  .copyWith(color: AppColors.ink, fontWeight: FontWeight.w800)),
+        ),
+      ],
     );
   }
 }

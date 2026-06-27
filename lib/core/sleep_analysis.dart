@@ -37,6 +37,22 @@ class SleepInsight {
   const SleepInsight(this.good, this.text);
 }
 
+/// A named, weighted sub-score that contributes to the overall sleep score.
+/// The overall score is the weighted sum of these — surfacing them makes the
+/// score auditable (see docs/sleep-score.md).
+class ScoreComponent {
+  final String label;
+  final int score; // 0..100 sub-score
+  final double weight; // 0..1; component weights sum to 1
+  final String detail; // short human context, e.g. "7h43m / 8h"
+  const ScoreComponent({
+    required this.label,
+    required this.score,
+    required this.weight,
+    this.detail = '',
+  });
+}
+
 /// Derives a coaching view (score, comparisons, stages, insights,
 /// recommendations, weekly stats) from a sleep session + recent history.
 ///
@@ -47,6 +63,7 @@ class SleepAnalysis {
   final SleepDay session;
   final int score; // 0-100
   final String rating; // Excellent / Great / Fair / Poor
+  final List<ScoreComponent> scoreComponents;
   final int durationMin;
   final int goalMin;
   final int goalPct;
@@ -69,6 +86,7 @@ class SleepAnalysis {
   const SleepAnalysis._({
     required this.session,
     required this.score,
+    required this.scoreComponents,
     required this.rating,
     required this.durationMin,
     required this.goalMin,
@@ -204,11 +222,32 @@ class SleepAnalysis {
       return (100 - d * 4).clamp(0, 100).toDouble();
     }
 
-    // REM is excluded (not measured by MB6) — weight duration, deep, efficiency.
-    final durScore = (total / goalMinutes).clamp(0.0, 1.0) * 100;
-    final score = (durScore * 0.55 +
-            band(stages[0].pct, 13, 23) * 0.30 +
-            eff * 0.15)
+    // The score is the weighted sum of named sub-scores (REM is excluded — not
+    // measured by MB6). Surfacing these makes the number auditable; see
+    // docs/sleep-score.md. All three are single-night (no history), so they're
+    // never polluted by the pre-parser-fix nights.
+    final durSub = ((total / goalMinutes).clamp(0.0, 1.0) * 100).round();
+    final deepSub = band(stages[0].pct, 13, 23).round();
+    final effSub = eff;
+    final scoreComponents = <ScoreComponent>[
+      ScoreComponent(
+          label: 'Duration',
+          score: durSub,
+          weight: 0.55,
+          detail: '${_fmt(total)} of ${_fmt(goalMinutes)} goal'),
+      ScoreComponent(
+          label: 'Deep sleep',
+          score: deepSub,
+          weight: 0.30,
+          detail: '${stages[0].pct}% of sleep'),
+      ScoreComponent(
+          label: 'Efficiency',
+          score: effSub,
+          weight: 0.15,
+          detail: '$eff% asleep while in bed'),
+    ];
+    final score = scoreComponents
+        .fold<double>(0, (a, c) => a + c.score * c.weight)
         .round()
         .clamp(0, 100);
     final rating = score >= 85
@@ -285,6 +324,7 @@ class SleepAnalysis {
     return SleepAnalysis._(
       session: session,
       score: score,
+      scoreComponents: scoreComponents,
       rating: rating,
       durationMin: total,
       goalMin: goalMinutes,
