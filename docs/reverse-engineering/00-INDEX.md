@@ -16,6 +16,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-09.md` | **Sleep-stage decode** — MB6 has no 0x48 session stream + never sets the REM byte; deep is the masked deepSleep byte (`&0x7F > 52`, data-driven). Deep 6 m → 1 h23 m (17 %); REM omitted as untracked. |
 | `findings-10.md` | **Sleep-audio (mic snoring)** — privacy model + Android mic-FGS design; hardware verification (capture, screen-off survival, clean stop, no audio persisted/transmitted). Feature doc: `../sleep-audio.md`. |
 | `findings-11.md` | **Sleep screen trust pass** — auditable score breakdown, gated personalization (post-fix nights), sleep-debt (gated), recovery omitted, AI "coming soon". Docs: `../sleep-score.md`, `../sleep-baseline.md`, `../deferred-sleep-metrics.md`. |
+| `findings-12.md` | **Heart screen trust pass** — status/trend hero + resting prominence, real HR-vs-activity correlation, zone-banded chart, gated weekly summary (shared `Baseline`), Day/Week/Month. No "Heart Score" (trend/status instead); Stress "coming soon", Recovery omitted (no HRV). Docs: `../heart-score.md`. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
 | `test-results-NN.md` | Per-run results template (fill after each hardware run; never overwrite). |
@@ -82,6 +83,14 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
   (1 version byte + N×65-byte records: uint32-LE seconds + spo2 `&0x7F`), captured
   the real 131-byte buffer over adb and hand-decoded both records → **98 % / 99 %**.
   Fixed `_parseSpo2Data`; restored the SpO2 metric in the UI. No transport changes.
+- **12** (2026-06-27): **Heart screen trust pass.** Reframed the bare BPM
+  dashboard into a heart-health view: `HeartAnalysis` engine (status, resting
+  prominence, trend, real HR-vs-activity correlation, gated weekly stats),
+  shared `Baseline` gate across Sleep+Heart, zone-banded chart with min/avg/max
+  markers, Day/Week/Month, recommendations. Decided against a "Heart Score"
+  (trend/status framing instead — no HRV to make it auditable); Stress
+  "coming soon", Recovery omitted. UI only; verified on Pixel. Docs:
+  `findings-12.md`, `../heart-score.md`.
 - **03** (2026-06-24): hardware test-session instrumentation — gated runner
   (`hardware_test_session.dart`) running gates 0→6 halt-on-fail with one greppable
   `MB6TEST GATEn` banner each, capture-on-fail dumps (Gate 3 GATT code, Gate 6 raw
