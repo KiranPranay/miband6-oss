@@ -128,11 +128,13 @@ class _TodayTabState extends State<TodayTab> {
       now: now,
       dailyGoal: _stepsGoal,
     );
+    final spo2Readings = store.spo2Readings;
     final summary = DailySummary.compute(
       sleep: sleep,
       heart: heart,
       activity: activity,
       now: now,
+      spo2: spo2Readings.isNotEmpty ? spo2Readings.last.value : null,
     );
 
     return RefreshIndicator(
@@ -154,6 +156,19 @@ class _TodayTabState extends State<TodayTab> {
                   // --- Composite Health Score (real sub-scores, breakdown shown) ---
                   _HealthHero(summary: summary),
                   const SizedBox(height: AppSpacing.lg),
+
+                  // --- Personalized briefing ---
+                  if (summary.briefing.isNotEmpty) ...[
+                    _BriefingCard(lines: summary.briefing),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
+
+                  // --- Today's aggregated insights ---
+                  if (summary.insights.isNotEmpty) ...[
+                    const SectionHeader("Today's insights"),
+                    _TodayInsightsCard(insights: summary.insights),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
 
                   // --- Stats grid ---
                   const SectionHeader('Stats'),
@@ -608,6 +623,91 @@ class _ComponentRow extends StatelessWidget {
               style: AppText.caption.copyWith(color: AppColors.inkMuted)),
         ),
       ],
+    );
+  }
+}
+
+/// Personalized, data-driven briefing lines ("You slept 8h 21m", …).
+class _BriefingCard extends StatelessWidget {
+  final List<String> lines;
+  const _BriefingCard({required this.lines});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < lines.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 5),
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                      color: AppColors.primary, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(lines[i],
+                      style: AppText.body.copyWith(color: AppColors.ink)),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Aggregated insights from the three engines, colored by domain.
+class _TodayInsightsCard extends StatelessWidget {
+  final List<TodayInsight> insights;
+  const _TodayInsightsCard({required this.insights});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < insights.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  insights[i].good
+                      ? Icons.check_circle_rounded
+                      : Icons.info_rounded,
+                  size: 18,
+                  color: insights[i].good
+                      ? AppColors.success
+                      : AppColors.warning,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(insights[i].text,
+                      style: AppText.body.copyWith(color: AppColors.ink)),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Container(
+                  width: 6,
+                  height: 6,
+                  margin: const EdgeInsets.only(top: 6),
+                  decoration: BoxDecoration(
+                      color: _domainColor(insights[i].domain),
+                      shape: BoxShape.circle),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
