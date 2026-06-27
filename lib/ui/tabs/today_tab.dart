@@ -516,6 +516,8 @@ class _ComponentRow extends StatelessWidget {
         Expanded(
           child: Text(c.status,
               textAlign: TextAlign.end,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppText.caption.copyWith(color: AppColors.inkMuted)),
         ),
       ],

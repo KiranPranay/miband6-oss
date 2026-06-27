@@ -295,7 +295,9 @@ class DailySummary {
     final briefing = <String>[];
     if (sleep != null) {
       var line = 'You slept ${_dur(sleep.durationMin)}';
-      if (sleep.vsAvgMin != null && sleep.vsAvgMin != 0) {
+      if (sleep.hasPersonalBaseline &&
+          sleep.vsAvgMin != null &&
+          sleep.vsAvgMin != 0) {
         final v = sleep.vsAvgMin!;
         line += ' · ${_dur(v.abs())} ${v > 0 ? 'above' : 'below'} your average';
       }
