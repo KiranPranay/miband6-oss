@@ -441,7 +441,10 @@ extension HardwareTestSession on BLEManager {
       }
 
       final withHr = samples.where((s) => s.heartRate > 0).length;
-      final totalSteps = samples.fold<int>(0, (a, s) => a + s.steps);
+      // Collapse the band's repeated per-minute step values (raw Σ over-counts
+      // ~4-6×, see stepsPerMinute) so the diagnostic total matches the band.
+      final totalSteps =
+          stepsPerMinute(samples).values.fold<int>(0, (a, v) => a + v);
       final maxStepsPerMin =
           samples.fold<int>(0, (a, s) => s.steps > a ? s.steps : a);
 
