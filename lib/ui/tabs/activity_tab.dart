@@ -122,10 +122,12 @@ class _ActivityTabState extends State<ActivityTab> {
                   ),
                 ),
 
-                // 4. Steps chart — with a one-line movement-pattern summary above.
+                // 4. Steps chart — movement summary (Today) / highest day (Week).
                 ChartCard(
                   title: isWeek ? 'Steps this week' : 'Steps today',
-                  subtitle: isWeek ? null : _movementSummary(activity),
+                  subtitle: isWeek
+                      ? _weekSummary(activity)
+                      : _movementSummary(activity),
                   height: 200,
                   child: isWeek
                       ? _WeekStepsChart(days: last7, store: store)
@@ -136,7 +138,9 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 const SizedBox(height: AppSpacing.lg),
 
-                // 5. Supporting metrics grid (2 columns).
+                // 5. Supporting metrics grid (today). Distance & calories are
+                //    today-only (no historical source); HR is the average during
+                //    walking minutes, shown "--" when there is none.
                 _MetricGrid(children: [
                   StatCard(
                     icon: Icons.straighten_rounded,
@@ -147,25 +151,44 @@ class _ActivityTabState extends State<ActivityTab> {
                     label: 'Distance',
                   ),
                   StatCard(
-                    icon: Icons.local_fire_department_rounded,
-                    color: AppColors.calories,
-                    value: ble.metrics.calories,
-                    unit: 'kcal',
-                    label: 'Calories',
-                  ),
-                  StatCard(
-                    icon: Icons.bolt_rounded,
+                    icon: Icons.directions_walk_rounded,
                     color: AppColors.activity,
                     value: activity.activeMinutes,
                     unit: 'min',
                     label: 'Active',
                   ),
                   StatCard(
-                    icon: Icons.favorite_rounded,
-                    color: AppColors.heart,
-                    value: activity.avgActiveHr ?? 0,
-                    unit: 'bpm',
-                    label: 'Avg HR',
+                    icon: Icons.bolt_rounded,
+                    color: AppColors.warning,
+                    value: activity.briskMinutes,
+                    unit: 'min',
+                    label: 'Brisk',
+                  ),
+                  StatCard(
+                    icon: Icons.local_fire_department_rounded,
+                    color: AppColors.calories,
+                    value: ble.metrics.calories,
+                    unit: 'kcal',
+                    label: 'Calories',
+                  ),
+                  activity.avgActiveHr != null
+                      ? StatCard(
+                          icon: Icons.favorite_rounded,
+                          color: AppColors.heart,
+                          value: activity.avgActiveHr!,
+                          unit: 'bpm',
+                          label: 'Activity HR',
+                        )
+                      : const _NoDataTile(
+                          icon: Icons.favorite_rounded,
+                          color: AppColors.heart,
+                          label: 'Activity HR',
+                        ),
+                  StatCard(
+                    icon: Icons.directions_walk_rounded,
+                    color: AppColors.primary,
+                    value: activity.todaySteps,
+                    label: 'Steps',
                   ),
                 ]),
               ],
@@ -389,6 +412,51 @@ String? _movementSummary(ActivityAnalysis a) {
     return peak;
   }
   return '$peak · quietest ${_hourLabel(a.leastActiveHour!)}';
+}
+
+const _weekdayNames = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+];
+
+/// One-line "highest day" summary shown above the weekly chart.
+String? _weekSummary(ActivityAnalysis a) {
+  if (a.weekBestDay == null || a.weekBestDaySteps <= 0) return null;
+  final name = _weekdayNames[(a.weekBestDay!.weekday - 1).clamp(0, 6)];
+  return 'Highest day: $name · ${_grp(a.weekBestDaySteps)}';
+}
+
+/// Mirrors StatCard's shape but shows "--" — used when a metric has no data
+/// (e.g. no HR during active minutes) so we never display a fake 0.
+class _NoDataTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  const _NoDataTile(
+      {required this.icon, required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text('--', style: AppText.metricSm.copyWith(color: AppColors.inkFaint)),
+          const SizedBox(height: 2),
+          Text(label, style: AppText.label),
+        ],
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
