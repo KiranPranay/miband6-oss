@@ -179,17 +179,29 @@ class _TodayTabState extends State<TodayTab> {
                     const SizedBox(height: AppSpacing.lg),
                   ],
 
-                  // --- Linked summary cards (summary + navigation) ---
+                  // --- Linked summary cards (salience-ordered) ---
                   const SectionHeader('Your day'),
                   _buildSummaryCards(summary.cards),
+                  // Gated-trends note: personal comparisons need post-fix history.
+                  if (!activity.hasPersonalBaseline) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _TrendNote(
+                        count: activity.baselineDayCount,
+                        needed: activity.baselineDaysNeeded),
+                  ],
                   const SizedBox(height: AppSpacing.lg),
 
-                  // --- Steps goal ---
-                  _buildStepsGoal(activity),
+                  // --- Goals (real goals only — no hydration / invented goals) ---
+                  const SectionHeader('Goals'),
+                  _buildGoals(activity, sleep),
                   const SizedBox(height: AppSpacing.lg),
 
-                  // --- Last synced ---
-                  _buildLastSynced(ble),
+                  // --- Band status ---
+                  _WatchStatusCard(
+                    connected: ble.isConnected,
+                    battery: ble.batteryLevel,
+                    lastSync: _relativeSync(ble.lastSyncTime),
+                  ),
                 ],
               ),
             ),
@@ -230,67 +242,20 @@ class _TodayTabState extends State<TodayTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Spacer(),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            greeting,
-                            style: AppText.h1,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(_dateLine(now), style: AppText.label),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    _buildConnectionStatus(ble),
-                  ],
+                Text(
+                  greeting,
+                  style: AppText.h1,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 2),
+                // Connection detail now lives in the informative band-status card.
+                Text(_dateLine(now), style: AppText.label),
               ],
             ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildConnectionStatus(BLEManager ble) {
-    if (!ble.isConnected) {
-      return const Pill(
-        'Disconnected',
-        color: AppColors.inkFaint,
-        icon: Icons.bluetooth_disabled,
-      );
-    }
-
-    final level = ble.batteryLevel;
-    final batteryColor =
-        (level != null && level > 20) ? AppColors.success : AppColors.danger;
-    final batteryIcon = (level != null && level > 20)
-        ? Icons.battery_full_rounded
-        : Icons.battery_alert_rounded;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        const Pill(
-          'Connected',
-          color: AppColors.success,
-          icon: Icons.bluetooth_connected,
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Pill(
-          '${level ?? '--'}%',
-          color: batteryColor,
-          icon: batteryIcon,
-        ),
-      ],
     );
   }
 
@@ -338,6 +303,9 @@ class _TodayTabState extends State<TodayTab> {
         icon: _domainIcon(c.domain),
         title: c.title,
         value: c.value,
+        trend: c.trend,
+        trendDir: c.trendDir,
+        trendGood: c.trendGood,
         onTap: (!c.navigable || nav == null || tab == null)
             ? null
             : () => nav(tab),
@@ -347,92 +315,38 @@ class _TodayTabState extends State<TodayTab> {
   }
 
   // ---------------------------------------------------------------------------
-  // Steps goal
+  // Goals — real, configured goals only (steps + sleep). No invented goals.
   // ---------------------------------------------------------------------------
 
-  Widget _buildStepsGoal(ActivityAnalysis activity) {
-    final steps = activity.todaySteps; // corrected per-minute total
-    final progress = (steps / _stepsGoal).clamp(0.0, 1.0);
-    final percent = activity.dailyGoalPct; // true, unclamped
+  Widget _buildGoals(ActivityAnalysis activity, SleepAnalysis? sleep) {
     final reduced = AppMotion.reduced(context);
-
     return AppCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: AppColors.activity.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.flag_rounded,
-                  color: AppColors.activity,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(child: Text('Steps goal', style: AppText.title)),
-              Text('$percent%',
-                  style: AppText.title.copyWith(color: AppColors.activity)),
-            ],
+          _GoalBar(
+            icon: Icons.directions_walk_rounded,
+            color: AppColors.activity,
+            label: 'Steps',
+            pct: activity.dailyGoalPct, // true, unclamped
+            detail:
+                '${_formatThousands(activity.todaySteps)} / ${_formatThousands(activity.dailyGoal)}',
+            reduced: reduced,
           ),
-          const SizedBox(height: AppSpacing.md),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadii.pill),
-            child: Stack(
-              children: [
-                Container(
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceAlt,
-                    borderRadius: BorderRadius.circular(AppRadii.pill),
-                  ),
-                ),
-                LayoutBuilder(
-                  builder: (context, c) {
-                    final w = c.maxWidth * progress;
-                    final bar = Container(
-                      height: 12,
-                      width: w,
-                      decoration: BoxDecoration(
-                        color: AppColors.activity,
-                        borderRadius: BorderRadius.circular(AppRadii.pill),
-                      ),
-                    );
-                    if (reduced) return bar;
-                    return AnimatedContainer(
-                      duration: AppMotion.slow,
-                      curve: AppMotion.ease,
-                      height: 12,
-                      width: w,
-                      decoration: BoxDecoration(
-                        color: AppColors.activity,
-                        borderRadius: BorderRadius.circular(AppRadii.pill),
-                      ),
-                    );
-                  },
-                ),
-              ],
+          if (sleep != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Divider(height: 1, color: AppColors.divider),
             ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              CountUpText(
-                steps,
-                style: AppText.label.copyWith(color: AppColors.ink),
-              ),
-              Text(
-                ' / ${_formatThousands(_stepsGoal)}',
-                style: AppText.label,
-              ),
-            ],
-          ),
+            _GoalBar(
+              icon: Icons.bedtime_rounded,
+              color: AppColors.sleep,
+              label: 'Sleep',
+              pct: sleep.goalPct,
+              detail:
+                  '${sleep.durationMin ~/ 60}h ${sleep.durationMin % 60}m / ${sleep.goalMin ~/ 60}h',
+              reduced: reduced,
+            ),
+          ],
         ],
       ),
     );
@@ -446,19 +360,6 @@ class _TodayTabState extends State<TodayTab> {
       buf.write(s[i]);
     }
     return buf.toString();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Last synced
-  // ---------------------------------------------------------------------------
-
-  Widget _buildLastSynced(BLEManager ble) {
-    return Center(
-      child: Text(
-        'Last synced ${_relativeSync(ble.lastSyncTime)}',
-        style: AppText.caption,
-      ),
-    );
   }
 }
 
@@ -628,6 +529,9 @@ class _SummaryCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String value;
+  final String? trend;
+  final int trendDir;
+  final bool trendGood;
   final VoidCallback? onTap;
   const _SummaryCard({
     required this.domain,
@@ -635,11 +539,15 @@ class _SummaryCard extends StatelessWidget {
     required this.title,
     required this.value,
     required this.onTap,
+    this.trend,
+    this.trendDir = 0,
+    this.trendGood = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = _domainColor(domain);
+    final trendColor = trendGood ? AppColors.success : AppColors.warning;
     return AppCard(
       onTap: onTap,
       child: Row(
@@ -664,12 +572,174 @@ class _SummaryCard extends StatelessWidget {
                     style: AppText.title.copyWith(color: AppColors.ink),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
+                if (trend != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                          trendDir >= 0
+                              ? Icons.arrow_upward_rounded
+                              : Icons.arrow_downward_rounded,
+                          size: 13,
+                          color: trendColor),
+                      const SizedBox(width: 2),
+                      Text(trend!,
+                          style:
+                              AppText.caption.copyWith(color: trendColor)),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
           if (onTap != null)
             const Icon(Icons.chevron_right_rounded,
                 color: AppColors.inkFaint, size: 22),
+        ],
+      ),
+    );
+  }
+}
+
+/// A labelled goal progress bar (Steps / Sleep). % is true/unclamped.
+class _GoalBar extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final int pct;
+  final String detail;
+  final bool reduced;
+  const _GoalBar({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.pct,
+    required this.detail,
+    required this.reduced,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (pct / 100).clamp(0.0, 1.0); // bar caps; number doesn't
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(child: Text(label, style: AppText.title)),
+            Text('$pct%', style: AppText.title.copyWith(color: color)),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+          child: SizedBox(
+            height: 10,
+            child: Stack(children: [
+              Container(color: AppColors.surfaceAlt),
+              FractionallySizedBox(
+                widthFactor: progress,
+                child: reduced
+                    ? Container(color: color)
+                    : AnimatedContainer(
+                        duration: AppMotion.slow,
+                        curve: AppMotion.ease,
+                        color: color),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(detail, style: AppText.label),
+      ],
+    );
+  }
+}
+
+/// Building-baseline note — explains why personal trends aren't shown yet.
+class _TrendNote extends StatelessWidget {
+  final int count;
+  final int needed;
+  const _TrendNote({required this.count, required this.needed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.insights_rounded, size: 14, color: AppColors.inkFaint),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            'Building your baseline · $count of $needed days — personal trends '
+            'unlock then.',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Informative band status block (connection · battery · last sync).
+class _WatchStatusCard extends StatelessWidget {
+  final bool connected;
+  final int? battery;
+  final String lastSync;
+  const _WatchStatusCard({
+    required this.connected,
+    required this.battery,
+    required this.lastSync,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = connected ? AppColors.success : AppColors.inkFaint;
+    final batteryLow = battery != null && battery! <= 20;
+    return AppCard(
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              connected
+                  ? Icons.watch_rounded
+                  : Icons.bluetooth_disabled_rounded,
+              color: color,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(connected ? 'Band connected' : 'Band disconnected',
+                    style: AppText.title),
+                const SizedBox(height: 2),
+                Text(
+                  connected
+                      ? 'Battery ${battery ?? '--'}% · Synced $lastSync'
+                      : 'Last synced $lastSync',
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
+                ),
+              ],
+            ),
+          ),
+          if (connected)
+            Icon(
+              batteryLow
+                  ? Icons.battery_alert_rounded
+                  : Icons.battery_full_rounded,
+              color: batteryLow ? AppColors.danger : AppColors.success,
+              size: 20,
+            ),
         ],
       ),
     );

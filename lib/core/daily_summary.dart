@@ -38,12 +38,22 @@ class TodayCard {
   final String value;
   final int salience;
   final bool navigable;
+
+  /// Gated trend chip (null until the baseline gate passes). [trendDir] is +1/-1
+  /// for the arrow; [trendGood] true = favourable (UI colors it).
+  final String? trend;
+  final int trendDir;
+  final bool trendGood;
+
   const TodayCard({
     required this.domain,
     required this.title,
     required this.value,
     required this.salience,
     required this.navigable,
+    this.trend,
+    this.trendDir = 0,
+    this.trendGood = true,
   });
 }
 
@@ -328,6 +338,25 @@ class DailySummary {
     final spo2Label = spo2 == null
         ? null
         : (spo2 >= 98 ? 'Excellent' : (spo2 >= 95 ? 'Good' : 'Low'));
+    // Gated trend chips — only under each engine's baseline gate (more sleep /
+    // more steps = good; lower HR = good).
+    final sleepTrend = (sleep != null &&
+            sleep.hasPersonalBaseline &&
+            sleep.vsAvgMin != null &&
+            sleep.vsAvgMin != 0)
+        ? sleep.vsAvgMin!
+        : null;
+    final actTrend = (activity.hasPersonalBaseline &&
+            activity.vsYesterdaySteps != null &&
+            activity.vsYesterdaySteps != 0)
+        ? activity.vsYesterdaySteps!
+        : null;
+    final heartTrend = (heart.hasPersonalBaseline &&
+            heart.vsLastWeekAvg != null &&
+            heart.vsLastWeekAvg != 0)
+        ? heart.vsLastWeekAvg!
+        : null;
+
     final cards = <TodayCard>[
       TodayCard(
         domain: TodayDomain.sleep,
@@ -337,6 +366,11 @@ class DailySummary {
             : 'Not recorded last night',
         salience: _sleepSalience(sleep),
         navigable: true,
+        trend: sleepTrend == null
+            ? null
+            : '${_dur(sleepTrend.abs())} vs avg',
+        trendDir: sleepTrend == null ? 0 : (sleepTrend > 0 ? 1 : -1),
+        trendGood: (sleepTrend ?? 0) >= 0, // more sleep = good
       ),
       TodayCard(
         domain: TodayDomain.activity,
@@ -345,6 +379,11 @@ class DailySummary {
             '${_grp(activity.todaySteps)} steps · ${activity.dailyGoalPct}% goal',
         salience: _activitySalience(activity.status),
         navigable: true,
+        trend: actTrend == null
+            ? null
+            : '${_grp(actTrend.abs())} vs yesterday',
+        trendDir: actTrend == null ? 0 : (actTrend > 0 ? 1 : -1),
+        trendGood: (actTrend ?? 0) >= 0, // more steps = good
       ),
       TodayCard(
         domain: TodayDomain.heart,
@@ -352,6 +391,11 @@ class DailySummary {
         value: _heartCardValue(heart),
         salience: _heartSalience(heart),
         navigable: true,
+        trend: heartTrend == null
+            ? null
+            : '${heartTrend.abs()} bpm vs last wk',
+        trendDir: heartTrend == null ? 0 : (heartTrend > 0 ? 1 : -1),
+        trendGood: (heartTrend ?? 0) <= 0, // lower HR = good
       ),
       TodayCard(
         domain: TodayDomain.spo2,
