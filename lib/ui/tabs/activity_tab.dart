@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/activity_analysis.dart';
 import '../../core/activity_sample.dart';
 import '../../core/ble_manager.dart';
 import '../../storage/activity_store.dart';
@@ -39,24 +40,22 @@ class _ActivityTabState extends State<ActivityTab> {
     final today = DateTime(now.year, now.month, now.day);
     final isWeek = _range == 1;
 
-    // ── Steps ────────────────────────────────────────────────────────────
-    // Today: the live metric. Week: sum of stored totals over the last 7 days.
+    // The coaching engine derives everything (status/pace, sedentary, active
+    // minutes, gated comparisons) from data we already capture.
+    final todaySamples = store.samplesForDate(today);
+    final activity = ActivityAnalysis.compute(
+      liveSteps: ble.metrics.steps,
+      todaySamples: todaySamples,
+      hourly: store.getStepsByHour(today),
+      allSamples: store.samples,
+      now: now,
+      dailyGoal: _stepGoal,
+    );
+
     final last7 = List<DateTime>.generate(
         7, (i) => today.subtract(Duration(days: 6 - i)));
-    final weekTotal =
-        last7.fold<int>(0, (sum, d) => sum + store.totalStepsForDate(d));
-    final stepValue = isWeek ? weekTotal : ble.metrics.steps;
-    final goal = isWeek ? _stepGoal * 7 : _stepGoal;
-    final progress = goal == 0 ? 0.0 : (stepValue / goal).clamp(0.0, 1.0);
 
-    // ── Supporting metrics (always "today") ──────────────────────────────
-    final todaySamples = store.samplesForDate(today);
-    final activeMinutes = todaySamples.where((s) => s.isActive).length;
-    final hrSamples =
-        todaySamples.where((s) => s.heartRate > 0).map((s) => s.heartRate);
-    final avgHr = hrSamples.isEmpty
-        ? 0
-        : (hrSamples.reduce((a, b) => a + b) / hrSamples.length).round();
+    // ── Supporting metrics (always "today"; distance/calories are today-only) ─
     final distanceKm = ble.metrics.distanceMeters / 1000.0;
 
     return CustomScrollView(
@@ -98,13 +97,8 @@ class _ActivityTabState extends State<ActivityTab> {
               children: [
                 const SizedBox(height: AppSpacing.sm),
 
-                // 2. Steps hero ring.
-                _StepsHero(
-                  steps: stepValue,
-                  goal: goal,
-                  progress: progress,
-                  isWeek: isWeek,
-                ),
+                // 2. Steps hero ring with status + pace context.
+                _StepsHero(a: activity, isWeek: isWeek),
 
                 const SizedBox(height: AppSpacing.lg),
 
@@ -152,14 +146,14 @@ class _ActivityTabState extends State<ActivityTab> {
                   StatCard(
                     icon: Icons.bolt_rounded,
                     color: AppColors.activity,
-                    value: activeMinutes,
+                    value: activity.activeMinutes,
                     unit: 'min',
                     label: 'Active',
                   ),
                   StatCard(
                     icon: Icons.favorite_rounded,
                     color: AppColors.heart,
-                    value: avgHr,
+                    value: activity.avgActiveHr ?? 0,
                     unit: 'bpm',
                     label: 'Avg HR',
                   ),
@@ -180,23 +174,34 @@ class _ActivityTabState extends State<ActivityTab> {
 // Steps hero card — circular progress ring with the step count in the centre.
 // ─────────────────────────────────────────────────────────────────────────
 
+({Color color, IconData icon}) _statusStyle(ActivityStatus s) {
+  switch (s) {
+    case ActivityStatus.goalMet:
+      return (color: AppColors.success, icon: Icons.check_circle_rounded);
+    case ActivityStatus.ahead:
+      return (color: AppColors.success, icon: Icons.trending_up_rounded);
+    case ActivityStatus.onTrack:
+      return (color: AppColors.primary, icon: Icons.schedule_rounded);
+    case ActivityStatus.behind:
+      return (color: AppColors.warning, icon: Icons.trending_down_rounded);
+  }
+}
+
 class _StepsHero extends StatelessWidget {
-  final int steps;
-  final int goal;
-  final double progress;
+  final ActivityAnalysis a;
   final bool isWeek;
 
-  const _StepsHero({
-    required this.steps,
-    required this.goal,
-    required this.progress,
-    required this.isWeek,
-  });
+  const _StepsHero({required this.a, required this.isWeek});
 
   @override
   Widget build(BuildContext context) {
     final reduced = AppMotion.reduced(context);
-    final pct = (progress * 100).round();
+    final steps = isWeek ? a.weekSteps : a.todaySteps;
+    final goal = isWeek ? a.weeklyGoal : a.dailyGoal;
+    final pct = isWeek ? a.weeklyGoalPct : a.dailyGoalPct; // true, unclamped
+    final sweep = (pct / 100).clamp(0.0, 1.0); // visual sweep only
+    final over = steps - goal;
+    final st = _statusStyle(a.status);
 
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.xl),
@@ -209,7 +214,7 @@ class _StepsHero extends StatelessWidget {
               alignment: Alignment.center,
               children: [
                 TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: progress),
+                  tween: Tween(begin: 0, end: sweep),
                   duration: reduced ? Duration.zero : AppMotion.slow,
                   curve: AppMotion.ease,
                   builder: (context, v, _) => CustomPaint(
@@ -242,33 +247,35 @@ class _StepsHero extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AppColors.activity.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.directions_walk_rounded,
-                          color: AppColors.activity, size: 20),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
                     Flexible(
                       child: Text(isWeek ? 'Weekly steps' : 'Daily steps',
                           style: AppText.title),
                     ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.md),
+                const SizedBox(height: AppSpacing.sm),
+                // Status pill gets prominence (Today only — pace is a today idea).
+                if (!isWeek)
+                  Pill(a.statusLabel, color: st.color, icon: st.icon),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
-                  '$pct% of goal',
+                  '$pct% complete',
                   style: AppText.metricSm.copyWith(color: AppColors.activity),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Goal $goal steps',
-                  style: AppText.label,
-                ),
+                // True over/under figure — never hidden behind a clamp.
+                if (pct >= 100)
+                  Text('${_grp(over)} above goal',
+                      style: AppText.label.copyWith(color: AppColors.success))
+                else
+                  Text('${_grp(isWeek ? -over : a.stepsToGo)} to go',
+                      style: AppText.label),
+                if (!isWeek && a.paceDetail.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(a.paceDetail,
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkMuted)),
+                ],
               ],
             ),
           ),
@@ -276,6 +283,17 @@ class _StepsHero extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Thousands-separated integer (e.g. 5462 → "5,462").
+String _grp(int n) {
+  final s = n.abs().toString();
+  final b = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
+    b.write(s[i]);
+  }
+  return '${n < 0 ? '-' : ''}$b';
 }
 
 class _RingPainter extends CustomPainter {
