@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/activity_analysis.dart';
+import '../../core/activity_sample.dart';
 import '../../core/ble_manager.dart';
+import '../../core/daily_summary.dart';
+import '../../core/heart_analysis.dart';
+import '../../core/sleep_analysis.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
-import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
 import '../widgets/stat_card.dart';
 
@@ -77,9 +81,59 @@ class _TodayTabState extends State<TodayTab> {
     return '${diff.inDays}d ago';
   }
 
+  /// Last night's main sleep session (longest non-nap within ~40h of the latest
+  /// recorded sleep), mirroring how the Sleep tab selects its session.
+  SleepDay? _lastNight(List<SleepDay> days) {
+    final ends = days.map((d) => d.endTime).whereType<DateTime>().toList();
+    if (ends.isEmpty) return null;
+    final latest = ends.reduce((a, b) => a.isAfter(b) ? a : b);
+    final cutoff = latest.subtract(const Duration(hours: 40));
+    final recent =
+        days.where((d) => d.endTime != null && !d.endTime!.isBefore(cutoff));
+    final nights = recent.where((d) => !d.isNap).toList();
+    final pool = nights.isNotEmpty ? nights : recent.toList();
+    if (pool.isEmpty) return null;
+    return pool
+        .reduce((a, b) => a.totalSleepMinutes >= b.totalSleepMinutes ? a : b);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BLEManager>();
+    final store = ble.activityStore;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    // Today is a COMPOSITION of the existing engines — no raw re-parsing.
+    final allDays = store.computeSleepDays();
+    final lastNight = _lastNight(allDays);
+    final sleep = lastNight == null
+        ? null
+        : SleepAnalysis.compute(
+            session: lastNight,
+            allDays: allDays,
+            hr: store.hrReadings,
+            spo2: store.spo2Readings,
+          );
+    final heart = HeartAnalysis.compute(
+      currentBpm: ble.heartRate,
+      hrReadings: store.hrReadings,
+      samples: store.samples,
+    );
+    final activity = ActivityAnalysis.compute(
+      liveSteps: ble.metrics.steps,
+      todaySamples: store.samplesForDate(today),
+      hourly: store.getStepsByHour(today),
+      allSamples: store.samples,
+      now: now,
+      dailyGoal: _stepsGoal,
+    );
+    final summary = DailySummary.compute(
+      sleep: sleep,
+      heart: heart,
+      activity: activity,
+      now: now,
+    );
 
     return RefreshIndicator(
       onRefresh: () => _onRefresh(ble),
@@ -97,18 +151,17 @@ class _TodayTabState extends State<TodayTab> {
                 children: [
                   const SizedBox(height: AppSpacing.sm),
 
-                  // --- Heart rate ---
-                  const SectionHeader('Heart rate'),
-                  _buildHeartRate(ble),
+                  // --- Composite Health Score (real sub-scores, breakdown shown) ---
+                  _HealthHero(summary: summary),
                   const SizedBox(height: AppSpacing.lg),
 
                   // --- Stats grid ---
                   const SectionHeader('Stats'),
-                  _buildStatsGrid(ble),
+                  _buildStatsGrid(ble, activity),
                   const SizedBox(height: AppSpacing.lg),
 
                   // --- Steps goal ---
-                  _buildStepsGoal(ble),
+                  _buildStepsGoal(activity),
                   const SizedBox(height: AppSpacing.lg),
 
                   // --- Last synced ---
@@ -218,41 +271,10 @@ class _TodayTabState extends State<TodayTab> {
   }
 
   // ---------------------------------------------------------------------------
-  // Heart rate
-  // ---------------------------------------------------------------------------
-
-  Widget _buildHeartRate(BLEManager ble) {
-    final active = ble.isRealtimeHeartRateActive;
-    return AppCard(
-      child: Column(
-        children: [
-          Center(
-            child: PulsingHeartRing(
-              bpm: ble.heartRate,
-              measuring: active,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          _HeartButton(
-            active: active,
-            onPressed: () {
-              if (active) {
-                ble.stopRealtimeHeartRate();
-              } else {
-                ble.startRealtimeHeartRate();
-              }
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
   // Stats grid
   // ---------------------------------------------------------------------------
 
-  Widget _buildStatsGrid(BLEManager ble) {
+  Widget _buildStatsGrid(BLEManager ble, ActivityAnalysis activity) {
     final m = ble.metrics;
     final spo2 = ble.activityStore.spo2Readings;
     final spo2Value = spo2.isNotEmpty ? spo2.last.value : 0;
@@ -261,7 +283,7 @@ class _TodayTabState extends State<TodayTab> {
       StatCard(
         icon: Icons.directions_walk_rounded,
         color: AppColors.activity,
-        value: m.steps,
+        value: activity.todaySteps, // corrected per-minute total (band counter)
         label: 'Steps',
       ),
       StatCard(
@@ -318,10 +340,10 @@ class _TodayTabState extends State<TodayTab> {
   // Steps goal
   // ---------------------------------------------------------------------------
 
-  Widget _buildStepsGoal(BLEManager ble) {
-    final steps = ble.metrics.steps;
+  Widget _buildStepsGoal(ActivityAnalysis activity) {
+    final steps = activity.todaySteps; // corrected per-minute total
     final progress = (steps / _stepsGoal).clamp(0.0, 1.0);
-    final percent = (progress * 100).round();
+    final percent = activity.dailyGoalPct; // true, unclamped
     final reduced = AppMotion.reduced(context);
 
     return AppCard(
@@ -430,46 +452,162 @@ class _TodayTabState extends State<TodayTab> {
   }
 }
 
-/// Rounded filled heart-coloured button toggling realtime HR.
-class _HeartButton extends StatelessWidget {
-  final bool active;
-  final VoidCallback onPressed;
+// ===========================================================================
+// Composite Health Score hero — real sub-scores, breakdown always shown.
+// ===========================================================================
 
-  const _HeartButton({required this.active, required this.onPressed});
+Color _domainColor(TodayDomain d) {
+  switch (d) {
+    case TodayDomain.sleep:
+      return AppColors.sleep;
+    case TodayDomain.activity:
+      return AppColors.activity;
+    case TodayDomain.heart:
+      return AppColors.heart;
+    case TodayDomain.spo2:
+      return AppColors.spo2;
+  }
+}
+
+({String word, Color color}) _bandStyle(HealthBand b) {
+  switch (b) {
+    case HealthBand.excellent:
+      return (word: 'Excellent', color: AppColors.success);
+    case HealthBand.good:
+      return (word: 'Good', color: AppColors.success);
+    case HealthBand.fair:
+      return (word: 'Fair', color: AppColors.warning);
+    case HealthBand.low:
+      return (word: 'Low', color: AppColors.danger);
+  }
+}
+
+class _HealthHero extends StatelessWidget {
+  final DailySummary summary;
+  const _HealthHero({required this.summary});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: active ? AppColors.heartSoft : AppColors.heart,
-      borderRadius: BorderRadius.circular(AppRadii.pill),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xxl,
-            vertical: AppSpacing.md,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                active ? Icons.stop_rounded : Icons.favorite_rounded,
-                size: 18,
-                color: active ? AppColors.heart : Colors.white,
+    final score = summary.healthScore;
+    if (score == null) {
+      // No component has data — never show a fake 0.
+      return AppCard(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                active ? 'Stop' : 'Measure',
-                style: AppText.label.copyWith(
-                  color: active ? AppColors.heart : Colors.white,
-                  fontWeight: FontWeight.w800,
+              child: const Icon(Icons.insights_rounded,
+                  color: AppColors.primary, size: 22),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                'Wear and sync your band to see today’s health score.',
+                style: AppText.body.copyWith(color: AppColors.inkMuted),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final bs = _bandStyle(summary.band!);
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Today', style: AppText.label),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      CountUpText(score,
+                          style: AppText.metricHero
+                              .copyWith(color: bs.color, fontSize: 46)),
+                      const SizedBox(width: 4),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text('/ 100', style: AppText.unit),
+                      ),
+                    ],
+                  ),
+                  Pill(bs.word, color: bs.color),
+                ],
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Text(
+                  summary.missing.isEmpty
+                      ? 'Based on ${summary.basis.join(' + ')}.'
+                      : 'Based on ${summary.basis.join(' + ')} — '
+                          '${summary.missing.join(' & ')} not recorded.',
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
                 ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.lg),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: AppSpacing.md),
+          for (var i = 0; i < summary.components.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            _ComponentRow(c: summary.components[i]),
+          ],
+        ],
       ),
+    );
+  }
+}
+
+class _ComponentRow extends StatelessWidget {
+  final HealthComponent c;
+  const _ComponentRow({required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _domainColor(c.domain);
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        SizedBox(
+          width: 64,
+          child: Text(c.label,
+              style: AppText.label.copyWith(color: AppColors.ink)),
+        ),
+        // Real number for Sleep/Activity; Heart shows status only (no number).
+        if (c.displayScore != null) ...[
+          Text('${c.displayScore}',
+              style: AppText.title.copyWith(color: color)),
+          const SizedBox(width: AppSpacing.sm),
+        ] else ...[
+          const Text('—',
+              style: TextStyle(color: AppColors.inkFaint)),
+          const SizedBox(width: AppSpacing.sm),
+        ],
+        Expanded(
+          child: Text(c.status,
+              textAlign: TextAlign.end,
+              style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+        ),
+      ],
     );
   }
 }
