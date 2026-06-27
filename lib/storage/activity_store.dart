@@ -187,20 +187,25 @@ class ActivityStore {
   }
 
   /// Get step count per hour for a given date.
+  ///
+  /// Steps are collapsed to one value per minute first ([stepsPerMinute]); the
+  /// band repeats each minute's step count across several sub-minute samples, so
+  /// summing raw samples would over-count ~4–6×.
   List<HourlySteps> getStepsByHour(DateTime date) {
-    final daySamples = samplesForDate(date);
+    final perMin = stepsPerMinute(samplesForDate(date));
     final byHour = <int, int>{};
-    for (final s in daySamples) {
-      final h = s.timestamp.hour;
-      byHour[h] = (byHour[h] ?? 0) + s.steps;
-    }
+    perMin.forEach((minute, steps) {
+      byHour[minute.hour] = (byHour[minute.hour] ?? 0) + steps;
+    });
     return List.generate(
         24, (h) => HourlySteps(hour: h, steps: byHour[h] ?? 0));
   }
 
-  /// Total steps for a given date.
+  /// Total steps for a given date (one value per minute, see [stepsPerMinute]).
   int totalStepsForDate(DateTime date) {
-    return samplesForDate(date).fold(0, (sum, s) => sum + s.steps);
+    return stepsPerMinute(samplesForDate(date))
+        .values
+        .fold(0, (sum, v) => sum + v);
   }
 
   // Sleep-session tuning. MB6 sleep data is noisy — samples arrive at an

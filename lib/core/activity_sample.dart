@@ -206,3 +206,25 @@ class HeartRateReading {
         value: j['v'] as int,
       );
 }
+
+/// Collapse the band's per-minute step reporting into one value per minute.
+///
+/// The Mi Band 6 emits several sub-minute activity samples (~every 20s) that all
+/// carry the SAME per-minute step count. Naively summing `sample.steps` therefore
+/// over-counts daily steps by the sample-per-minute factor (~4–6×) — e.g. a real
+/// 4,538-step day summed to ~19,592. The honest per-minute value is the (repeated)
+/// count itself, so we take one representative (the max) per minute. Verified on
+/// device: collapsing this way reproduces the band's own daily step counter
+/// exactly. See docs/reverse-engineering/findings-13.md.
+///
+/// Returns a map keyed by minute (seconds/millis zeroed) → steps in that minute.
+Map<DateTime, int> stepsPerMinute(Iterable<ActivitySample> samples) {
+  final perMin = <DateTime, int>{};
+  for (final s in samples) {
+    final t = s.timestamp;
+    final key = DateTime(t.year, t.month, t.day, t.hour, t.minute);
+    final cur = perMin[key];
+    if (cur == null || s.steps > cur) perMin[key] = s.steps;
+  }
+  return perMin;
+}

@@ -105,6 +105,12 @@ class _ActivityTabState extends State<ActivityTab> {
                 // 2b. Insights (rule-based, labelled).
                 _InsightsCard(insights: activity.insights),
 
+                // 2c. Sedentary analysis — today's longest waking inactive run.
+                if (todaySamples.any((s) => !s.isSleep)) ...[
+                  _SedentaryCard(a: activity),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+
                 // 3. Section header with Today/Week toggle.
                 SectionHeader(
                   'Steps',
@@ -116,9 +122,10 @@ class _ActivityTabState extends State<ActivityTab> {
                   ),
                 ),
 
-                // 4. Steps chart.
+                // 4. Steps chart — with a one-line movement-pattern summary above.
                 ChartCard(
                   title: isWeek ? 'Steps this week' : 'Steps today',
+                  subtitle: isWeek ? null : _movementSummary(activity),
                   height: 200,
                   child: isWeek
                       ? _WeekStepsChart(days: last7, store: store)
@@ -354,6 +361,84 @@ String _grp(int n) {
     b.write(s[i]);
   }
   return '${n < 0 ? '-' : ''}$b';
+}
+
+String _hourLabel(int h) {
+  final hr = h % 12 == 0 ? 12 : h % 12;
+  return '$hr ${h < 12 ? 'AM' : 'PM'}';
+}
+
+String _clock(DateTime t) {
+  final hr = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final m = t.minute.toString().padLeft(2, '0');
+  return '$hr:$m ${t.hour < 12 ? 'AM' : 'PM'}';
+}
+
+String _dur(int min) {
+  if (min < 60) return '${min}m';
+  final h = min ~/ 60;
+  final m = min % 60;
+  return m == 0 ? '${h}h' : '${h}h ${m}m';
+}
+
+/// One-line movement pattern shown above the hourly chart.
+String? _movementSummary(ActivityAnalysis a) {
+  if (a.peakHour == null) return null;
+  final peak = 'Most active around ${_hourLabel(a.peakHour!)}';
+  if (a.leastActiveHour == null || a.leastActiveHour == a.peakHour) {
+    return peak;
+  }
+  return '$peak · quietest ${_hourLabel(a.leastActiveHour!)}';
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sedentary analysis — longest continuous waking inactive stretch (real).
+// ─────────────────────────────────────────────────────────────────────────
+
+class _SedentaryCard extends StatelessWidget {
+  final ActivityAnalysis a;
+  const _SedentaryCard({required this.a});
+
+  @override
+  Widget build(BuildContext context) {
+    final mins = a.longestInactiveMin;
+    final long = mins >= 60;
+    final color = long ? AppColors.warning : AppColors.success;
+    final range = (a.inactiveStart != null && a.inactiveEnd != null && mins > 0)
+        ? '${_clock(a.inactiveStart!)} – ${_clock(a.inactiveEnd!)}'
+        : 'No long sitting stretches today';
+
+    return AppCard(
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(long ? Icons.chair_rounded : Icons.check_circle_rounded,
+                color: color, size: 22),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Longest inactive stretch', style: AppText.title),
+                const SizedBox(height: 2),
+                Text(range,
+                    style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+              ],
+            ),
+          ),
+          Text(mins > 0 ? _dur(mins) : 'None',
+              style: AppText.metricSm.copyWith(color: color)),
+        ],
+      ),
+    );
+  }
 }
 
 class _RingPainter extends CustomPainter {

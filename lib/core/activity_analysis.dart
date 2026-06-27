@@ -56,9 +56,9 @@ class ActivityAnalysis {
   final String paceDetail;
   final ActivityLevel level;
 
-  // ── Movement detail (today, real) ────────────────────────────────────────
-  final int activeMinutes;
-  final int highIntensityMinutes;
+  // ── Movement detail (today, real; step-cadence based, labelled estimates) ──
+  final int activeMinutes; // minutes ≥20 steps/min (walking)
+  final int briskMinutes; // minutes ≥60 steps/min (brisk walk / jog)
   final int? avgActiveHr; // null when no HR during active minutes
 
   // ── Sedentary analysis (today, real) ─────────────────────────────────────
@@ -109,7 +109,7 @@ class ActivityAnalysis {
     required this.paceDetail,
     required this.level,
     required this.activeMinutes,
-    required this.highIntensityMinutes,
+    required this.briskMinutes,
     required this.avgActiveHr,
     required this.longestInactiveMin,
     required this.inactiveStart,
@@ -140,15 +140,13 @@ class ActivityAnalysis {
 
   // ── Tunable, documented thresholds (estimates, never clinical claims) ──────
 
-  /// A minute counts as *active* if it has a brisk-walk step cadence OR
-  /// meaningful movement intensity. The intensity floor (20) is the SAME one
-  /// [HeartAnalysis] uses for "during activity", so the two engines agree.
-  static const int _activeStepCut = 15;
-  static const int _activeIntensityCut = 20;
-
-  /// A minute counts as *high-intensity* when movement intensity (0–255) is in
-  /// roughly the upper third. An honest estimate of vigorous movement — not METs.
-  static const int _highIntensityCut = 80;
+  /// Step-cadence thresholds (steps per MINUTE). Steps are the reliable
+  /// locomotion signal; the band's `intensity` reads high (~40 median) even while
+  /// sitting (non-walking wrist movement), so it is NOT used to gate these — it
+  /// would invent hours of "high-intensity" activity. Verified on real device
+  /// data (findings-13). Labelled estimates, never METs or a named sport.
+  static const int _activeStepsPerMin = 20; // sustained walking
+  static const int _briskStepsPerMin = 60; // brisk walk / jog cadence
 
   /// Waking-day window used only to project an honest "expected by now" pace.
   static const int _wakeStartHour = 7;
@@ -203,7 +201,14 @@ class ActivityAnalysis {
     final today = DateTime(now.year, now.month, now.day);
     final cutoffDay = DateTime(
         Baseline.cutoff.year, Baseline.cutoff.month, Baseline.cutoff.day);
-    final todaySteps = liveSteps < 0 ? 0 : liveSteps;
+    // Corrected daily total: collapse the band's repeated per-minute step values
+    // (summing raw samples over-counts ~4–6×, see [stepsPerMinute]). Falls back to
+    // the live counter only if today's per-minute history hasn't synced yet.
+    final todayFromSamples =
+        stepsPerMinute(todaySamples).values.fold<int>(0, (s, v) => s + v);
+    final todaySteps = todayFromSamples > 0
+        ? todayFromSamples
+        : (liveSteps < 0 ? 0 : liveSteps);
     final weeklyGoal = dailyGoal * 7;
 
     final dailyGoalPct =
@@ -250,28 +255,35 @@ class ActivityAnalysis {
           : '';
     }
 
-    // ── Waking samples (sleep excluded via sleepStage, never deep/rem bytes) ──
-    final waking = todaySamples.where((s) => !s.isSleep).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    // ── Waking minutes (sleep excluded via sleepStage, never deep/rem bytes) ──
+    // Collapse to one step value per minute, then classify whole MINUTES — the
+    // sub-minute sample cadence means per-sample counts would be meaningless.
+    final waking = todaySamples.where((s) => !s.isSleep);
+    final wakingPerMin = stepsPerMinute(waking); // minute -> steps
+    final wakingMinutes = wakingPerMin.keys.toList()..sort();
 
-    bool isActiveMin(ActivitySample s) =>
-        s.steps >= _activeStepCut || s.intensity >= _activeIntensityCut;
-    bool isInactiveMin(ActivitySample s) =>
-        s.steps == 0 && s.intensity < _activeIntensityCut;
+    final activeMinSet = <DateTime>{
+      for (final e in wakingPerMin.entries)
+        if (e.value >= _activeStepsPerMin) e.key,
+    };
+    final activeMinutes = activeMinSet.length;
+    final briskMinutes =
+        wakingPerMin.values.where((v) => v >= _briskStepsPerMin).length;
 
-    final activeMinutes = waking.where(isActiveMin).length;
-    final highIntensityMinutes =
-        waking.where((s) => s.intensity >= _highIntensityCut).length;
-    final activeHr = waking
-        .where((s) => isActiveMin(s) && s.heartRate > 0)
-        .map((s) => s.heartRate)
-        .toList();
+    // Average HR during active (walking) minutes only — never a fake 0.
+    final activeHr = <int>[];
+    for (final s in waking) {
+      if (s.heartRate <= 0) continue;
+      final k = DateTime(s.timestamp.year, s.timestamp.month, s.timestamp.day,
+          s.timestamp.hour, s.timestamp.minute);
+      if (activeMinSet.contains(k)) activeHr.add(s.heartRate);
+    }
     final avgActiveHr = activeHr.isEmpty
         ? null
         : (activeHr.reduce((a, b) => a + b) / activeHr.length).round();
     final level = _levelOf(activeMinutes);
 
-    // ── Longest inactive (waking) stretch, honest about data gaps ────────────
+    // ── Longest inactive (zero-step waking) stretch, honest about data gaps ───
     int longestInactiveMin = 0;
     DateTime? inactiveStart, inactiveEnd;
     DateTime? runStart, runEnd;
@@ -288,20 +300,20 @@ class ActivityAnalysis {
       runEnd = null;
     }
 
-    for (final s in waking) {
-      if (isInactiveMin(s)) {
+    for (final m in wakingMinutes) {
+      if (wakingPerMin[m] == 0) {
         if (runStart == null) {
-          runStart = s.timestamp;
-          runEnd = s.timestamp;
+          runStart = m;
+          runEnd = m;
         } else {
-          final gap = s.timestamp.difference(runEnd!).inMinutes;
+          final gap = m.difference(runEnd!).inMinutes;
           if (gap > _gapToleranceMin) {
             // Missing data — we can't claim sitting through an unobserved gap.
             closeRun();
-            runStart = s.timestamp;
-            runEnd = s.timestamp;
+            runStart = m;
+            runEnd = m;
           } else {
-            runEnd = s.timestamp;
+            runEnd = m;
           }
         }
       } else {
@@ -332,13 +344,13 @@ class ActivityAnalysis {
       }
     }
 
-    // ── Daily step totals from history (matches store.totalStepsForDate) ──────
+    // ── Daily step totals from history (corrected per-minute, matches the
+    //    fixed store.totalStepsForDate and the band's own counter) ─────────────
     final dayTotals = <DateTime, int>{};
-    for (final s in allSamples) {
-      final key =
-          DateTime(s.timestamp.year, s.timestamp.month, s.timestamp.day);
-      dayTotals[key] = (dayTotals[key] ?? 0) + s.steps;
-    }
+    stepsPerMinute(allSamples).forEach((minute, steps) {
+      final key = DateTime(minute.year, minute.month, minute.day);
+      dayTotals[key] = (dayTotals[key] ?? 0) + steps;
+    });
     int totalFor(DateTime d) => dayTotals[DateTime(d.year, d.month, d.day)] ?? 0;
     bool hasData(DateTime d) =>
         dayTotals.containsKey(DateTime(d.year, d.month, d.day));
@@ -496,9 +508,9 @@ class ActivityAnalysis {
       insights.add(
           const ActivityInsight(true, 'No long sitting stretches today'));
     }
-    if (highIntensityMinutes >= 15) {
+    if (briskMinutes >= 10) {
       insights.add(ActivityInsight(
-          true, '$highIntensityMinutes min of higher-intensity movement'));
+          true, '$briskMinutes brisk minutes (≥60 steps/min)'));
     }
     if (hasBaseline && vsLastWeekSteps != null && vsLastWeekSteps != 0) {
       final up = vsLastWeekSteps > 0;
@@ -540,7 +552,7 @@ class ActivityAnalysis {
       paceDetail: paceDetail,
       level: level,
       activeMinutes: activeMinutes,
-      highIntensityMinutes: highIntensityMinutes,
+      briskMinutes: briskMinutes,
       avgActiveHr: avgActiveHr,
       longestInactiveMin: longestInactiveMin,
       inactiveStart: inactiveStart,
