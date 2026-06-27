@@ -259,7 +259,10 @@ class _ScoreHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _SleepTabState.ratingColor(a.score);
+    // Colour hierarchy: the score has ONE identity colour (sleep indigo); the
+    // rating word carries the semantic quality tint; the goal bar uses a
+    // distinct colour — so green no longer dominates the whole card.
+    final ratingClr = _SleepTabState.ratingColor(a.score);
     final goalPct = a.goalPct.clamp(0, 100);
 
     return AppCard(
@@ -270,7 +273,7 @@ class _ScoreHero extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _ScoreRing(score: a.score, color: color),
+              _ScoreRing(score: a.score, color: AppColors.sleep),
               const SizedBox(width: AppSpacing.xl),
               Expanded(
                 child: Column(
@@ -282,7 +285,7 @@ class _ScoreHero extends StatelessWidget {
                             fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(a.rating,
-                        style: AppText.h1.copyWith(color: color)),
+                        style: AppText.h1.copyWith(color: ratingClr)),
                     const SizedBox(height: AppSpacing.sm),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -307,7 +310,7 @@ class _ScoreHero extends StatelessWidget {
             value: a.durationMin,
             goal: a.goalMin,
             pct: goalPct,
-            color: color,
+            color: AppColors.primary,
           ),
           if (a.vsYesterdayMin != null) ...[
             const SizedBox(height: AppSpacing.md),
@@ -573,8 +576,8 @@ class _DeltaLine extends StatelessWidget {
         const SizedBox(width: 6),
         Text(
           deltaMin == 0
-              ? 'Same as the night before'
-              : '$mag ${up ? 'more' : 'less'} than the night before',
+              ? 'About the same as yesterday'
+              : 'You slept $mag ${up ? 'longer' : 'shorter'} than yesterday',
           style: AppText.label.copyWith(color: AppColors.ink),
         ),
       ],
@@ -660,6 +663,10 @@ class _TimelineCard extends StatelessWidget {
                     style: AppText.caption.copyWith(color: AppColors.inkMuted)),
             ],
           ),
+          if (hasData) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _StageHeader(day: day),
+          ],
           const SizedBox(height: AppSpacing.lg),
           if (!hasData)
             SizedBox(
@@ -671,7 +678,7 @@ class _TimelineCard extends StatelessWidget {
             )
           else ...[
             SizedBox(
-              height: 220,
+              height: 240,
               child: CustomPaint(
                 painter: _HypnoPainter(
                     intervals: day.intervals, start: start, end: end),
@@ -683,6 +690,47 @@ class _TimelineCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Scannable stage totals above the chart, so the split is readable without
+/// interpreting the hypnogram.
+class _StageHeader extends StatelessWidget {
+  final SleepDay day;
+  const _StageHeader({required this.day});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = day.totalSleepMinutes;
+    int pct(int m) => total > 0 ? (m / total * 100).round() : 0;
+    Widget chip(Color c, String label, int m) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration:
+                  BoxDecoration(color: c, borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: 5),
+            Text('$label ${_SleepTabState.fmtMinutes(m)}',
+                style: AppText.caption
+                    .copyWith(color: AppColors.ink, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 3),
+            Text('(${pct(m)}%)',
+                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          ],
+        );
+    return Wrap(
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.xs,
+      children: [
+        chip(AppColors.sleepDeep, 'Deep', day.totalDeepMinutes),
+        chip(AppColors.sleepLight, 'Light', day.totalLightMinutes),
+        if (day.totalRemMinutes > 0)
+          chip(AppColors.sleepRem, 'REM', day.totalRemMinutes),
+      ],
     );
   }
 }
@@ -1040,6 +1088,17 @@ class _MetricsGrid extends StatelessWidget {
   final SleepAnalysis a;
   const _MetricsGrid({required this.a});
 
+  // Honest *population*-normal qualifiers (not personal baselines — those are
+  // gated on post-fix history, see docs/sleep-baseline.md).
+  static String _hrQual(int? v) => v == null
+      ? 'no data'
+      : (v < 40 ? 'Low' : (v <= 100 ? 'Normal' : 'Elevated'));
+  static String _spo2Qual(int? v) => v == null
+      ? 'no data'
+      : (v >= 95 ? 'Normal' : (v >= 90 ? 'Low-normal' : 'Low'));
+  static String _effQual(int v) =>
+      v >= 85 ? 'Excellent' : (v >= 75 ? 'Good' : 'Fair');
+
   @override
   Widget build(BuildContext context) {
     final cells = <Widget>[
@@ -1048,21 +1107,21 @@ class _MetricsGrid extends StatelessWidget {
         color: AppColors.activity,
         label: 'Efficiency',
         value: '${a.efficiencyPct}%',
-        sub: a.efficiencyPct >= 90 ? 'Excellent' : 'Fair',
+        sub: _effQual(a.efficiencyPct),
       ),
       _MetricTile(
         icon: Icons.favorite_rounded,
         color: AppColors.heart,
         label: 'Avg heart rate',
-        value: a.avgHr != null ? '${a.avgHr}' : '—',
-        sub: a.avgHr != null ? 'bpm' : 'no data',
+        value: a.avgHr != null ? '${a.avgHr} bpm' : '—',
+        sub: _hrQual(a.avgHr),
       ),
       _MetricTile(
         icon: Icons.water_drop_rounded,
         color: AppColors.spo2,
         label: 'Blood oxygen',
         value: a.avgSpo2 != null ? '${a.avgSpo2}%' : '—',
-        sub: a.avgSpo2 != null ? 'avg SpO₂' : 'no data',
+        sub: _spo2Qual(a.avgSpo2),
       ),
       _MetricTile(
         icon: Icons.hotel_rounded,
@@ -1082,8 +1141,8 @@ class _MetricsGrid extends StatelessWidget {
         icon: Icons.monitor_heart_rounded,
         color: AppColors.heart,
         label: 'Resting HR',
-        value: a.restingHr != null ? '${a.restingHr}' : '—',
-        sub: a.restingHr != null ? 'bpm' : 'no data',
+        value: a.restingHr != null ? '${a.restingHr} bpm' : '—',
+        sub: _hrQual(a.restingHr),
       ),
     ];
     return Column(
@@ -1260,6 +1319,9 @@ class _WeeklySummary extends StatelessWidget {
       _MiniStat(
         label: 'Consistency',
         value: a.consistencyPct != null ? '${a.consistencyPct}%' : '—',
+        detail: a.consistencySpreadMin != null
+            ? 'bedtimes varied by ${_SleepTabState.fmtMinutes(a.consistencySpreadMin!)}'
+            : null,
       ),
       _MiniStat(
         label: 'Best night',
@@ -1296,17 +1358,28 @@ class _WeeklySummary extends StatelessWidget {
 class _MiniStat extends StatelessWidget {
   final String label;
   final String value;
-  const _MiniStat({required this.label, required this.value});
+  final String? detail;
+  const _MiniStat({required this.label, required this.value, this.detail});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(label,
-            style: AppText.caption.copyWith(color: AppColors.inkMuted)),
-        const SizedBox(height: 4),
-        Text(value, style: AppText.title),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Column(
+        children: [
+          Text(label,
+              style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          const SizedBox(height: 4),
+          Text(value, style: AppText.title),
+          if (detail != null) ...[
+            const SizedBox(height: 2),
+            Text(detail!,
+                textAlign: TextAlign.center,
+                style:
+                    AppText.caption.copyWith(color: AppColors.inkFaint, fontSize: 10)),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1484,7 +1557,8 @@ class _SessionRow extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadii.lg),
         child: Container(
-          padding: EdgeInsets.all(nap ? AppSpacing.md : AppSpacing.lg),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.sm),
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(AppRadii.lg),
@@ -1497,8 +1571,8 @@ class _SessionRow extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: nap ? 36 : 42,
-                height: nap ? 36 : 42,
+                width: nap ? 32 : 36,
+                height: nap ? 32 : 36,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),

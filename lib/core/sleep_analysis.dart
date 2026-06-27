@@ -80,6 +80,7 @@ class SleepAnalysis {
   final List<String> recommendations;
   final int? weekAvgMin;
   final int? consistencyPct;
+  final int? consistencySpreadMin; // bedtime range (max-min) over recent nights
   final SleepDay? bestNight;
   final SleepDay? worstNight;
 
@@ -104,6 +105,7 @@ class SleepAnalysis {
     required this.recommendations,
     required this.weekAvgMin,
     required this.consistencyPct,
+    required this.consistencySpreadMin,
     required this.bestNight,
     required this.worstNight,
   });
@@ -268,6 +270,7 @@ class SleepAnalysis {
       final m = s.hour * 60 + s.minute;
       return m < 720 ? m + 1440 : m;
     }).toList();
+    int? bedSpreadMin;
     if (bedMins.length >= 3) {
       final mean = bedMins.reduce((a, b) => a + b) / bedMins.length;
       final variance = bedMins
@@ -276,6 +279,8 @@ class SleepAnalysis {
           bedMins.length;
       final sd = math.sqrt(variance);
       consistency = (100 - sd).clamp(0, 100).round();
+      bedSpreadMin =
+          bedMins.reduce(math.max) - bedMins.reduce(math.min);
     }
 
     SleepDay? best, worst;
@@ -342,6 +347,7 @@ class SleepAnalysis {
       recommendations: recs,
       weekAvgMin: weekAvg,
       consistencyPct: consistency,
+      consistencySpreadMin: bedSpreadMin,
       bestNight: best,
       worstNight: worst,
     );
