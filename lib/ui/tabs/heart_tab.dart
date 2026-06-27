@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/chart_card.dart';
+import '../widgets/coming_soon.dart';
 import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
 import '../widgets/segmented_toggle.dart';
@@ -128,6 +129,12 @@ class _HeartTabState extends State<HeartTab> {
                   const SectionHeader('This week'),
                   _WeekSummaryCard(heart: heart),
                 ],
+                const SizedBox(height: AppSpacing.lg),
+                const SectionHeader('Recommendations'),
+                _RecommendationsCard(items: heart.recommendations),
+                const SizedBox(height: AppSpacing.lg),
+                const SectionHeader('More heart metrics'),
+                const _MoreMetricsCard(),
               ],
             ),
           ),
@@ -1003,6 +1010,151 @@ class _VsLastWeekRow extends StatelessWidget {
               style: AppText.caption.copyWith(color: color)),
         ),
       ],
+    );
+  }
+}
+
+// ===========================================================================
+// Recommendations (generic-safe, non-medical)
+// ===========================================================================
+
+class _RecommendationsCard extends StatelessWidget {
+  final List<String> items;
+  const _RecommendationsCard({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 5),
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                      color: AppColors.success, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(items[i],
+                      style: AppText.body.copyWith(color: AppColors.ink)),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          Text('General wellness tips, not medical advice.',
+              style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// More metrics — honest about what this band can and can't measure
+// ===========================================================================
+
+/// Stress and Recovery both need heart-rate variability (HRV), which the Mi
+/// Band 6 doesn't expose over this protocol. Rather than fake them from BPM, we
+/// surface them honestly: Stress is "coming soon", Recovery is omitted with the
+/// reason. (Heart "score" is deliberately a trend/status view, not a number —
+/// see docs/heart-score.md.)
+class _MoreMetricsCard extends StatelessWidget {
+  const _MoreMetricsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.symmetric(
+          vertical: AppSpacing.sm, horizontal: AppSpacing.lg),
+      child: Column(
+        children: [
+          _MetricRow(
+            icon: Icons.bolt_rounded,
+            color: AppColors.warning,
+            title: 'Stress',
+            note: 'Coming soon',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const ComingSoonScreen(
+                title: 'Stress',
+                description:
+                    'Stress estimates need heart-rate variability (HRV). '
+                    'We’re working on the most accurate way to surface it.',
+                icon: Icons.bolt_rounded,
+                gradient: [AppColors.warning, AppColors.heart],
+              ),
+            )),
+          ),
+          const Divider(height: 1, color: AppColors.divider),
+          const _MetricRow(
+            icon: Icons.battery_charging_full_rounded,
+            color: AppColors.inkFaint,
+            title: 'Recovery',
+            note: 'Needs HRV — not on Mi Band 6',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String note;
+  final VoidCallback? onTap;
+  const _MetricRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.note,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 19),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(child: Text(title, style: AppText.title)),
+          Text(note,
+              style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          if (onTap != null) ...[
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.inkFaint, size: 20),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) return row;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: row,
+      ),
     );
   }
 }
