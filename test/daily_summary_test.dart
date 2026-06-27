@@ -65,6 +65,17 @@ HeartRateReading _hr(DateTime t, int v) =>
 SleepAnalysis _sleep() => SleepAnalysis.compute(
     session: _night(), allDays: [_night()], hr: const [], spo2: const []);
 
+SleepAnalysis _sleepPoor() => SleepAnalysis.compute(
+    session: _night(deep: 0, light: 90), // ~1.5h → Poor
+    allDays: [_night(deep: 0, light: 90)],
+    hr: const [],
+    spo2: const []);
+
+HeartAnalysis _heartElevated() => HeartAnalysis.compute(
+    currentBpm: 130, // > 100 → elevated
+    hrReadings: [for (var i = 0; i < 12; i++) _hr(_at(9, i), 70)],
+    samples: const []);
+
 void main() {
   group('composite Health Score', () {
     test('equals the re-normalised weighted sum of its components', () {
@@ -119,6 +130,41 @@ void main() {
       expect(s.healthScore, isNull);
       expect(s.band, isNull);
       expect(s.components, isEmpty);
+    });
+  });
+
+  group('dynamic priority (salience)', () {
+    test('cards are ordered by descending salience', () {
+      final s = DailySummary.compute(
+          sleep: _sleep(),
+          heart: _heart(),
+          activity: _activity(),
+          now: _at(15),
+          spo2: 99);
+      for (var i = 1; i < s.cards.length; i++) {
+        expect(s.cards[i - 1].salience >= s.cards[i].salience, isTrue);
+      }
+    });
+
+    test('a poor night rises to the top; an excellent SpO2 sinks', () {
+      final s = DailySummary.compute(
+          sleep: _sleepPoor(),
+          heart: _heart(),
+          activity: _activity(),
+          now: _at(15),
+          spo2: 99);
+      expect(s.cards.first.domain, TodayDomain.sleep);
+      expect(s.cards.last.domain, TodayDomain.spo2);
+    });
+
+    test('an elevated heart rises above in-range metrics', () {
+      final s = DailySummary.compute(
+          sleep: _sleep(), // good
+          heart: _heartElevated(),
+          activity: _activity(),
+          now: _at(15),
+          spo2: 99);
+      expect(s.cards.first.domain, TodayDomain.heart);
     });
   });
 

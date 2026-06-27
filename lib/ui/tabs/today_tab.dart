@@ -181,7 +181,7 @@ class _TodayTabState extends State<TodayTab> {
 
                   // --- Linked summary cards (summary + navigation) ---
                   const SectionHeader('Your day'),
-                  _buildSummaryCards(sleep, heart, activity, spo2Last),
+                  _buildSummaryCards(summary.cards),
                   const SizedBox(height: AppSpacing.lg),
 
                   // --- Steps goal ---
@@ -299,81 +299,51 @@ class _TodayTabState extends State<TodayTab> {
   // (Today = summary + navigation; the detail tabs hold the depth.)
   // ---------------------------------------------------------------------------
 
-  String _durLabel(int min) {
-    final h = min ~/ 60;
-    final m = min % 60;
-    if (h == 0) return '${m}m';
-    return m == 0 ? '${h}h' : '${h}h ${m}m';
-  }
-
-  String _heartWord(HrStatus? s) {
-    switch (s) {
-      case HrStatus.elevated:
-        return 'Elevated';
-      case HrStatus.low:
-        return 'Low';
-      case HrStatus.normal:
-        return 'Normal';
-      case null:
-        return '—';
+  IconData _domainIcon(TodayDomain d) {
+    switch (d) {
+      case TodayDomain.sleep:
+        return Icons.bedtime_rounded;
+      case TodayDomain.activity:
+        return Icons.directions_walk_rounded;
+      case TodayDomain.heart:
+        return Icons.favorite_rounded;
+      case TodayDomain.spo2:
+        return Icons.water_drop_rounded;
     }
   }
 
-  Widget _buildSummaryCards(SleepAnalysis? sleep, HeartAnalysis heart,
-      ActivityAnalysis activity, int? spo2) {
+  int? _domainTab(TodayDomain d) {
+    switch (d) {
+      case TodayDomain.sleep:
+        return _sleepTab;
+      case TodayDomain.activity:
+        return _activityTab;
+      case TodayDomain.heart:
+        return _heartTab;
+      case TodayDomain.spo2:
+        return null; // no dedicated detail tab
+    }
+  }
+
+  /// Renders the engine's salience-ordered cards (dynamic priority).
+  Widget _buildSummaryCards(List<TodayCard> cards) {
     final nav = widget.onNavigate;
-
-    // Heart line: "79 bpm · Normal · resting 59" (omit parts we don't have).
-    final bpm = heart.currentBpm ?? heart.todayAvg;
-    final heartParts = <String>[
-      if (bpm != null) '$bpm bpm',
-      if (heart.currentStatus != null) _heartWord(heart.currentStatus),
-      if (heart.restingHr != null) 'resting ${heart.restingHr}',
-      if (bpm == null && heart.restingHr == null) 'No reading yet',
-    ];
-
-    final spo2Label = spo2 == null
-        ? null
-        : (spo2 >= 98 ? 'Excellent' : (spo2 >= 95 ? 'Good' : 'Low'));
-
-    return Column(
-      children: [
-        _SummaryCard(
-          domain: TodayDomain.sleep,
-          icon: Icons.bedtime_rounded,
-          title: 'Last night',
-          value: sleep != null
-              ? '${_durLabel(sleep.durationMin)} · ${sleep.rating}'
-              : 'Not recorded last night',
-          onTap: nav == null ? null : () => nav(_sleepTab),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _SummaryCard(
-          domain: TodayDomain.activity,
-          icon: Icons.directions_walk_rounded,
-          title: 'Activity',
-          value:
-              '${_formatThousands(activity.todaySteps)} steps · ${activity.dailyGoalPct}% goal',
-          onTap: nav == null ? null : () => nav(_activityTab),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _SummaryCard(
-          domain: TodayDomain.heart,
-          icon: Icons.favorite_rounded,
-          title: 'Heart',
-          value: heartParts.join(' · '),
-          onTap: nav == null ? null : () => nav(_heartTab),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _SummaryCard(
-          domain: TodayDomain.spo2,
-          icon: Icons.water_drop_rounded,
-          title: 'Blood oxygen',
-          value: spo2 != null ? '$spo2% · $spo2Label' : 'No reading yet',
-          onTap: null, // SpO2 has no dedicated detail tab
-        ),
-      ],
-    );
+    final children = <Widget>[];
+    for (var i = 0; i < cards.length; i++) {
+      if (i > 0) children.add(const SizedBox(height: AppSpacing.md));
+      final c = cards[i];
+      final tab = _domainTab(c.domain);
+      children.add(_SummaryCard(
+        domain: c.domain,
+        icon: _domainIcon(c.domain),
+        title: c.title,
+        value: c.value,
+        onTap: (!c.navigable || nav == null || tab == null)
+            ? null
+            : () => nav(tab),
+      ));
+    }
+    return Column(children: children);
   }
 
   // ---------------------------------------------------------------------------

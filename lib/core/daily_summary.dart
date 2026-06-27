@@ -30,6 +30,23 @@ class HealthComponent {
   });
 }
 
+/// A glanceable per-domain summary card. [salience] ranks importance (higher =
+/// rises to the top); [navigable] is false for SpO2 (no detail tab).
+class TodayCard {
+  final TodayDomain domain;
+  final String title;
+  final String value;
+  final int salience;
+  final bool navigable;
+  const TodayCard({
+    required this.domain,
+    required this.title,
+    required this.value,
+    required this.salience,
+    required this.navigable,
+  });
+}
+
 /// One aggregated briefing insight, tagged with its [domain] so the UI can color
 /// it. [good] true = positive, false = needs attention.
 class TodayInsight {
@@ -70,6 +87,10 @@ class DailySummary {
   /// attention items first, capped to a glanceable few.
   final List<TodayInsight> insights;
 
+  /// Summary cards, ordered by [TodayCard.salience] so what matters most today
+  /// rises to the top (dynamic priority).
+  final List<TodayCard> cards;
+
   const DailySummary._({
     required this.healthScore,
     required this.band,
@@ -78,6 +99,7 @@ class DailySummary {
     required this.missing,
     required this.briefing,
     required this.insights,
+    required this.cards,
   });
 
   // Default weights (documented in docs/health-score.md). Re-normalised over the
@@ -136,6 +158,65 @@ class DailySummary {
       b.write(s[i]);
     }
     return '${n < 0 ? '-' : ''}$b';
+  }
+
+  // ── Salience (dynamic priority) ──────────────────────────────────────────
+  // Discrete status BANDS, not continuous values, so the order doesn't jitter
+  // on tiny deltas — a notably bad night / abnormal HR / missing data rises to
+  // the top; an in-range "all good" sinks. Works pre-baseline (population bands).
+  static int _sleepSalience(SleepAnalysis? s) {
+    if (s == null) return 60; // a missing night is notable
+    switch (s.rating) {
+      case 'Excellent':
+        return 20;
+      case 'Great':
+        return 35;
+      case 'Fair':
+        return 70;
+      default: // 'Poor'
+        return 90;
+    }
+  }
+
+  static int _activitySalience(ActivityStatus st) {
+    switch (st) {
+      case ActivityStatus.behind:
+        return 80;
+      case ActivityStatus.onTrack:
+        return 40;
+      case ActivityStatus.ahead:
+        return 30;
+      case ActivityStatus.goalMet:
+        return 25;
+    }
+  }
+
+  static int _heartSalience(HeartAnalysis h) {
+    final hasData = h.currentBpm != null || h.todayAvg != null;
+    if (h.currentStatus == HrStatus.elevated) return 85;
+    if (h.currentStatus == HrStatus.low) return 78;
+    if (!hasData && h.restingHr == null) return 35;
+    return 30; // normal / resting-only
+  }
+
+  static int _spo2Salience(int? v) {
+    if (v == null) return 25;
+    if (v < 90) return 95;
+    if (v < 95) return 70;
+    return 20;
+  }
+
+  static String _heartCardValue(HeartAnalysis h) {
+    final bpm = h.currentBpm ?? h.todayAvg;
+    final word = h.currentStatus == HrStatus.elevated
+        ? 'Elevated'
+        : (h.currentStatus == HrStatus.low ? 'Low' : 'Normal');
+    final parts = <String>[
+      if (bpm != null) '$bpm bpm',
+      if (h.currentStatus != null) word,
+      if (h.restingHr != null) 'resting ${h.restingHr}',
+    ];
+    return parts.isEmpty ? 'No reading yet' : parts.join(' · ');
   }
 
   factory DailySummary.compute({
@@ -243,6 +324,51 @@ class DailySummary {
     final positive = pool.where((i) => i.good).toList();
     final insights = [...attention, ...positive].take(4).toList();
 
+    // ── Summary cards, ordered by salience (dynamic priority) ─────────────────
+    final spo2Label = spo2 == null
+        ? null
+        : (spo2 >= 98 ? 'Excellent' : (spo2 >= 95 ? 'Good' : 'Low'));
+    final cards = <TodayCard>[
+      TodayCard(
+        domain: TodayDomain.sleep,
+        title: 'Last night',
+        value: sleep != null
+            ? '${_dur(sleep.durationMin)} · ${sleep.rating}'
+            : 'Not recorded last night',
+        salience: _sleepSalience(sleep),
+        navigable: true,
+      ),
+      TodayCard(
+        domain: TodayDomain.activity,
+        title: 'Activity',
+        value:
+            '${_grp(activity.todaySteps)} steps · ${activity.dailyGoalPct}% goal',
+        salience: _activitySalience(activity.status),
+        navigable: true,
+      ),
+      TodayCard(
+        domain: TodayDomain.heart,
+        title: 'Heart',
+        value: _heartCardValue(heart),
+        salience: _heartSalience(heart),
+        navigable: true,
+      ),
+      TodayCard(
+        domain: TodayDomain.spo2,
+        title: 'Blood oxygen',
+        value: spo2 != null ? '$spo2% · $spo2Label' : 'No reading yet',
+        salience: _spo2Salience(spo2),
+        navigable: false,
+      ),
+    ];
+    // Stable sort: higher salience first, original order breaks ties.
+    final indexed = [for (var i = 0; i < cards.length; i++) (i, cards[i])];
+    indexed.sort((a, b) {
+      final c = b.$2.salience.compareTo(a.$2.salience);
+      return c != 0 ? c : a.$1.compareTo(b.$1);
+    });
+    final orderedCards = [for (final e in indexed) e.$2];
+
     return DailySummary._(
       healthScore: healthScore,
       band: band,
@@ -251,6 +377,7 @@ class DailySummary {
       missing: missing,
       briefing: briefing,
       insights: insights,
+      cards: orderedCards,
     );
   }
 }
