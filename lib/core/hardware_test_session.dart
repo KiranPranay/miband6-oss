@@ -41,11 +41,11 @@ extension HardwareTestSession on BLEManager {
 
     final passed = <int>{};
     final skipped = <int>{};
-    const total = 9; // gates 0..8
+    const total = 10; // gates 0..9
     final fw = await _readFirmwareVersion();
 
     try {
-      _logger.i('MB6TEST SESSION START — gates 0..8 fw=$fw '
+      _logger.i('MB6TEST SESSION START — gates 0..9 fw=$fw '
           '(band must be CONNECTED, authenticated, and WORN)');
 
       // ---- GATE 0: discovery ----
@@ -92,6 +92,9 @@ extension HardwareTestSession on BLEManager {
       } else {
         skipped.add(8);
       }
+
+      // ---- GATE 9: band settings write-back (findings-19) ----
+      if (await _gate9Settings()) passed.add(9);
 
       _finishSession(passed, skipped, total, fw);
     } catch (e, st) {
@@ -602,6 +605,57 @@ extension HardwareTestSession on BLEManager {
       return true;
     } catch (e) {
       _fail(8, 'exception sending test notification: $e');
+      return false;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Gate 9 — band settings actually reach the band
+  //
+  // Cradle-safe. The band ACCEPTS and silently ignores commands it does not
+  // understand, so a successful GATT write proves nothing on its own. The only
+  // externally observable setting is the periodic HR interval: setting it to
+  // 1 minute must make per-minute HR samples appear in the next activity fetch.
+  // This gate writes every command (catching routing/format errors that throw)
+  // and then leaves the interval set so the follow-up fetch can confirm it.
+  // -------------------------------------------------------------------------
+  Future<bool> _gate9Settings() async {
+    try {
+      final settings = bandConfig.settings;
+      final commands = settings.toCommands();
+      _logger.i('MB6TEST GATE9: writing ${commands.length} config commands');
+
+      var failures = 0;
+      for (final c in commands) {
+        final ok = await writeBandCommand(c);
+        if (!ok) {
+          failures++;
+          _logger.e('MB6TEST GATE9: rejected — $c');
+        }
+      }
+      if (failures > 0) {
+        _fail(9, '$failures/${commands.length} config writes failed — check '
+            'characteristic routing in protocol-mb6.md §9');
+        return false;
+      }
+
+      // Probe the one setting whose effect is observable in data.
+      final probe = BandCommands.hrInterval(HrInterval.oneMinute);
+      final probeOk = await writeBandCommand(probe);
+      if (!probeOk) {
+        _fail(9, 'HR-interval probe write failed');
+        return false;
+      }
+      _logger.i('MB6TEST GATE9: >>> set periodic HR to 1 min. CONFIRM LATER: '
+          'the NEXT activity fetch (after ~10 min of wear) must contain '
+          'per-minute HR samples. Restore your preferred interval afterwards. '
+          '<<<');
+
+      _pass(9, '${commands.length} config commands accepted; HR interval set '
+          'to 1 min — cadence needs confirming in the next fetch');
+      return true;
+    } catch (e) {
+      _fail(9, 'exception applying band settings: $e');
       return false;
     }
   }

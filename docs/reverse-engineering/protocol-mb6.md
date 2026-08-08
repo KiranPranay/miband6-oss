@@ -325,6 +325,89 @@ Unmapped notification types → `11`. Implemented in `lib/core/huami_icon.dart`.
 
 ---
 
+## 9. Band configuration commands
+
+**Sources:** GB `HuamiSupport.java` (`writeToConfiguration` :3816-3823 and the
+`set*` methods), `HuamiService.java`, `MiBand6Coordinator.java`.
+Implemented in `lib/core/band_config.dart`; every layout is unit-tested.
+
+Mi Band 6 is entirely on the **legacy** config path
+(`MiBand6Support → MiBand5Support → MiBand4Support → MiBand3Support →
+AmazfitBipSupport → HuamiSupport`). Almost everything is a short opcode-prefixed
+write; **the target characteristic is part of the spec** — a command sent to the
+wrong one is accepted and silently ignored.
+
+| Target | UUID | Used for |
+|---|---|---|
+| Configuration | `00000003-0000-3512-2118-0009af100700` | most settings |
+| User settings | `00000008-0000-3512-2118-0009af100700` | wear wrist, user info, step goal |
+| HR control point | `00002a39-…` (standard) | all HR mode/interval commands |
+| Alert level | `00002a06-…` (standard) | vibrate / find band |
+| Old chunked | `00000020-0000-3512-2118-0009af100700` | display items, vibration patterns |
+
+### 9.1 Command table
+
+| Setting | Bytes | Target |
+|---|---|---|
+| Periodic HR interval | `14 <minutes>` (0/1/5/10/30) | HR control |
+| HR sleep-assisted | `15 00 <on>` | HR control |
+| HR all-day monitoring | `06 22 00 <on>` | config |
+| HR high alert | `06 1A 00 <on> <bpm>` | config |
+| Stress monitoring | `FE 06 00 <on>` | config |
+| Lift wrist off | `06 05 00 00` (4 bytes) | config |
+| Lift wrist always | `06 05 00 01 00 00 00 00` (8 bytes) | config |
+| Lift wrist scheduled | `06 05 00 01 sH sM eH eM` | config |
+| Lift sensitivity | `06 23 00 <0 normal / 1 sensitive>` | config |
+| Time format | `06 02 00 <0 =12h / 1 =24h>` | config |
+| Date display | `06 0A 00 <0 time / 3 date+time>` | config |
+| Date format | `06 1E 00` + 10 ASCII bytes (13 total) | config |
+| Distance unit | `06 03 00 <0 metric / 1 imperial>` | config |
+| Wear wrist | `20 00 00 <02 left / 82 right>` | **user settings** |
+| Step goal | `10 00 00 <lo> <hi> 00 00` (uint16 LE) | **user settings** |
+| Goal notification | `06 06 00 <on>` | config |
+| DND off / auto / scheduled | `09 82` / `09 83` / `09 81 sH sM eH eM` | config |
+| Night mode off / sunset / scheduled | `1A 00` / `1A 02` / `1A 01 sH sM eH eM` | config |
+| Inactivity warnings | `08 <on> <threshold> 00 s1H s1M e1H e1M s2H s2M e2H e2M` (12 bytes) | config |
+| Vibrate / stop | `03` / `00` | alert level |
+| Display items | `1E` + 4 bytes per entry `{index, 00, menuType, itemId}` | chunked type 2 |
+
+Notes that are easy to get wrong:
+- **HR interval is in minutes**, not seconds (GB's UI divides by 60 before
+  sending). `0` disables periodic measurement.
+- **Lift-wrist OFF is 4 bytes; ON is 8** with a zeroed schedule. The 8-byte
+  all-zero form means "always", not "disabled".
+- **DND + allow-lift-wrist clears bit `0x80`** of byte 1 (`0x81→0x01`,
+  `0x83→0x03`).
+- Inactivity uses **two** windows so a quiet period can be carved out of the
+  middle of the day; with no carve-out, bytes 8-11 stay zero.
+
+### 9.2 Not available on Mi Band 6
+
+| Setting | Why |
+|---|---|
+| SpO2 all-day monitoring | ZeppOS-only (`ZeppOsConfigService` HEALTH id `0x31`) |
+| Sleep-breathing quality | ZeppOS-only (HEALTH id `0x12`) |
+| **Low** HR alert | `setHeartrateAlert` encodes only the high threshold |
+| Hourly chime | not sent for MB6 |
+
+These are **omitted from the UI**, not shown disabled — a greyed switch implies
+the feature is nearly there.
+
+### 9.3 A note on `force_new_protocol`
+
+Gadgetbridge exposes a per-device `force_new_protocol` preference (**default
+false**). With it off, GB uses legacy AES-ECB auth and plain config writes; with
+it on, both auth *and* config switch to the 2021 chunked path (same payload
+bytes, prefixed `0x01`, over endpoint `0x0090`).
+
+Our app is different and deliberately so: this firmware **rejects** the legacy
+handshake with status `0x07` (sign-key failed, findings-06), so we authenticate
+with the 2021 sign-key flow but keep the **legacy** data/config transport, which
+findings-07 verified works on hardware. Config writes therefore go plain to
+`0x0003`, not through the chunked endpoint.
+
+---
+
 ## Appendix A — Huami-2021 chunked transport (NOT used by MB6; spec for completeness)
 
 Kept because Notify implements it (it supports MB7) and the task asked us to spec

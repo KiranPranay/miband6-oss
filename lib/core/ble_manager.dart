@@ -14,6 +14,8 @@ import 'activity_fetcher.dart';
 import '../storage/activity_store.dart';
 import 'alert_manager.dart';
 import 'background_permissions.dart';
+import 'band_config.dart';
+import 'band_config_controller.dart';
 import 'ecdh_b163.dart';
 import 'huami2021_chunked.dart';
 import 'huami_icon.dart';
@@ -41,7 +43,7 @@ class MyTaskHandler extends TaskHandler {
 
 enum AuthState { notAuthenticated, authenticating, authenticated, failed }
 
-class BLEManager extends ChangeNotifier {
+class BLEManager extends ChangeNotifier implements BandCommandWriter {
   final BLELogger _logger;
   final StorageManager _storage;
 
@@ -142,6 +144,67 @@ class BLEManager extends ChangeNotifier {
   /// Exposed so Settings can show the current background-permission state and
   /// offer the battery-optimization exemption with an explanation.
   BackgroundPermissions get backgroundPermissions => _backgroundPermissions;
+
+  /// Owns the user's band settings and re-applies them after every auth.
+  /// Wired here (rather than in `main`) so the re-apply hook cannot be
+  /// forgotten by a caller.
+  late final BandConfigController bandConfig =
+      BandConfigController(_logger, this);
+
+  // ── BandCommandWriter ────────────────────────────────────────────────────
+
+  @override
+  bool get canConfigure =>
+      isConnected && _authState == AuthState.authenticated;
+
+  /// Writes one configuration command to the characteristic it belongs to.
+  ///
+  /// Routing matters and is easy to get wrong silently: HR commands go to the
+  /// standard Heart Rate Control Point, wear-location/step-goal to the
+  /// user-settings characteristic, and everything else to the config
+  /// characteristic. A command written to the wrong one is accepted and
+  /// ignored. See `protocol-mb6.md` §9.
+  @override
+  Future<bool> writeBandCommand(BandCommand command) async {
+    if (!canConfigure) {
+      _logger.d('BandConfig: skipped "${command.label}" — band not ready');
+      return false;
+    }
+    final ch = await _characteristicFor(command.target);
+    if (ch == null) {
+      _logger.e('BandConfig: no characteristic for ${command.target.name} '
+          '— cannot write "${command.label}"');
+      return false;
+    }
+    try {
+      // Several Huami characteristics only advertise write-without-response;
+      // using write-with-response there throws (findings-05).
+      final noResp = !ch.properties.write && ch.properties.writeWithoutResponse;
+      await ch.write(command.bytes, withoutResponse: noResp);
+      _logger.i('BandConfig: $command');
+      return true;
+    } catch (e) {
+      _logger.e('BandConfig: write failed for "${command.label}": $e');
+      return false;
+    }
+  }
+
+  Future<BluetoothCharacteristic?> _characteristicFor(
+      ConfigTarget target) async {
+    switch (target) {
+      case ConfigTarget.configuration:
+        return _findChar('fee0', '0003');
+      case ConfigTarget.userSettings:
+        return _findChar('fee0', '0008');
+      case ConfigTarget.heartRateControl:
+        if (_hrControlChar != null) return _hrControlChar;
+        return _findChar('180d', '2a39');
+      case ConfigTarget.alertLevel:
+        return _findChar('1802', '2a06');
+      case ConfigTarget.chunked:
+        return _alertChar ?? await _findChar('fee0', '0020');
+    }
+  }
   bool _isFetchingActivity = false;
 
   bool get isConnected => _device != null && _device!.isConnected;
@@ -756,13 +819,14 @@ class BLEManager extends ChangeNotifier {
     await _syncTime();
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Step 2: Re-apply settings. The band loses some of these across a reset,
-    // and a reconnect must restore the state the user configured — Gadgetbridge
-    // does the same on every connect rather than only at pairing time.
-    await _setDateDisplay();
-    await _setTimeFormat();
+    // Step 2: Re-apply the user's settings. The band loses some of these across
+    // a reset, and a reconnect must restore what the user configured —
+    // Gadgetbridge likewise re-sends on every connect rather than only at
+    // pairing time. This replaces the previous hard-coded writes (24 h time,
+    // date display, a fixed 10 000-step goal) which silently overwrote whatever
+    // the user had chosen.
     await _setUserInfo();
-    await _setFitnessGoal(10000); // 10k steps default
+    await bandConfig.applyAll(reason: 'post-auth');
 
     // Step 3: Subscriptions
     await _subscribeToSteps();
@@ -827,29 +891,6 @@ class BLEManager extends ChangeNotifier {
       await timeChar.write(cmd, withoutResponse: false);
     } catch (e) {
       _logger.e("TimeSync failed: $e");
-    }
-  }
-
-  Future<void> _setFitnessGoal(int steps) async {
-    if (_device == null || !_device!.isConnected) return;
-    try {
-      final configChar = await _findChar('fee0', '0003');
-      if (configChar != null) {
-        _logger.i("Setting fitness goal: $steps steps...");
-        // Command: 0x10, 0x0, 0x0, steps_lo, steps_hi, 0, 0
-        final cmd = [
-          0x10,
-          0x00,
-          0x00,
-          steps & 0xff,
-          (steps >> 8) & 0xff,
-          0x00,
-          0x00
-        ];
-        await configChar.write(cmd, withoutResponse: true);
-      }
-    } catch (e) {
-      _logger.e("Failed to set fitness goal: $e");
     }
   }
 
@@ -1011,15 +1052,6 @@ class BLEManager extends ChangeNotifier {
     } catch (e) {
       _logger.e("Init chars subscription failed: $e");
     }
-  }
-
-  Future<void> _setDateDisplay() async {
-    await _writeConfig([0x06, 0x0a, 0x00, 0x03], "date display");
-  }
-
-  Future<void> _setTimeFormat() async {
-    // 24h format: 0x06, 0x02, 0x00, 0x01
-    await _writeConfig([0x06, 0x02, 0x00, 0x01], "24h time format");
   }
 
   Future<void> _writeConfig(List<int> cmd, String label) async {

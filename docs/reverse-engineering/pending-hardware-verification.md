@@ -145,3 +145,26 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
       shows the generic one (id 11).
 - [ ] **P5.8 Listener rebind.** Reinstall/update the APK and confirm the relay
       recovers without the user toggling notification access.
+
+---
+
+## P3 — Band settings (findings-19)
+
+- [ ] **P3.1 Gate 9 passes.** All config writes accepted (no rejection lines).
+      A rejection means a wrong target characteristic — see `protocol-mb6.md` §9.
+- [ ] **P3.2 HR interval takes effect (the only externally observable proof).**
+      Set to 1 min, wear the band ~15 min, fetch, and confirm per-minute HR
+      samples appear at that cadence. Repeat at 5 min and confirm the cadence
+      changes. **A successful GATT write proves nothing on its own** — the band
+      accepts and ignores commands it does not understand.
+- [ ] **P3.3 Visible settings on the band.** Change time format, units and
+      lift-wrist and confirm each on the band's own UI.
+- [ ] **P3.4 Re-apply after reconnect.** Change several settings, force a
+      disconnect/reconnect, and confirm they are re-sent (`BandConfig:
+      re-applying all settings (post-auth)`) and still correct on the band.
+- [ ] **P3.5 Rollback.** Force a write failure (e.g. toggle while
+      disconnecting) and confirm the switch flips back with an explanation
+      rather than silently claiming success.
+- [ ] **P3.6 Stress toggle actually enables recording.** Turn on all-day stress,
+      wear for a few hours, then confirm the stress fetch (Phase 6) returns
+      samples where it previously returned none.

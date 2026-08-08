@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/auth_manager.dart';
 import '../core/ble_manager.dart';
+import 'band_settings_screen.dart';
 import 'device_scan_screen.dart';
 import 'auth_key_screen.dart';
 import 'debug_console.dart';
@@ -59,6 +60,21 @@ class SettingsScreen extends StatelessWidget {
               subtitle: 'Stops auto-reconnect',
               onTap: () => bleManager.disconnect(),
             ),
+
+          const SizedBox(height: 8),
+
+          // ── Band behaviour ───────────────────────────────────────────
+          _SectionHeader(title: 'Band'),
+          _SettingsTile(
+            icon: Icons.watch_outlined,
+            iconColor: AppColors.activity,
+            title: 'Band settings',
+            subtitle: 'Heart-rate interval, display, goals & reminders',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const BandSettingsScreen()),
+            ),
+          ),
 
           const SizedBox(height: 8),
 
