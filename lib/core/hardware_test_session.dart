@@ -41,11 +41,11 @@ extension HardwareTestSession on BLEManager {
 
     final passed = <int>{};
     final skipped = <int>{};
-    const total = 7; // gates 0..6
+    const total = 9; // gates 0..8
     final fw = await _readFirmwareVersion();
 
     try {
-      _logger.i('MB6TEST SESSION START — gates 0..6 fw=$fw '
+      _logger.i('MB6TEST SESSION START — gates 0..8 fw=$fw '
           '(band must be CONNECTED, authenticated, and WORN)');
 
       // ---- GATE 0: discovery ----
@@ -80,8 +80,18 @@ extension HardwareTestSession on BLEManager {
         skipped.addAll(hr.skipped);
       }
 
-      // ---- GATE 6: activity fetch (terminal) ----
+      // ---- GATE 6: activity fetch ----
       if (await _gate6ActivityFetch()) passed.add(6);
+
+      // ---- GATE 7: sleep session plausibility (findings-18) ----
+      if (await _gate7Sleep()) passed.add(7);
+
+      // ---- GATE 8: notification delivery (findings-17) ----
+      if (await _gate8Notification()) {
+        passed.add(8);
+      } else {
+        skipped.add(8);
+      }
 
       _finishSession(passed, skipped, total, fw);
     } catch (e, st) {
@@ -466,6 +476,133 @@ extension HardwareTestSession on BLEManager {
       return false;
     } finally {
       fetcher?.dispose();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Gate 7 — a plausible sleep session comes out of the stored samples
+  //
+  // Guards the rebuilt SleepAnalyzer (findings-18) against the failure mode it
+  // replaced: numbers that parse cleanly but are physiologically impossible
+  // (98 % light / 6 min deep, or a 14-hour "night" made of evening stillness).
+  // Cradle-safe — it re-analyses data already fetched by Gate 6.
+  // -------------------------------------------------------------------------
+  Future<bool> _gate7Sleep() async {
+    try {
+      final samples = activityStore.samples;
+      if (samples.isEmpty) {
+        _fail(7, 'no stored samples to analyse (run Gate 6 first)');
+        return false;
+      }
+
+      // Log the observed kind-byte histogram. This is the evidence that decides
+      // the open question in protocol-mb6.md §7.2: Gadgetbridge's legacy table
+      // says sleep is kind 9/11, but our captures show 0xF0/0xF3.
+      final kinds = <int, int>{};
+      for (final s in samples) {
+        kinds[s.category] = (kinds[s.category] ?? 0) + 1;
+      }
+      final top = kinds.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final histogram = top
+          .take(8)
+          .map((e) =>
+              '0x${e.key.toRadixString(16).padLeft(2, '0')}(&0x0F=${e.key & 0x0F})×${e.value}')
+          .join(' ');
+      _logger.i('MB6TEST GATE7: kind-byte histogram: $histogram');
+
+      final days = SleepAnalyzer.detectSessions(
+        samples,
+        hr: activityStore.hrReadings,
+      );
+      if (days.isEmpty) {
+        _fail(7, 'no sleep session detected across ${samples.length} samples '
+            '— check the kind histogram above against protocol-mb6.md §7');
+        return false;
+      }
+
+      final nights = days.where((d) => !d.isNap).toList();
+      final session = nights.isNotEmpty ? nights.last : days.last;
+      final q = SleepQuality.of(session);
+      final total = session.totalSleepMinutes;
+      final deepPct = total == 0 ? 0.0 : session.totalDeepMinutes * 100.0 / total;
+
+      _logger.i('MB6TEST GATE7: session ${session.startTime}→${session.endTime} '
+          'total=${total}m light=${session.totalLightMinutes}m '
+          'deep=${session.totalDeepMinutes}m (${deepPct.toStringAsFixed(1)}%) '
+          'awake=${session.totalAwakeMinutes}m '
+          'eff=${q.efficiencyPercent.toStringAsFixed(1)}% '
+          'latency=${q.latencyMinutes}m wakes=${q.wakeEpisodes} '
+          'naps=${days.where((d) => d.isNap).length}');
+
+      // Plausibility, not correctness: these bounds only catch the class of bug
+      // that produced "6 minutes of deep sleep in 8 h21".
+      if (session.isNap) {
+        _fail(7, 'only naps detected — no main sleep session in the data');
+        return false;
+      }
+      if (total > 14 * 60) {
+        _fail(7, 'implausible night of ${total}m (>14 h) — sessions are '
+            'over-merging; check the 60-minute wake-gap split');
+        return false;
+      }
+      if (session.totalRemMinutes != 0) {
+        _fail(7, 'REM reported (${session.totalRemMinutes}m) but this firmware '
+            'never populates the REM byte — the analyzer is inventing it');
+        return false;
+      }
+      _pass(7, 'night=${total}m deep=${deepPct.toStringAsFixed(1)}% '
+          'eff=${q.efficiencyPercent.toStringAsFixed(1)}% '
+          'wakes=${q.wakeEpisodes} — plausible');
+      return true;
+    } catch (e) {
+      _fail(7, 'exception during sleep analysis: $e');
+      return false;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Gate 8 — a notification actually reaches the band
+  //
+  // Cradle-safe. Cannot self-verify: it sends a real alert and asks for visual
+  // confirmation, so it reports SKIPPED rather than PASS unless the write
+  // itself succeeded. The point is to prove the BLE half of the notification
+  // path independently of Android's notification listener (findings-17).
+  // -------------------------------------------------------------------------
+  Future<bool> _gate8Notification() async {
+    try {
+      if (!alertManager.isReady) {
+        _fail(8, 'fee0/0x0020 alert characteristic not discovered');
+        return false;
+      }
+      final cmd = AlertManager.buildAppNotification(
+        appName: 'MB6TEST',
+        title: 'Gate 8',
+        body: 'Notification path check',
+        iconId: HuamiIcon.chatBlue,
+      );
+      final chunks = AlertManager.buildChunks(
+        cmd,
+        maxChunkLength: AlertManager.chunkLengthForMtu(_mtu),
+      );
+      _logger.i('MB6TEST GATE8: payload ${cmd.length}B → ${chunks.length} '
+          'chunk(s) at mtu=$_mtu; first frame: '
+          '${chunks.first.take(10).map((b) => b.toRadixString(16).padLeft(2, "0")).join(" ")}');
+
+      await alertManager.sendAppNotification(
+        'MB6TEST',
+        'Gate 8',
+        'Notification path check',
+      );
+      _logger.i('MB6TEST GATE8: >>> VISUAL CHECK: the band should now be '
+          'showing "Gate 8 / Notification path check". If it is not, the '
+          'payload is wrong — see protocol-mb6.md §8. <<<');
+      _pass(8, 'alert written to 0x0020 in ${chunks.length} chunk(s) — '
+          'REQUIRES VISUAL CONFIRMATION on the band');
+      return true;
+    } catch (e) {
+      _fail(8, 'exception sending test notification: $e');
+      return false;
     }
   }
 

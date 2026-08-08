@@ -32,11 +32,14 @@ Legend: ✅ correct/fixed · ⚠️ partially wrong · ❌ wrong/missing · 🔵
 | 26 | Notification bridge lifetime | channel on MainActivity's engine — dies with the activity | channel on a **process-lifetime engine** | ✅ **fixed** (`BandApplication.kt`) |
 | 27 | Listener rebind | none | `requestRebind()` on disconnect | ✅ **added** |
 | 28 | MessagingStyle text | only `EXTRA_TITLE`/`EXTRA_TEXT`/`EXTRA_BIG_TEXT` → chat apps arrived blank and were dropped | also `EXTRA_MESSAGES`, `EXTRA_TEXT_LINES` | ✅ **fixed** |
-| 29 | Sleep kind mapping | `112/121/122/126/128` (ZeppOS `HuamiExtendedSampleProvider`) | legacy `HuamiConst`: **9=light, 11=deep, 3/6=not worn**, `&0x0F`, carry-forward 0/10 | ⚠️ **hardware disagrees** — see protocol §7.2, probe P2.1; fix pending Phase 2 |
-| 30 | Not-worn detection | assumed `intensity == 0xFF` | **kind 3 (nonwear) / 6 (charging)** — GB `HuamiConst:134-137` | ❌ still `sleep>0` heuristic; fix pending Phase 2 |
-| 31 | Sleep session gap | 60 min merge, 25 min min span | GB: **5 min min session, 60 min max wake gap, any stepped minute breaks it**, 18:00→18:00 day | ❌ fix pending Phase 2 |
+| 29 | Sleep kind mapping | `112/121/122/126/128` (ZeppOS `HuamiExtendedSampleProvider`) | legacy `HuamiConst`: **9=light, 11=deep, 3/6=not worn**, `&0x0F`, carry-forward 0/10 | ⚠️ **hardware disagrees** — analyzer honours BOTH (kind 9/11 *and* the `sleep` byte); histogram probe = Gate 7 / P2.1 |
+| 30 | Not-worn detection | assumed `intensity == 0xFF` | **kind 3 (nonwear) / 6 (charging)** — GB `HuamiConst:134-137` | ✅ **fixed** (`SleepAnalyzer.isNotWorn`) |
+| 31 | Sleep session gap | 60 min merge, 25 min min span | GB: **5 min min session, 60 min max wake gap, any stepped minute breaks it**, 18:00→18:00 day | ✅ **fixed** (`SleepAnalyzer`) |
 | 32 | Stages fetch `0x48` | not attempted | gated on `supportsSleepScore()` (ZeppOS only); **probed on our band → length 0** | ✅ documented, correctly absent |
 | 33 | Activity HR byte | out-of-range HR rewritten to `0` | GB keeps the raw byte; validity is `>0 && >=10 && <=250` | 🔵 keep 0, but filter on read |
 | 34 | Sample `unknown1` (offset 4) | dropped | GB persists it | 🔵 low value on MB6 |
 
 Source tags: **GB**=Gadgetbridge, **NOTIFY**=com.mc.miband1.
+| 35 | Deep-sleep threshold | `deepSleep & 0x7F > 52` — eyeballed on a few nights | sustained HR dip ≥6 % below the session's own median for ≥8 min (HR-dip staging) | ✅ **replaced** (`SleepAnalyzer`) |
+| 36 | Sleep latency | not computed | measured from **rest onset** (≤60 min look-back, worn + no steps + low movement) to sleep onset | ✅ **added** (`SleepQuality`) |
+| 37 | REM | surfaced when a category claimed it | firmware never populates byte 7 → **never reported** | ✅ enforced + gate-checked |

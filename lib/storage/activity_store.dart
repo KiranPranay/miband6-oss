@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/activity_sample.dart';
+import '../core/sleep_analyzer.dart';
 
 /// Encodes the three sample lists to JSON off the UI isolate.
 ///
@@ -356,6 +357,20 @@ class ActivityStore {
   }
 
   List<SleepDay> _computeSleepDays() {
+    if (_samples.isEmpty) return const [];
+    // Delegated to SleepAnalyzer (findings-18): session detection, not-worn
+    // rejection, midnight crossover and deep/light staging all live there, with
+    // their Gadgetbridge sources documented. HR is passed so off-wrist
+    // stillness can be rejected and deep sleep can be based on a sustained
+    // heart-rate dip rather than the old eyeballed `deepSleep & 0x7F > 52` cut.
+    return SleepAnalyzer.detectSessions(_samples, hr: _hrReadings);
+  }
+
+  /// The previous in-store implementation, kept only so the old and new
+  /// pipelines can be compared on the same captured data during verification
+  /// (see `test-results-02.md`). Not used by the app.
+  @visibleForTesting
+  List<SleepDay> computeSleepDaysLegacy() {
     if (_samples.isEmpty) return const [];
 
     // Sort and de-duplicate identical timestamps (the band re-sends overlapping

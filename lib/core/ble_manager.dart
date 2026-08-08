@@ -16,6 +16,8 @@ import 'alert_manager.dart';
 import 'background_permissions.dart';
 import 'ecdh_b163.dart';
 import 'huami2021_chunked.dart';
+import 'huami_icon.dart';
+import 'sleep_analyzer.dart';
 import 'ui_throttle.dart';
 
 part 'hardware_test_session.dart';

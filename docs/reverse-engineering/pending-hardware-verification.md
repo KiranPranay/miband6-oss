@@ -97,3 +97,51 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
 - [ ] **P4.8 Reconnect timing table.** Record observed
       `disconnect → ready` times for P4.1–P4.3 and fill the table in
       `findings-16.md` §4.
+
+---
+
+## P2 — Sleep accuracy (findings-18)
+
+- [ ] **P2.1 Kind-byte histogram (decides an open protocol question).**
+      Run the gated session and read the `MB6TEST GATE7: kind-byte histogram`
+      line. Gadgetbridge's legacy table says sleep is kind **9/11**; our capture
+      showed **0xF0/0xF3** overnight and **0x50** daytime. Record the real
+      distribution and settle `protocol-mb6.md` §7.2 — then either confirm the
+      `sleep`-byte gate or switch to the kind values.
+- [ ] **P2.2 Gate 7 passes on a real night.** Expect a plausible session:
+      total ≤14 h, deep 10-25 %, REM exactly 0, efficiency ≤100 %.
+- [ ] **P2.3 Minute-by-minute comparison vs Zepp Life / Mi Fit** for the same
+      night: bedtime, wake time, total, deep, light, awake, wake episodes.
+      Log the table in `test-results-02.md`. This is the only real accuracy
+      check — the unit tests only prove internal consistency.
+- [ ] **P2.4 Not-worn rejection.** Leave the band on a desk overnight; expect
+      **no** sleep session (previously this produced a perfect night).
+- [ ] **P2.5 Nap.** Take a ≤90 min daytime sleep; expect exactly one nap
+      session, `isNap == true`, and no contribution to the night's totals.
+- [ ] **P2.6 Old vs new on the same data.** `computeSleepDaysLegacy()` is kept
+      for exactly this: run both over one captured `activity_data.json` and put
+      the deltas in `test-results-02.md`.
+
+## P5 — Notifications (findings-17)
+
+- [ ] **P5.1 Gate 8 visual check.** Run the gated session; the band must show
+      "Gate 8 / Notification path check". If the write succeeds but nothing
+      appears, the payload is still wrong — compare against `protocol-mb6.md` §8.
+- [ ] **P5.2 Warm-engine survival (the actual bug).** Grant notification access,
+      enable relay for one app, then **swipe the app from recents**. Post a
+      notification from that app. It must still reach the band. Previously this
+      was the exact case that failed silently.
+- [ ] **P5.3 Chat apps.** Verify a WhatsApp/Signal/Telegram message arrives with
+      real text (the `MessagingStyle` fix), not blank.
+- [ ] **P5.4 Long text chunking.** Send a >250-character notification and
+      confirm it is not truncated mid-word and does not fail; check the log for
+      `in N chunk(s)` with N > 1.
+- [ ] **P5.5 Incoming call.** Confirm the call alert appears via `0x2A46`
+      (`[03 01]+caller`) and clears on hang-up (`[03 00]`).
+- [ ] **P5.6 Dedup / privacy / screen-on.** Re-post the same notification twice
+      inside 30 s (one buzz only); enable privacy mode (title only, no body);
+      enable skip-while-screen-on and confirm it suppresses.
+- [ ] **P5.7 Icons.** Check WhatsApp shows the WhatsApp glyph and an unknown app
+      shows the generic one (id 11).
+- [ ] **P5.8 Listener rebind.** Reinstall/update the APK and confirm the relay
+      recovers without the user toggling notification access.
