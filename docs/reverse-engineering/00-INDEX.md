@@ -19,6 +19,13 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-12.md` | **Heart screen trust pass** — status/trend hero + resting prominence, real HR-vs-activity correlation, zone-banded chart, gated weekly summary (shared `Baseline`), Day/Week/Month. No "Heart Score" (trend/status instead); Stress "coming soon", Recovery omitted (no HRV). Docs: `../heart-score.md`. |
 | `findings-13.md` | **Activity screen trust pass** — coach hero (status/pace), insights, sedentary stretch, active/brisk minutes (step-cadence; intensity rejected as noisy), Day/Week/Month, gated comparisons/streaks, decomposable Activity Score. **Fixes a ~4.3× step over-count** (band repeats each minute's count across sub-minute samples). Floors omitted (no altimeter). Docs: `../activity-score.md`. |
 | `findings-14.md` | **Today screen trust pass** — composite Health Score that COMPOSES Sleep+Activity+Heart-status (breakdown shown, missing inputs named, Heart has no number), briefing, aggregated insights, salience-ordered cards that deep-link to detail tabs, gated trends, goal cluster, watch-status block. **No Recovery (no HRV), no Hydration (no sensor).** Docs: `../health-score.md`. |
+| `findings-15.md` | **Performance** — why the app lagged (notify fan-out × wholesale `context.watch` × O(n) analyses in `build()` × O(n)-per-heartbeat store) and the selective-rebuild / memoisation fix. |
+| `findings-16.md` | **Background connection** — ConnectionPhase state machine, 1/2/5/15/30/60 s backoff with jitter, adapter awareness, half-open-link liveness heartbeat, persisted connect intent. |
+| `findings-17.md` | **Notifications** — the warm-FlutterEngine fix (channel died with the activity) + the five payload defects vs Gadgetbridge, incl. calls on ANS `0x2A46`. |
+| `findings-18.md` | **Sleep accuracy** — the stage table was ZeppOS's, not MB6's; rebuilt session detection (5 min/60 min/steps-break/18:00 day), not-worn by kind, HR-dip deep staging. |
+| `findings-19.md` | **Band settings** — every config command with its target characteristic; re-applied on every reconnect. |
+| `findings-20.md` | **Stress** — MB6 measures stress natively (0x13/0x12); full `0x2A37` flags decode proves this firmware sends **no RR intervals**, so no HRV. |
+| `pending-hardware-verification.md` | **Everything not yet confirmed on the band** — read this before trusting any claim from the 2026-08-09 overhaul. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
 | `test-results-NN.md` | Per-run results template (fill after each hardware run; never overwrite). |
@@ -64,8 +71,38 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | Hardware test-session runner (gates 0→6, halt-on-fail) | ✅ done (`hardware_test_session.dart`) |
 | Gate-5 keep-alive auto-probe (12/8/15 s) | ✅ done |
 | Verify on device (run gated session) | ⏳ pending real-device run → fill `test-results-01.md` |
+| UI performance (selective rebuilds, memoised analyses) | ✅ done, ⏳ device profile pending (P1.1) |
+| Connection supervisor (backoff/adapter/liveness) | ✅ done, ⏳ unverified (P4) |
+| Notifications end-to-end (warm engine + correct payload) | ✅ done, ⏳ unverified (P5) |
+| Sleep analyzer rebuild | ✅ done, ⏳ accuracy unverified (P2.3) |
+| Band settings (all config commands) | ✅ done, ⏳ unverified (P3) |
+| Native stress fetch (0x13/0x12) | ✅ done, ⏳ unverified (P6) |
+| RR intervals / HRV | ❌ **not available on this firmware** (34/34 packets, flags 0x00) |
+| Light + dark theme, contrast-tested | ✅ done, ⏳ never seen on a device (P7.1) |
+| Hardware gates 7-10 (sleep/notif/settings/stress) | ✅ added, ⏳ never run |
 
 ## Iteration log
+- **15-20** (2026-08-09): **Full overhaul.** Performance (findings-15): root-caused
+  the lag as a chain — every BLE notify called `notifyListeners()`, every tab did a
+  top-level `context.watch<BLEManager>()`, every rebuild re-ran three O(n) analyses,
+  and `addHeartRateReadings` rebuilt an O(n) dedup set *per heartbeat*. Fixed with
+  per-value notifiers, revision-keyed memoisation, incremental store indexes,
+  isolate JSON encoding, a bounded/coalesced logger, and one service discovery per
+  connection instead of nine. Connection (16): explicit `ConnectionPhase`, jittered
+  exponential backoff, adapter awareness, liveness heartbeat, persisted intent, and
+  the service no longer stops mid-reconnect. Notifications (17): the channel lived
+  on MainActivity's FlutterEngine and died with it — moved to a process-lifetime
+  engine; payload corrected in five ways and calls moved to ANS `0x2A46`. Sleep (18):
+  our stage table was `HuamiExtendedSampleProvider`'s (ZeppOS) and never matched;
+  rebuilt on the legacy kinds with GB's session rules, not-worn by kind (not
+  `intensity==0xFF`), and HR-dip deep staging replacing an eyeballed byte threshold.
+  Settings (19): all band config commands with correct target characteristics,
+  re-applied after every auth. Stress (20): MB6 **does** measure stress natively —
+  implemented 0x13/0x12 — and a full `0x2A37` flags decode confirmed this firmware
+  sends **no RR intervals**, so HRV/recovery stay omitted. UI: light+dark palettes
+  with contrast enforced by test (which found and fixed 8 real light-theme
+  failures). **Hardware-verified: nothing — no device was attached; see
+  `pending-hardware-verification.md`.**
 - **01** (2026-06-24): decompile setup, GB extraction, Notify map, hypothesis refuted.
 - **02** (2026-06-24): Notify deep-dive confirmed legacy HR/fetch/battery + keep-alive;
   enum contradiction adjudicated (MB6 = `MILI_PANGU`); implemented HR realtime +

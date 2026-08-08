@@ -63,3 +63,44 @@ hardware counterpart to [verification-checklist.md](verification-checklist.md).
 The session is idempotent: it resets HR state on entry, always cleans up on exit
 (cancels timers/subscriptions, writes `stop-continuous`), and restores normal
 realtime HR if HR works. Re-run it as many times as needed.
+
+
+---
+
+## Gates 7-10 (added 2026-08-09)
+
+The session now runs **gates 0..10**; the summary line reads
+`MB6TEST SUMMARY p=? s=? gates=[0:? … 10:?]`.
+
+### Gate 7 — sleep plausibility (cradle-safe)
+Re-analyses the samples Gate 6 fetched. Logs the **kind-byte histogram**, which
+is the evidence that settles `protocol-mb6.md` §7.2 (Gadgetbridge says sleep is
+kind 9/11; our captures showed 0xF0/0xF3). Fails on an implausible night
+(>14 h), on naps-only, or if **any REM** is reported — this firmware cannot
+measure REM, so reporting it means the analyzer invented it.
+
+### Gate 8 — notification delivery (cradle-safe, needs your eyes)
+Sends a real alert and logs the payload size, chunk count and first frame.
+It **cannot self-verify**: look at the band. It should show
+"Gate 8 / Notification path check". If the write succeeded but nothing appeared,
+the payload is wrong — compare against `protocol-mb6.md` §8.
+
+### Gate 9 — band settings (cradle-safe)
+Writes every config command and reports any rejection (which means a wrong
+target characteristic). Then sets the periodic HR interval to **1 minute**.
+A successful write proves nothing on its own — the band silently ignores
+commands it does not understand. **Confirm later**: the next activity fetch,
+after ~10 minutes of wear, must contain per-minute HR samples. Restore your
+preferred interval afterwards.
+
+### Gate 10 — native stress (needs wear + the toggle on)
+Fetches types `0x13` (all-day) and `0x12` (manual) and checks every value is
+in 0..100. Reports **SKIPPED**, not FAIL, when the band holds no records — that
+means all-day stress monitoring is off (Band settings → Measurement), which is a
+configuration state rather than a protocol bug.
+
+## Cradle-safe vs wrist-required
+
+- **Cradle-safe:** gates 0, 2, 6 (historic data), 7, 8, 9.
+- **Wrist-required:** gates 3-5 (HR reads 0 off-wrist) and 10 (no stress is
+  recorded off-wrist).
