@@ -41,11 +41,11 @@ extension HardwareTestSession on BLEManager {
 
     final passed = <int>{};
     final skipped = <int>{};
-    const total = 10; // gates 0..9
+    const total = 11; // gates 0..10
     final fw = await _readFirmwareVersion();
 
     try {
-      _logger.i('MB6TEST SESSION START — gates 0..9 fw=$fw '
+      _logger.i('MB6TEST SESSION START — gates 0..10 fw=$fw '
           '(band must be CONNECTED, authenticated, and WORN)');
 
       // ---- GATE 0: discovery ----
@@ -95,6 +95,13 @@ extension HardwareTestSession on BLEManager {
 
       // ---- GATE 9: band settings write-back (findings-19) ----
       if (await _gate9Settings()) passed.add(9);
+
+      // ---- GATE 10: native stress fetch (findings-20) ----
+      if (await _gate10Stress()) {
+        passed.add(10);
+      } else {
+        skipped.add(10);
+      }
 
       _finishSession(passed, skipped, total, fw);
     } catch (e, st) {
@@ -657,6 +664,60 @@ extension HardwareTestSession on BLEManager {
     } catch (e) {
       _fail(9, 'exception applying band settings: $e');
       return false;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Gate 10 — the band's own stress measurement (findings-20)
+  //
+  // Cradle-safe for the transport check; real values need the band worn with
+  // all-day stress enabled. Reports SKIPPED (not FAIL) when the band simply has
+  // no stress records — that is a configuration state, not a protocol bug.
+  // -------------------------------------------------------------------------
+  Future<bool> _gate10Stress() async {
+    ActivityFetcher? fetcher;
+    try {
+      fetcher = ActivityFetcher(_logger, _device!);
+      if (!await fetcher.init()) {
+        _fail(10, 'ActivityFetcher init failed');
+        return false;
+      }
+      final since = DateTime.now().subtract(const Duration(days: 1));
+
+      final auto = await fetcher.fetchStressAuto(since);
+      final autoRaw = fetcher.lastRawBuffer.length;
+      final manual = await fetcher.fetchStressManual(since);
+      final manualRaw = fetcher.lastRawBuffer.length;
+
+      _logger.i('MB6TEST GATE10: auto raw=${autoRaw}B -> ${auto.length} '
+          'readings; manual raw=${manualRaw}B -> ${manual.length} readings');
+
+      if (auto.isEmpty && manual.isEmpty) {
+        _logger.i('MB6TEST GATE10: SKIPPED — band returned no stress records. '
+            'Enable all-day stress (Band settings → Measurement, command '
+            'FE 06 00 01), wear the band for a few hours, then re-run.');
+        return false;
+      }
+
+      final all = [...auto, ...manual];
+      final values = all.map((r) => r.value).toList();
+      final outOfRange = values.where((v) => v < 0 || v > 100).length;
+      if (outOfRange > 0) {
+        _fail(10, '$outOfRange readings outside 0..100 — record layout is '
+            'wrong (see protocol-mb6.md §10)');
+        return false;
+      }
+      final avg = values.reduce((a, b) => a + b) / values.length;
+      _pass(10, '${auto.length} all-day + ${manual.length} manual stress '
+          'readings, avg=${avg.toStringAsFixed(1)}, range '
+          '${values.reduce((a, b) => a < b ? a : b)}..'
+          '${values.reduce((a, b) => a > b ? a : b)}');
+      return true;
+    } catch (e) {
+      _fail(10, 'exception during stress fetch: $e');
+      return false;
+    } finally {
+      fetcher?.dispose();
     }
   }
 

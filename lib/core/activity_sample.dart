@@ -158,6 +158,42 @@ class SleepDay {
   bool get isNap => totalSleepMinutes < 3 * 60;
 }
 
+/// A stress score measured **by the band itself** (0-100).
+///
+/// Mi Band 6 computes stress on-device and exposes it over the legacy fetch
+/// channel — all-day samples as fetch type `0x13` and manual/spot measurements
+/// as `0x12`. This is a real measurement, not an app-side estimate; the
+/// estimate produced from our own HR stream is a separate, clearly-labelled
+/// value (see `StressAnalyzer`).
+class StressReading {
+  const StressReading({
+    required this.timestamp,
+    required this.value,
+    this.manual = false,
+  });
+
+  final DateTime timestamp;
+
+  /// 0-100, as reported by the band. Higher means more stress.
+  final int value;
+
+  /// True for a user-initiated spot measurement (type `0x12`), false for the
+  /// all-day stream (`0x13`).
+  final bool manual;
+
+  Map<String, dynamic> toJson() => {
+        't': timestamp.millisecondsSinceEpoch,
+        'v': value,
+        if (manual) 'm': 1,
+      };
+
+  factory StressReading.fromJson(Map<String, dynamic> j) => StressReading(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(j['t'] as int),
+        value: j['v'] as int,
+        manual: j['m'] == 1,
+      );
+}
+
 /// SPO2 reading.
 class Spo2Reading {
   final DateTime timestamp;

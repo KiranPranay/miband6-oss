@@ -17,6 +17,7 @@ import 'background_permissions.dart';
 import 'band_config.dart';
 import 'band_config_controller.dart';
 import 'ecdh_b163.dart';
+import 'heart_rate_measurement.dart';
 import 'huami2021_chunked.dart';
 import 'huami_icon.dart';
 import 'sleep_analyzer.dart';
@@ -943,6 +944,22 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         _logger.i('Activity fetch: no new samples');
       }
 
+      // Stress measured by the band itself (findings-20). Requires all-day
+      // stress monitoring to be on (Band settings → Measurement); with it off
+      // the band simply has nothing to return, which is not an error.
+      _logger.i('Fetching stress history since $since');
+      final stressAuto = await _activityFetcher!.fetchStressAuto(since);
+      final stressManual = await _activityFetcher!.fetchStressManual(since);
+      final stress = [...stressAuto, ...stressManual];
+      if (stress.isNotEmpty) {
+        activityStore.addStressReadings(stress);
+        _logger.i('Stress fetch: ${stressAuto.length} all-day + '
+            '${stressManual.length} manual readings');
+      } else {
+        _logger.i('Stress fetch: no data '
+            '(is all-day stress enabled in Band settings?)');
+      }
+
       _logger.i('Fetching SPO2 History since $since');
       final spo2 = await _activityFetcher!.fetchSpo2(since);
       if (spo2.isNotEmpty) {
@@ -1240,15 +1257,49 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     }
   }
 
+  /// Most recent RR intervals (ms) decoded from `0x2A37`, if the band ever
+  /// sends them. Empty on this firmware — see [HeartRateMeasurement].
+  final List<double> _rrIntervalsMs = [];
+  List<double> get recentRrIntervalsMs => List.unmodifiable(_rrIntervalsMs);
+
   void _onHeartRateNotified(List<int> data) {
     _markPacket();
     if (data.length < 2) {
       _logger.d('HR notify (ignored, ${data.length}B): ${_hexStr(data)}');
       return;
     }
-    // [flags, bpm] — bpm is data[1] (uint8). Valid physiological range 7..249.
-    final bpm = data[1] & 0xFF;
-    _logger.dLazy(() => 'HR notify: ${_hexStr(data)} -> $bpm bpm');
+
+    // Full Heart Rate Measurement decode rather than a blind data[1].
+    //
+    // The old code took `data[1] & 0xFF` unconditionally. That happens to be
+    // right for this firmware (every captured packet is 2 bytes, flags 0x00),
+    // but it is wrong in two ways that would fail silently: if the band ever
+    // set flags bit 0 (uint16 HR) we would read the low byte and look correct,
+    // and if it ever sent RR intervals (bit 4) we would never notice. This is
+    // also the RR probe requested in findings-20.
+    final m = HeartRateMeasurement.parse(data);
+    if (m == null) {
+      _logger.d('HR notify (unparseable): ${_hexStr(data)}');
+      return;
+    }
+    final bpm = m.bpm;
+
+    if (m.rrIntervalsMs.isNotEmpty) {
+      // Worth shouting about: it would mean real HRV becomes possible.
+      _logger.i('HR: RR INTERVALS PRESENT (${m.rrIntervalsMs.length}) — '
+          '${m.rrIntervalsMs.map((v) => v.toStringAsFixed(0)).join(",")} ms '
+          '(raw ${_hexStr(data)})');
+      _rrIntervalsMs.addAll(m.rrIntervalsMs);
+      if (_rrIntervalsMs.length > 512) {
+        _rrIntervalsMs.removeRange(0, _rrIntervalsMs.length - 512);
+      }
+    }
+
+    _logger.dLazy(() => 'HR notify: ${_hexStr(data)} -> $bpm bpm '
+        'flags=0x${data[0].toRadixString(16).padLeft(2, '0')} '
+        '(uint16=${m.isUint16} contact=${m.sensorContact} '
+        'energy=${m.energyExpended} rr=${m.rrIntervalsMs.length})');
+
     if (bpm >= 7 && bpm <= 249) {
       // Only the dedicated notifier fires here. Streaming HR arrives several
       // times a second; routing it through `notifyListeners()` used to rebuild

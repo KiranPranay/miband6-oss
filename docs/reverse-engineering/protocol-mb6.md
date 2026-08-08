@@ -408,6 +408,63 @@ findings-07 verified works on hardware. Config writes therefore go plain to
 
 ---
 
+## 10. Stress (native, measured by the band)
+
+**Sources:** GB `FetchStressAutoOperation`, `FetchStressManualOperation`,
+`HuamiFetchDataType`, `HuamiSupport.setHeartrateStressMonitoring`,
+`MiBand6Coordinator.supportsStressMeasurement()`; cross-checked against Notify
+and Mi Fit (`MiLiProProfile` — Xiaomi calls stress "pressure"). See
+`findings-20.md`.
+
+Mi Band 6 **computes stress on-device**, entirely on the legacy path. Both types
+ride the ordinary activity-fetch channel (write `fee0/0x0004`, notify
+`fee0/0x0005`).
+
+| Type | Meaning | Payload |
+|---|---|---|
+| `0x13` | all-day / automatic | bare stream, **1 byte per minute**, 0-100, `0xFF` = no measurement |
+| `0x12` | manual / spot | **5-byte records**: `uint32 LE` epoch-seconds + `uint8` score |
+
+Neither has a version byte — unlike SpO2 (`0x25`), which starts with one.
+
+**`0xFF` still consumes its minute.** Skipping a gap instead of advancing the
+clock would shift every later reading earlier.
+
+Enable all-day recording with `FE 06 00 01` on the config characteristic
+(`00000003-…`); disable with `FE 06 00 00`. Mi Fit also exposes a read-back
+getter `FE 06 01`. With monitoring off the band simply holds no records, which
+is a configuration state rather than a protocol failure.
+
+## 11. Realtime HR flags byte — and the absence of RR intervals
+
+The Heart Rate Measurement characteristic `0x2A37` carries a flags byte that
+both Gadgetbridge's Huami path and our old code ignored
+(`HuamiSupport.handleHeartrate` hard-guards `length == 2 && value[0] == 0`;
+we did `data[1] & 0xFF`).
+
+Correct layout (Bluetooth SIG Heart Rate Service):
+
+| bit | meaning |
+|---|---|
+| 0 | 0 = HR uint8, 1 = HR uint16 LE |
+| 1-2 | sensor contact (supported / detected) |
+| 3 | energy expended present (uint16 LE, kJ) |
+| 4 | **RR intervals present** (N × uint16 LE, units of 1/1024 s) |
+
+Now decoded fully in `lib/core/heart_rate_measurement.dart`.
+
+**Finding: this firmware does not send RR intervals.** All 34 captured
+notifications across 8 hardware runs are exactly 2 bytes with flags `0x00`
+(bit 4 clear). Consequently **real HRV (RMSSD/SDNN) cannot be computed from the
+realtime stream**, and any "HRV" derived from BPM alone would be fiction. The
+HRV fetch type `0x49` is likewise gated on `supportsHrvMeasurement()`, which only
+`ZeppOsCoordinator` overrides — GB never sends it to a Mi Band 6.
+
+The parser now logs loudly if RR intervals ever do appear, so the conclusion can
+be revisited rather than assumed permanent.
+
+---
+
 ## Appendix A — Huami-2021 chunked transport (NOT used by MB6; spec for completeness)
 
 Kept because Notify implements it (it supports MB7) and the task asked us to spec

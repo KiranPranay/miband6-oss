@@ -168,3 +168,25 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
 - [ ] **P3.6 Stress toggle actually enables recording.** Turn on all-day stress,
       wear for a few hours, then confirm the stress fetch (Phase 6) returns
       samples where it previously returned none.
+
+---
+
+## P6 — Stress (findings-20)
+
+- [ ] **P6.1 Gate 10.** Enable all-day stress, wear the band a few hours, run the
+      session. Expect all-day + manual readings, all within 0..100.
+      SKIPPED (no records) means monitoring was off, not a protocol bug.
+- [ ] **P6.2 All-day toggle really enables recording.** Confirm the fetch
+      returns nothing with the toggle off and data with it on — this is what
+      proves `FE 06 00 01` is the right command.
+- [ ] **P6.3 Timeline alignment.** Cross-check a few all-day timestamps against
+      Zepp Life's stress graph. Misalignment means the `0xFF` gap handling or
+      the stream start time is wrong.
+- [ ] **P6.4 Manual measurement.** Trigger a spot stress reading on the band and
+      confirm it arrives as a `manual: true` record with a sane timestamp.
+- [ ] **P6.5 RR-interval probe (settles the HRV question).** With verbose
+      logging on, watch for `HR: RR INTERVALS PRESENT`. Exercise BOTH continuous
+      (`15 01 01` + `16` keep-alive) and one-shot (`15 02 01`) modes. Expect
+      none — record the flags byte observed in each mode either way.
+- [ ] **P6.6 HRV fetch 0x49 probe.** Send `0x49` via `fetchRawData` with `0x13`
+      as a positive control. Expect length 0 (as `0x48` did). Record the result.

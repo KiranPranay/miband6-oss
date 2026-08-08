@@ -43,3 +43,7 @@ Source tags: **GB**=Gadgetbridge, **NOTIFY**=com.mc.miband1.
 | 35 | Deep-sleep threshold | `deepSleep & 0x7F > 52` — eyeballed on a few nights | sustained HR dip ≥6 % below the session's own median for ≥8 min (HR-dip staging) | ✅ **replaced** (`SleepAnalyzer`) |
 | 36 | Sleep latency | not computed | measured from **rest onset** (≤60 min look-back, worn + no steps + low movement) to sleep onset | ✅ **added** (`SleepQuality`) |
 | 37 | REM | surfaced when a category claimed it | firmware never populates byte 7 → **never reported** | ✅ enforced + gate-checked |
+| 38 | Stress | UI said "needs HRV — coming soon" | **band measures it natively**: fetch `0x13` (1 B/min) + `0x12` (5 B records) | ✅ **implemented** (findings-20) |
+| 39 | Enable all-day stress | absent | `FE 06 00 01` → config char | ✅ **added** (`BandCommands.stressMonitoring`) |
+| 40 | `0x2A37` flags byte | ignored; `data[1]` read blindly | full HRS decode (uint16 HR, contact, energy, RR) | ✅ **fixed** (`HeartRateMeasurement`) |
+| 41 | RR intervals / HRV | assumed obtainable | **not sent by this firmware** (34/34 packets are 2 B, flags 0x00); `0x49` is ZeppOS-gated | ✅ documented; HRV maths implemented but unfed |

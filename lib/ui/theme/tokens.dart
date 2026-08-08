@@ -25,6 +25,10 @@ class AppColors {
   static const sleepSoft = Color(0xFFE7E8FE);
   static const spo2 = Color(0xFF14B8A6);
   static const spo2Soft = Color(0xFFD4F4F0);
+  // Stress gets its own teal, one step deeper than SpO2 so the two remain
+  // distinguishable side by side (one accent per metric domain).
+  static const stress = Color(0xFF0E9488);
+  static const stressSoft = Color(0xFFD3F0ED);
   static const calories = Color(0xFFFB8C3C);
   static const caloriesSoft = Color(0xFFFFEAD7);
   static const distance = Color(0xFF3B82F6);

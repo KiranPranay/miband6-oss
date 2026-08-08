@@ -8,17 +8,18 @@ import '../../core/activity_sample.dart';
 import '../../core/heart_analysis.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
+import '../stress_screen.dart';
 import '../widgets/app_card.dart';
 import '../widgets/chart_card.dart';
-import '../widgets/coming_soon.dart';
 import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
 import '../widgets/segmented_toggle.dart';
 
 /// The Heart screen — a heart-health view, not a bare sensor dashboard: a hero
 /// leading with status + resting HR + trend, rule-based insights, a referenced
-/// trend chart, and (gated) personal comparisons. No HRV → no stress/recovery
-/// number here (stress is a separate "coming soon"; recovery is omitted).
+/// trend chart, and (gated) personal comparisons. Stress lives on its own
+/// screen and is MEASURED BY THE BAND (findings-20); Recovery stays omitted
+/// because it needs HRV, which this firmware does not report.
 ///
 /// Colour roles: pink = live heart data, purple = trends/resting, green =
 /// healthy status, amber = warnings.
@@ -1089,20 +1090,18 @@ class _MoreMetricsCard extends StatelessWidget {
           vertical: AppSpacing.sm, horizontal: AppSpacing.lg),
       child: Column(
         children: [
+          // The old copy here said stress "needs HRV — coming soon". That
+          // premise was wrong: Mi Band 6 measures stress on-device and reports
+          // it over the legacy fetch channel (findings-20). What we genuinely
+          // cannot do is HRV, because this firmware never sends RR intervals —
+          // so Recovery below stays omitted with its real reason.
           _MetricRow(
             icon: Icons.bolt_rounded,
             color: AppColors.warning,
             title: 'Stress',
-            note: 'Coming soon',
+            note: 'Measured by your band',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const ComingSoonScreen(
-                title: 'Stress',
-                description:
-                    'Stress estimates need heart-rate variability (HRV). '
-                    'We’re working on the most accurate way to surface it.',
-                icon: Icons.bolt_rounded,
-                gradient: [AppColors.warning, AppColors.heart],
-              ),
+              builder: (_) => const StressScreen(),
             )),
           ),
           const Divider(height: 1, color: AppColors.divider),

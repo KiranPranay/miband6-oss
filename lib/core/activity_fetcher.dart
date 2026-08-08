@@ -1,5 +1,8 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
 import 'activity_sample.dart';
 import 'logger.dart';
 
@@ -129,6 +132,79 @@ class ActivityFetcher {
   Future<List<HeartRateReading>> fetchHeartRateHistory(DateTime since) async {
     final samples = await fetchActivityData(since);
     return heartRatesFromSamples(samples);
+  }
+
+  /// Fetch type for all-day (automatic) stress — `HuamiFetchDataType.STRESS_AUTOMATIC`.
+  static const int typeStressAuto = 0x13;
+
+  /// Fetch type for manual/spot stress — `HuamiFetchDataType.STRESS_MANUAL`.
+  static const int typeStressManual = 0x12;
+
+  /// All-day stress: a bare stream of **one byte per minute** from the
+  /// requested start time.
+  ///
+  /// `0xFF` means "no measurement in that minute" — the minute is still
+  /// consumed, so a gap must advance the clock rather than being skipped, or
+  /// every later sample would be shifted earlier. Unlike SpO2 (type 0x25) there
+  /// is **no leading version byte**.
+  ///
+  /// Source: GB `FetchStressAutoOperation`; cross-checked against Notify and
+  /// Mi Fit (`MiLiProProfile`, where Xiaomi calls stress "pressure").
+  /// See `protocol-mb6.md` §10.
+  ///
+  /// Requires all-day stress monitoring to be enabled on the band
+  /// (`FE 06 00 01`, see `BandCommands.stressMonitoring`) — otherwise the band
+  /// simply has nothing to return.
+  Future<List<StressReading>> fetchStressAuto(DateTime since) async {
+    final raw = await fetchRawData(typeStressAuto, since);
+    return parseStressAuto(raw, _fetchStartTime ?? since);
+  }
+
+  /// Manual/spot stress: 5-byte records, `uint32 LE epoch-seconds + uint8 score`.
+  /// No version byte.
+  Future<List<StressReading>> fetchStressManual(DateTime since) async {
+    final raw = await fetchRawData(typeStressManual, since);
+    return parseStressManual(raw);
+  }
+
+  /// Parses the all-day stress stream. Pure + unit-tested.
+  @visibleForTesting
+  static List<StressReading> parseStressAuto(List<int> raw, DateTime start) {
+    final out = <StressReading>[];
+    for (var i = 0; i < raw.length; i++) {
+      final v = raw[i] & 0xFF;
+      // The minute is consumed either way — only the reading is skipped.
+      if (v == 0xFF) continue;
+      if (v > 100) continue; // out of the documented 0..100 range
+      out.add(StressReading(
+        timestamp: start.add(Duration(minutes: i)),
+        value: v,
+        manual: false,
+      ));
+    }
+    return out;
+  }
+
+  /// Parses manual stress records. Pure + unit-tested.
+  @visibleForTesting
+  static List<StressReading> parseStressManual(List<int> raw) {
+    const recordSize = 5;
+    final out = <StressReading>[];
+    for (var i = 0; i + recordSize <= raw.length; i += recordSize) {
+      final seconds = raw[i] |
+          (raw[i + 1] << 8) |
+          (raw[i + 2] << 16) |
+          (raw[i + 3] << 24);
+      final value = raw[i + 4] & 0xFF;
+      if (seconds <= 0 || value > 100) continue;
+      out.add(StressReading(
+        timestamp:
+            DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: false),
+        value: value,
+        manual: true,
+      ));
+    }
+    return out;
   }
 
   List<int> _buildFetchCommand(int type, DateTime since) {

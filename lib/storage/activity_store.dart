@@ -18,14 +18,16 @@ List<String> _encodeStoreJson(_StorePayload p) => <String>[
       jsonEncode(p.samples),
       jsonEncode(p.spo2),
       jsonEncode(p.hr),
+      jsonEncode(p.stress),
     ];
 
 @immutable
 class _StorePayload {
-  const _StorePayload(this.samples, this.spo2, this.hr);
+  const _StorePayload(this.samples, this.spo2, this.hr, this.stress);
   final List<Map<String, dynamic>> samples;
   final List<Map<String, dynamic>> spo2;
   final List<Map<String, dynamic>> hr;
+  final List<Map<String, dynamic>> stress;
 }
 
 /// Simple JSON-file persistence for activity samples.
@@ -42,6 +44,7 @@ class ActivityStore {
   static const _activityFile = 'activity_data.json';
   static const _spo2File = 'spo2_data.json';
   static const _hrFile = 'hr_data.json';
+  static const _stressFile = 'stress_data.json';
   static const _lastActivitySyncFile = 'last_activity_sync.txt';
   static const _lastSpo2SyncFile = 'last_spo2_sync.txt';
   static const _lastHrSyncFile = 'last_hr_sync.txt';
@@ -49,6 +52,7 @@ class ActivityStore {
   List<ActivitySample> _samples = [];
   List<Spo2Reading> _spo2Readings = [];
   List<HeartRateReading> _hrReadings = [];
+  List<StressReading> _stressReadings = [];
   DateTime? _lastActivitySync;
   DateTime? _lastSpo2Sync;
   DateTime? _lastHrSync;
@@ -58,6 +62,7 @@ class ActivityStore {
   final Set<int> _sampleKeys = <int>{};
   final Set<int> _spo2Keys = <int>{};
   final Set<int> _hrKeys = <int>{};
+  final Set<int> _stressKeys = <int>{};
 
   /// Monotonic counter bumped whenever stored data changes. The UI keys its
   /// memoised analyses off this, so an unchanged store never recomputes.
@@ -76,6 +81,9 @@ class ActivityStore {
   List<ActivitySample> get samples => _samples;
   List<Spo2Reading> get spo2Readings => _spo2Readings;
   List<HeartRateReading> get hrReadings => _hrReadings;
+
+  /// Stress scores measured by the band itself (fetch types 0x13 / 0x12).
+  List<StressReading> get stressReadings => _stressReadings;
   DateTime? get lastActivitySync => _lastActivitySync;
   DateTime? get lastSpo2Sync => _lastSpo2Sync;
   DateTime? get lastHrSync => _lastHrSync;
@@ -123,6 +131,16 @@ class ActivityStore {
     } catch (_) {}
 
     try {
+      final f = await _getFile(_stressFile);
+      if (await f.exists()) {
+        final json = jsonDecode(await f.readAsString()) as List;
+        _stressReadings = json
+            .map((e) => StressReading.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+
+    try {
       final f = await _getFile(_lastActivitySyncFile);
       if (await f.exists()) {
         final ms = int.tryParse(await f.readAsString());
@@ -162,6 +180,9 @@ class ActivityStore {
     _hrKeys
       ..clear()
       ..addAll(_hrReadings.map((r) => r.timestamp.millisecondsSinceEpoch));
+    _stressKeys
+      ..clear()
+      ..addAll(_stressReadings.map((r) => r.timestamp.millisecondsSinceEpoch));
   }
 
   Future<void> save() async {
@@ -173,6 +194,7 @@ class ActivityStore {
         _samples.map((s) => s.toJson()).toList(growable: false),
         _spo2Readings.map((s) => s.toJson()).toList(growable: false),
         _hrReadings.map((s) => s.toJson()).toList(growable: false),
+        _stressReadings.map((s) => s.toJson()).toList(growable: false),
       ),
     );
 
@@ -184,6 +206,9 @@ class ActivityStore {
 
     final fHr = await _getFile(_hrFile);
     await fHr.writeAsString(encoded[2]);
+
+    final fStress = await _getFile(_stressFile);
+    await fStress.writeAsString(encoded[3]);
 
     if (_lastActivitySync != null) {
       final f = await _getFile(_lastActivitySyncFile);
@@ -262,6 +287,12 @@ class ActivityStore {
 
   void addHeartRateReadings(List<HeartRateReading> readings) {
     if (_mergeSorted(_hrReadings, _hrKeys, readings, (r) => r.timestamp)) {
+      _bump();
+    }
+  }
+
+  void addStressReadings(List<StressReading> readings) {
+    if (_mergeSorted(_stressReadings, _stressKeys, readings, (r) => r.timestamp)) {
       _bump();
     }
   }
@@ -539,6 +570,7 @@ class ActivityStore {
     _samples.removeWhere((s) => s.timestamp.isBefore(cutoff));
     _spo2Readings.removeWhere((r) => r.timestamp.isBefore(cutoff));
     _hrReadings.removeWhere((r) => r.timestamp.isBefore(cutoff));
+    _stressReadings.removeWhere((r) => r.timestamp.isBefore(cutoff));
     if (_samples.length + _spo2Readings.length + _hrReadings.length != before) {
       _rebuildKeyIndexes();
       _bump();
