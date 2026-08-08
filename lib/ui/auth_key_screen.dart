@@ -18,14 +18,17 @@ class _AuthKeyScreenState extends State<AuthKeyScreen> {
     super.dispose();
   }
 
-  void _save(BuildContext context) async {
+  /// Uses the State's own `context` (not a passed-in one) so the `mounted`
+  /// guard below actually covers the context being used after the await.
+  Future<void> _save() async {
     final value = _keyController.text;
     final success = await context.read<AuthManager>().saveKey(value);
+    if (!mounted) return;
 
     if (success) {
-      if (mounted) Navigator.pop(context);
+      Navigator.pop(context);
     } else {
-      if (mounted) {
+      {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Invalid key length or format. Needs 32 hex chars!'),
@@ -60,7 +63,7 @@ class _AuthKeyScreenState extends State<AuthKeyScreen> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () => _save(context),
+              onPressed: _save,
               child: const Text('Save Auth Key'),
             ),
             const SizedBox(height: 10),

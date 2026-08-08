@@ -268,6 +268,39 @@ class HeartAnalysis {
     );
   }
 
+  /// Returns a copy carrying a new live [bpm].
+  ///
+  /// [currentBpm] feeds only [currentBpm] and [currentStatus] — every other
+  /// field is an aggregate over stored history. Splitting it out lets the UI
+  /// compute the expensive aggregate once per data change and then apply the
+  /// streamed heart rate per beat for free, instead of re-running the whole
+  /// analysis on every notification. See findings-15.
+  HeartAnalysis withCurrentBpm(int? bpm) {
+    if (bpm == currentBpm) return this;
+    return HeartAnalysis._(
+      currentBpm: bpm,
+      currentStatus: (bpm != null && bpm > 0) ? statusOf(bpm) : null,
+      restingHr: restingHr,
+      restingLabel: restingLabel,
+      trend: trend,
+      todayMin: todayMin,
+      todayAvg: todayAvg,
+      todayMax: todayMax,
+      highest: highest,
+      insights: insights,
+      recommendations: recommendations,
+      zones: zones,
+      hasPersonalBaseline: hasPersonalBaseline,
+      baselineDayCount: baselineDayCount,
+      baselineDaysNeeded: baselineDaysNeeded,
+      weekAvg: weekAvg,
+      weekResting: weekResting,
+      weekHigh: weekHigh,
+      weekLow: weekLow,
+      vsLastWeekAvg: vsLastWeekAvg,
+    );
+  }
+
   /// Whether the per-minute sample nearest [t] (within 2 min) shows activity
   /// (non-trivial intensity or steps). Real correlation, not guessed.
   static bool _activeAt(List<ActivitySample> samples, DateTime t) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/analysis_cache.dart';
 import '../../core/ble_manager.dart';
 import '../../core/activity_sample.dart';
 import '../../core/heart_analysis.dart';
@@ -63,17 +64,28 @@ class _HeartTabState extends State<HeartTab> {
 
   @override
   Widget build(BuildContext context) {
-    final ble = context.watch<BLEManager>();
+    final ble = context.read<BLEManager>();
+    // Live HR is the point of this screen, so it *is* in the subscription set —
+    // but the analysis below is memoised against the store revision, so a beat
+    // costs a widget rebuild instead of a full pass over stored history.
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        ble.activityStore.revisionListenable,
+        ble.authStateListenable,
+        ble.heartRateListenable,
+        ble.realtimeHrListenable,
+      ]),
+      builder: (context, _) => _buildContent(context, ble),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, BLEManager ble) {
     final store = ble.activityStore;
     final ranges = _ranges(store.hrReadings);
     if (_range >= ranges.length) _range = ranges.length - 1;
     final readings = _filtered(store.hrReadings);
     final isActive = ble.isRealtimeHeartRateActive;
-    final heart = HeartAnalysis.compute(
-      currentBpm: ble.heartRate,
-      hrReadings: store.hrReadings,
-      samples: store.samples,
-    );
+    final heart = AnalysisCache.heart(store, currentBpm: ble.heartRate);
 
     return CustomScrollView(
       slivers: [

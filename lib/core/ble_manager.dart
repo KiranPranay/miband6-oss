@@ -7,7 +7,6 @@ import 'dart:math';
 import 'logger.dart';
 import 'encryption.dart';
 import '../storage/secure_storage.dart';
-import 'dart:typed_data';
 import 'band_metrics.dart';
 import 'activity_sample.dart';
 import 'activity_fetcher.dart';
@@ -15,6 +14,7 @@ import '../storage/activity_store.dart';
 import 'alert_manager.dart';
 import 'ecdh_b163.dart';
 import 'huami2021_chunked.dart';
+import 'ui_throttle.dart';
 
 part 'hardware_test_session.dart';
 part 'huami2021_auth.dart';
@@ -94,9 +94,84 @@ class BLEManager extends ChangeNotifier {
   bool _isAuthenticating = false;
   AuthState _authState = AuthState.notAuthenticated;
 
+  // ---------------------------------------------------------------------------
+  // Fine-grained UI state (findings-15)
+  //
+  // The high-frequency values each get their own [ValueNotifier] so a widget can
+  // subscribe to exactly what it renders. Previously every one of these updates
+  // went through `notifyListeners()` on this ChangeNotifier, and every tab did a
+  // top-level `context.watch<BLEManager>()` — so one streamed heartbeat rebuilt
+  // the entire 2 000-line sleep tab, re-running its full analysis pass.
+  //
+  // `notifyListeners()` is still emitted for coarse/structural changes, but is
+  // coalesced to ~4 Hz by [_uiCoalescer].
+  // ---------------------------------------------------------------------------
+
+  /// Latest streamed heart rate (bpm), or null when nothing has been measured.
+  final ValueNotifier<int?> heartRateListenable = ValueNotifier<int?>(null);
+
+  /// Battery percentage 0-100.
+  final ValueNotifier<int?> batteryListenable = ValueNotifier<int?>(null);
+
+  /// Live step/distance/calorie counters from fee0/0x0007.
+  final ValueNotifier<BandMetrics> metricsListenable =
+      ValueNotifier<BandMetrics>(const BandMetrics());
+
+  /// Connection + authentication phase, for the status chip.
+  final ValueNotifier<AuthState> authStateListenable =
+      ValueNotifier<AuthState>(AuthState.notAuthenticated);
+
+  /// True while an activity/SpO2 fetch is in flight.
+  final ValueNotifier<bool> fetchingListenable = ValueNotifier<bool>(false);
+
+  /// True while realtime HR streaming is armed.
+  final ValueNotifier<bool> realtimeHrListenable = ValueNotifier<bool>(false);
+
+  late final Coalescer _uiCoalescer =
+      Coalescer(_emitNow, interval: const Duration(milliseconds: 250));
+
+  /// Persisting metrics writes to disk; it must never run inside a BLE notify
+  /// callback. Steps notify once per stride while walking.
+  final Debouncer _metricsSaveDebouncer =
+      Debouncer(delay: const Duration(seconds: 5));
+
+  /// The activity store re-encodes its whole history on save.
+  final Debouncer _storeSaveDebouncer =
+      Debouncer(delay: const Duration(seconds: 10));
+
+  /// Cached GATT service list for the current connection. Service discovery is
+  /// a full round-trip to the band; the old code re-ran it inside nine separate
+  /// helpers (`_syncTime`, `_setFitnessGoal`, `_subscribeToSteps`,
+  /// `_writeConfig`, `_setUserInfo`, `_setupHeartRate`, `_readBattery`, …),
+  /// which serialised connect-time setup behind ~9 redundant discoveries.
+  List<BluetoothService>? _cachedServices;
+
   BLEManager(this._logger, this._storage) {
     _loadPersistedData();
-    activityStore.load();
+  }
+
+  /// Discover services once per connection and reuse the result.
+  Future<List<BluetoothService>> _discoverServicesCached(
+      {bool force = false}) async {
+    if (_device == null || !_device!.isConnected) return const [];
+    if (!force && _cachedServices != null) return _cachedServices!;
+    final services = await _device!.discoverServices();
+    _cachedServices = services;
+    return services;
+  }
+
+  /// Find a characteristic whose UUID contains [fragment] inside the service
+  /// whose UUID contains [serviceFragment], using the cached service list.
+  Future<BluetoothCharacteristic?> _findChar(
+      String serviceFragment, String fragment) async {
+    final services = await _discoverServicesCached();
+    for (final svc in services) {
+      if (!svc.uuid.str.toLowerCase().contains(serviceFragment)) continue;
+      for (final c in svc.characteristics) {
+        if (c.uuid.str.toLowerCase().contains(fragment)) return c;
+      }
+    }
+    return null;
   }
 
   BluetoothDevice? get device => _device;
@@ -116,7 +191,7 @@ class BLEManager extends ChangeNotifier {
   Future<void> _loadPersistedData() async {
     await activityStore.load();
     _lastSyncTime = activityStore.lastActivitySync;
-    notifyListeners();
+    _emitChange();
   }
 
   // ---------------------------------------------------------------------------
@@ -195,7 +270,8 @@ class BLEManager extends ChangeNotifier {
     _userDisconnected = false;
     _logger.i("Connecting to ${target.remoteId}...");
     _device = target;
-    notifyListeners();
+    _cachedServices = null; // new connection ⇒ new GATT database
+    _emitImmediate(); // the user tapped Connect and is watching for feedback
 
     _connSubscription?.cancel();
     _reconnectTimer?.cancel();
@@ -207,7 +283,7 @@ class BLEManager extends ChangeNotifier {
       } else if (state == BluetoothConnectionState.connected) {
         _handleConnected();
       }
-      notifyListeners();
+      _emitChange();
     });
 
     try {
@@ -219,23 +295,30 @@ class BLEManager extends ChangeNotifier {
 
   void _handleDisconnect() {
     _isAuthenticating = false;
-    _authState = AuthState.notAuthenticated;
+    _setAuthState(AuthState.notAuthenticated);
     _authChar = null;
     _stepsChar = null;
     _hrMeasureChar = null;
     _hrControlChar = null;
     _battChar = null;
+    // The GATT database belongs to the connection — a reconnect must re-discover
+    // rather than hand out stale characteristic handles.
+    _cachedServices = null;
     _charSubscription?.cancel();
     _stepsSubscription?.cancel();
     _hrSubscription?.cancel();
     _hrKeepAliveTimer?.cancel();
-    _realtimeHrActive = false;
+    _setRealtimeHrActive(false);
     _disposeChunked();
     // NOTE: _metrics is intentionally NOT reset — we keep the last known values
     // so the UI can still display historical data while disconnected.
-    _batteryLevel = null;
-    _heartRate = null;
+    _setBatteryLevel(null);
+    _setHeartRate(null);
     _logger.e("Device disconnected.");
+
+    // Flush anything the debouncers were holding — the disconnect may be the
+    // last event before the process is backgrounded.
+    _flushPendingWrites();
 
     _stopForegroundService();
 
@@ -244,15 +327,53 @@ class BLEManager extends ChangeNotifier {
     }
   }
 
+  /// Persist anything the save debouncers still owe.
+  void _flushPendingWrites() {
+    if (_metricsSaveDebouncer.isPending) {
+      _metricsSaveDebouncer.cancel();
+      _persistMetrics();
+    }
+    if (_storeSaveDebouncer.isPending) {
+      _storeSaveDebouncer.cancel();
+      activityStore.save();
+    }
+  }
+
+  void _persistMetrics() {
+    _storage.saveMetrics(_metrics);
+    final ts = _lastSyncTime;
+    if (ts != null) _storage.saveLastSyncTime(ts);
+  }
+
+  void _setHeartRate(int? bpm) {
+    _heartRate = bpm;
+    heartRateListenable.value = bpm;
+  }
+
+  void _setBatteryLevel(int? level) {
+    _batteryLevel = level;
+    batteryListenable.value = level;
+  }
+
+  void _setRealtimeHrActive(bool active) {
+    _realtimeHrActive = active;
+    realtimeHrListenable.value = active;
+  }
+
+  void _setFetchingActivity(bool fetching) {
+    _isFetchingActivity = fetching;
+    fetchingListenable.value = fetching;
+  }
+
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
     _isReconnecting = true;
-    notifyListeners();
+    _emitChange();
     _logger.i("Will attempt reconnect in 3 s...");
     _reconnectTimer = Timer(const Duration(seconds: 3), () async {
       if (_userDisconnected || _device == null) {
         _isReconnecting = false;
-        notifyListeners();
+        _emitChange();
         return;
       }
       _logger.i("Reconnecting to ${_device!.remoteId}...");
@@ -285,7 +406,7 @@ class BLEManager extends ChangeNotifier {
     }
 
     _logger.i("Discovering services...");
-    List<BluetoothService> services = await _device!.discoverServices();
+    final services = await _discoverServicesCached(force: true);
 
     BluetoothService? authService;
     for (var svc in services) {
@@ -378,8 +499,8 @@ class BLEManager extends ChangeNotifier {
     if (_authChar == null || !_device!.isConnected) return;
 
     _isAuthenticating = true;
-    _authState = AuthState.authenticating;
-    notifyListeners();
+    _setAuthState(AuthState.authenticating);
+    _emitChange();
 
     try {
       await _authChar!.setNotifyValue(true);
@@ -408,8 +529,8 @@ class BLEManager extends ChangeNotifier {
       _authTimeoutTimer = Timer(const Duration(seconds: 20), () {
         _logger.e("Auth timeout");
         _isAuthenticating = false;
-        _authState = AuthState.failed;
-        notifyListeners();
+        _setAuthState(AuthState.failed);
+        _emitChange();
       });
 
       // Mi Band 6 is an already-paired device with cryptFlags = 0x80, so
@@ -423,8 +544,8 @@ class BLEManager extends ChangeNotifier {
     } catch (e) {
       _logger.e("Auth Handshake Error: $e");
       _isAuthenticating = false;
-      _authState = AuthState.failed;
-      notifyListeners();
+      _setAuthState(AuthState.failed);
+      _emitChange();
     }
   }
 
@@ -482,8 +603,8 @@ class BLEManager extends ChangeNotifier {
       if (status == success) {
         _logger.i("Authentication SUCCESS! (canonical Huami auth)");
         _isAuthenticating = false;
-        _authState = AuthState.authenticated;
-        notifyListeners();
+        _setAuthState(AuthState.authenticated);
+        _emitChange();
         _onAuthSuccess();
       } else if (status == fail) {
         _logger.e("Auth Step 3 FAILED: encryption mismatch — wrong key");
@@ -555,17 +676,7 @@ class BLEManager extends ChangeNotifier {
     // Find the current time characteristic (0x2A2B in fee0)
     BluetoothCharacteristic? timeChar;
     try {
-      final services = await _device!.discoverServices();
-      for (final svc in services) {
-        if (svc.uuid.str.toLowerCase().contains('fee0')) {
-          for (final c in svc.characteristics) {
-            if (c.uuid.str.toLowerCase().contains('2a2b')) {
-              timeChar = c;
-              break;
-            }
-          }
-        }
-      }
+      timeChar = await _findChar('fee0', '2a2b');
     } catch (e) {
       _logger.e("TimeSync discovery failed: $e");
     }
@@ -609,18 +720,7 @@ class BLEManager extends ChangeNotifier {
   Future<void> _setFitnessGoal(int steps) async {
     if (_device == null || !_device!.isConnected) return;
     try {
-      BluetoothCharacteristic? configChar;
-      final services = await _device!.discoverServices();
-      for (final svc in services) {
-        if (svc.uuid.str.toLowerCase().contains('fee0')) {
-          for (final c in svc.characteristics) {
-            if (c.uuid.str.toLowerCase().contains('0003')) {
-              configChar = c;
-              break;
-            }
-          }
-        }
-      }
+      final configChar = await _findChar('fee0', '0003');
       if (configChar != null) {
         _logger.i("Setting fitness goal: $steps steps...");
         // Command: 0x10, 0x0, 0x0, steps_lo, steps_hi, 0, 0
@@ -643,8 +743,8 @@ class BLEManager extends ChangeNotifier {
   Future<void> _fetchActivityData() async {
     if (_device == null || !_device!.isConnected) return;
 
-    _isFetchingActivity = true;
-    notifyListeners();
+    _setFetchingActivity(true);
+    _emitChange();
 
     try {
       _activityFetcher = ActivityFetcher(_logger, _device!);
@@ -704,8 +804,8 @@ class BLEManager extends ChangeNotifier {
     } catch (e) {
       _logger.e('Activity fetch error: $e');
     } finally {
-      _isFetchingActivity = false;
-      notifyListeners();
+      _setFetchingActivity(false);
+      _emitChange();
     }
   }
 
@@ -717,25 +817,7 @@ class BLEManager extends ChangeNotifier {
     if (_device == null || !_device!.isConnected) return;
 
     try {
-      final services = await _device!.discoverServices();
-      BluetoothService? fee0;
-      for (final svc in services) {
-        if (svc.uuid.str.toLowerCase().contains('fee0')) {
-          fee0 = svc;
-          break;
-        }
-      }
-      if (fee0 == null) {
-        _logger.e("Steps: fee0 service not found.");
-        return;
-      }
-
-      for (final char in fee0.characteristics) {
-        if (char.uuid.str.toLowerCase().contains('0007')) {
-          _stepsChar = char;
-          break;
-        }
-      }
+      _stepsChar = await _findChar('fee0', '0007');
       if (_stepsChar == null) {
         _logger.e("Steps: 0x0007 not found in fee0.");
         return;
@@ -771,17 +853,19 @@ class BLEManager extends ChangeNotifier {
 
   void _applyStepsPacket(List<int> data) {
     final parsed = BandMetrics.fromStepsPacket(data);
-    if (parsed != null) {
-      _metrics = parsed;
-      _lastSyncTime = DateTime.now();
-      _logger.i("Steps: ${parsed.steps} steps, ${parsed.distanceMeters} m, "
-          "${parsed.calories} kcal");
-      _storage.saveMetrics(_metrics);
-      _storage.saveLastSyncTime(_lastSyncTime!);
-      notifyListeners();
-    } else {
+    if (parsed == null) {
       _logger.d("Steps: packet not parseable (${data.length} B)");
+      return;
     }
+    _metrics = parsed;
+    metricsListenable.value = parsed;
+    _lastSyncTime = DateTime.now();
+    _logger.i("Steps: ${parsed.steps} steps, ${parsed.distanceMeters} m, "
+        "${parsed.calories} kcal");
+    // Persisting is deferred: this runs inside a BLE notify callback that fires
+    // repeatedly while the user is walking, and saveMetrics touches disk.
+    _metricsSaveDebouncer(_persistMetrics);
+    _emitChange();
   }
 
   // ---------------------------------------------------------------------------
@@ -791,7 +875,7 @@ class BLEManager extends ChangeNotifier {
   Future<void> _subscribeToMissingNotifications() async {
     if (_device == null || !_device!.isConnected) return;
     try {
-      final services = await _device!.discoverServices();
+      final services = await _discoverServicesCached();
       for (final svc in services) {
         if (svc.uuid.str.toLowerCase().contains('fee0')) {
           for (final char in svc.characteristics) {
@@ -827,18 +911,7 @@ class BLEManager extends ChangeNotifier {
   Future<void> _writeConfig(List<int> cmd, String label) async {
     if (_device == null || !_device!.isConnected) return;
     try {
-      BluetoothCharacteristic? configChar;
-      final services = await _device!.discoverServices();
-      for (final svc in services) {
-        if (svc.uuid.str.toLowerCase().contains('fee0')) {
-          for (final c in svc.characteristics) {
-            if (c.uuid.str.toLowerCase().contains('0003')) {
-              configChar = c;
-              break;
-            }
-          }
-        }
-      }
+      final configChar = await _findChar('fee0', '0003');
       if (configChar != null) {
         // fee0/0x0003 on Mi Band 6 only supports Write-Without-Response; using
         // write-with-response throws "WRITE property not supported" (captured
@@ -861,18 +934,7 @@ class BLEManager extends ChangeNotifier {
   Future<void> _setUserInfo() async {
     if (_device == null || !_device!.isConnected) return;
     try {
-      BluetoothCharacteristic? userChar;
-      final services = await _device!.discoverServices();
-      for (final svc in services) {
-        if (svc.uuid.str.toLowerCase().contains('fee0')) {
-          for (final char in svc.characteristics) {
-            if (char.uuid.str.toLowerCase().contains('0008')) {
-              userChar = char;
-              break;
-            }
-          }
-        }
-      }
+      final userChar = await _findChar('fee0', '0008');
       if (userChar != null) {
         _logger.i("Sending user info to 0x0008...");
         final year = 1990;
@@ -987,7 +1049,7 @@ class BLEManager extends ChangeNotifier {
     if (_hrMeasureChar != null && _hrControlChar != null) return true;
 
     try {
-      final services = await _device!.discoverServices();
+      final services = await _discoverServicesCached();
       for (final svc in services) {
         if (!svc.uuid.str.toLowerCase().contains('180d')) continue;
         for (final c in svc.characteristics) {
@@ -1039,13 +1101,17 @@ class BLEManager extends ChangeNotifier {
     }
     // [flags, bpm] — bpm is data[1] (uint8). Valid physiological range 7..249.
     final bpm = data[1] & 0xFF;
-    _logger.d('HR notify: ${_hexStr(data)} -> $bpm bpm');
+    _logger.dLazy(() => 'HR notify: ${_hexStr(data)} -> $bpm bpm');
     if (bpm >= 7 && bpm <= 249) {
-      _heartRate = bpm;
+      // Only the dedicated notifier fires here. Streaming HR arrives several
+      // times a second; routing it through `notifyListeners()` used to rebuild
+      // every tab (and re-run their full analysis passes) per beat. Widgets that
+      // render the live number subscribe to `heartRateListenable` instead.
+      _setHeartRate(bpm);
       _lastSyncTime = DateTime.now();
       activityStore.addHeartRateReadings(
           [HeartRateReading(timestamp: _lastSyncTime!, value: bpm)]);
-      notifyListeners();
+      _storeSaveDebouncer(() => activityStore.save());
     }
   }
 
@@ -1065,7 +1131,7 @@ class BLEManager extends ChangeNotifier {
     if (!await _setupHeartRate()) return;
     await _writeHrControl(_hrStopManual, 'stop-manual');
     await _writeHrControl(_hrStartContinuous, 'start-continuous');
-    _realtimeHrActive = true;
+    _setRealtimeHrActive(true);
 
     // Keep-alive: the band stops streaming without a periodic 0x16 ping.
     // Notify pings ~every 14 s; we use 12 s for margin.
@@ -1079,16 +1145,16 @@ class BLEManager extends ChangeNotifier {
       await _writeHrControl(_hrKeepAlivePing, 'keep-alive');
     });
     _logger.i('HR: realtime measurement started.');
-    notifyListeners();
+    _emitChange();
   }
 
   /// Stop continuous realtime HR streaming.
   Future<void> stopRealtimeHeartRate() async {
     _hrKeepAliveTimer?.cancel();
-    _realtimeHrActive = false;
+    _setRealtimeHrActive(false);
     await _writeHrControl(_hrStopContinuous, 'stop-continuous');
     _logger.i('HR: realtime measurement stopped.');
-    notifyListeners();
+    _emitChange();
   }
 
   /// Trigger a single one-shot HR measurement (battery-friendly).
@@ -1114,7 +1180,7 @@ class BLEManager extends ChangeNotifier {
     if (_device == null || !_device!.isConnected) return;
 
     try {
-      final services = await _device!.discoverServices();
+      final services = await _discoverServicesCached();
 
       // Preferred: Huami fee0/0x0006 (level in byte[1]).
       for (final svc in services) {
@@ -1154,17 +1220,17 @@ class BLEManager extends ChangeNotifier {
       }
       final raw = await stdBatt.read();
       if (raw.isNotEmpty) {
-        _batteryLevel = raw[0].clamp(0, 100);
+        _setBatteryLevel(raw[0].clamp(0, 100));
         _logger.i("Battery (0x2a19): $_batteryLevel%");
-        notifyListeners();
+        _emitChange();
       }
       try {
         await stdBatt.setNotifyValue(true);
         stdBatt.onValueReceived.listen((data) {
           if (data.isNotEmpty) {
-            _batteryLevel = data[0].clamp(0, 100);
+            _setBatteryLevel(data[0].clamp(0, 100));
             _logger.d("Battery update (0x2a19): $_batteryLevel%");
-            notifyListeners();
+            _emitChange();
           }
         });
       } catch (_) {}
@@ -1179,10 +1245,10 @@ class BLEManager extends ChangeNotifier {
       _logger.d("Battery (0x0006) short packet: ${_hexStr(raw)}");
       return;
     }
-    _batteryLevel = raw[1].clamp(0, 100);
+    _setBatteryLevel(raw[1].clamp(0, 100));
     final charging = raw.length >= 3 && raw[2] == 0x01;
     _logger.i("Battery (0x0006): $_batteryLevel%${charging ? ' (charging)' : ''}");
-    notifyListeners();
+    _emitChange();
   }
 
   // ---------------------------------------------------------------------------
@@ -1192,10 +1258,55 @@ class BLEManager extends ChangeNotifier {
   String _hexStr(List<int> data) =>
       data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 
-  /// Internal forwarder so the [HardwareTestSession] extension (a different
-  /// scope than this class) can request a UI refresh without touching the
-  /// `@protected` notifyListeners directly.
-  void _emitChange() => notifyListeners();
+  bool _disposed = false;
+
+  /// Immediate, un-coalesced emit. Only [_uiCoalescer] should call this.
+  void _emitNow() {
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Request a UI refresh, rate-limited to ~4 Hz.
+  ///
+  /// Every former direct `notifyListeners()` call in this class routes through
+  /// here, so a burst of BLE traffic can no longer schedule a rebuild per
+  /// packet. Use [_emitImmediate] for rare, user-visible transitions where the
+  /// 250 ms trailing delay would be felt.
+  void _emitChange() => _uiCoalescer.schedule();
+
+  /// Bypass the coalescer for a state change the user is waiting on (connect,
+  /// auth result, explicit disconnect).
+  void _emitImmediate() {
+    _uiCoalescer.flush();
+    _emitNow();
+  }
+
+  /// Keeps [authStateListenable] in sync with [_authState].
+  void _setAuthState(AuthState state) {
+    _authState = state;
+    authStateListenable.value = state;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _uiCoalescer.dispose();
+    _metricsSaveDebouncer.dispose();
+    _storeSaveDebouncer.dispose();
+    _authTimeoutTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _hrKeepAliveTimer?.cancel();
+    _connSubscription?.cancel();
+    _charSubscription?.cancel();
+    _stepsSubscription?.cancel();
+    _hrSubscription?.cancel();
+    heartRateListenable.dispose();
+    batteryListenable.dispose();
+    metricsListenable.dispose();
+    authStateListenable.dispose();
+    fetchingListenable.dispose();
+    realtimeHrListenable.dispose();
+    super.dispose();
+  }
 
   Future<void> safeWrite(List<int> value) async {
     if (_device == null || !_device!.isConnected) {
@@ -1217,8 +1328,8 @@ class BLEManager extends ChangeNotifier {
 
   void _failAuth() {
     _isAuthenticating = false;
-    _authState = AuthState.failed;
-    notifyListeners();
+    _setAuthState(AuthState.failed);
+    _emitChange();
   }
 
   /// Explicit user-initiated disconnect. Clears the saved device so the next
@@ -1232,6 +1343,6 @@ class BLEManager extends ChangeNotifier {
     _logger.i("Disconnecting (user initiated) — saved device cleared.");
     await _device?.disconnect();
     _device = null;
-    notifyListeners();
+    _emitChange();
   }
 }

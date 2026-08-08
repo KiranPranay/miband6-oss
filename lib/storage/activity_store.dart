@@ -1,12 +1,42 @@
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+
 import '../core/activity_sample.dart';
+
+/// Encodes the three sample lists to JSON off the UI isolate.
+///
+/// Top-level so it can be handed to [compute]. Serialising a multi-day sample
+/// history is tens of milliseconds of pure CPU — long enough to drop frames if
+/// it runs on the platform thread while the user is scrolling. Returns the three
+/// payloads in the same order as [_StorePayload], preserving the existing
+/// one-file-per-list on-disk format.
+List<String> _encodeStoreJson(_StorePayload p) => <String>[
+      jsonEncode(p.samples),
+      jsonEncode(p.spo2),
+      jsonEncode(p.hr),
+    ];
+
+@immutable
+class _StorePayload {
+  const _StorePayload(this.samples, this.spo2, this.hr);
+  final List<Map<String, dynamic>> samples;
+  final List<Map<String, dynamic>> spo2;
+  final List<Map<String, dynamic>> hr;
+}
 
 /// Simple JSON-file persistence for activity samples.
 ///
 /// Stores raw activity samples per day, and provides query methods
 /// to compute hourly steps, sleep sessions, and SPO2 readings.
+///
+/// Performance contract (findings-15): every mutation bumps [revision], and
+/// nothing in this class rebuilds an O(n) index per call. The de-duplication
+/// sets are kept incrementally rather than rebuilt — `addHeartRateReadings` is
+/// called once per streamed heartbeat, and the old rebuild-the-whole-set
+/// implementation made each beat cost O(n) in the size of the entire history.
 class ActivityStore {
   static const _activityFile = 'activity_data.json';
   static const _spo2File = 'spo2_data.json';
@@ -21,6 +51,26 @@ class ActivityStore {
   DateTime? _lastActivitySync;
   DateTime? _lastSpo2Sync;
   DateTime? _lastHrSync;
+
+  // Incremental de-duplication indexes (epoch-ms keys), maintained on every
+  // add/load instead of being rebuilt per call.
+  final Set<int> _sampleKeys = <int>{};
+  final Set<int> _spo2Keys = <int>{};
+  final Set<int> _hrKeys = <int>{};
+
+  /// Monotonic counter bumped whenever stored data changes. The UI keys its
+  /// memoised analyses off this, so an unchanged store never recomputes.
+  int _revision = 0;
+  int get revision => _revision;
+
+  /// Notifies when [revision] changes, so widgets can subscribe to "the stored
+  /// data changed" without listening to unrelated BLE state.
+  final ValueNotifier<int> revisionListenable = ValueNotifier<int>(0);
+
+  void _bump() {
+    _revision++;
+    revisionListenable.value = _revision;
+  }
 
   List<ActivitySample> get samples => _samples;
   List<Spo2Reading> get spo2Readings => _spo2Readings;
@@ -94,20 +144,45 @@ class ActivityStore {
         if (ms != null) _lastHrSync = DateTime.fromMillisecondsSinceEpoch(ms);
       }
     } catch (_) {}
+
+    _rebuildKeyIndexes();
+    _bump();
+  }
+
+  /// Rebuilds the de-duplication indexes from the loaded lists. Called once
+  /// after [load]; the incremental add paths keep them current after that.
+  void _rebuildKeyIndexes() {
+    _sampleKeys
+      ..clear()
+      ..addAll(_samples.map((s) => s.timestamp.millisecondsSinceEpoch));
+    _spo2Keys
+      ..clear()
+      ..addAll(_spo2Readings.map((r) => r.timestamp.millisecondsSinceEpoch));
+    _hrKeys
+      ..clear()
+      ..addAll(_hrReadings.map((r) => r.timestamp.millisecondsSinceEpoch));
   }
 
   Future<void> save() async {
+    // JSON-encode on a background isolate so a large history never blocks a
+    // frame. The maps are built here (cheap) and the encode is shipped out.
+    final encoded = await compute(
+      _encodeStoreJson,
+      _StorePayload(
+        _samples.map((s) => s.toJson()).toList(growable: false),
+        _spo2Readings.map((s) => s.toJson()).toList(growable: false),
+        _hrReadings.map((s) => s.toJson()).toList(growable: false),
+      ),
+    );
+
     final f1 = await _getFile(_activityFile);
-    await f1
-        .writeAsString(jsonEncode(_samples.map((s) => s.toJson()).toList()));
+    await f1.writeAsString(encoded[0]);
 
     final f2 = await _getFile(_spo2File);
-    await f2.writeAsString(
-        jsonEncode(_spo2Readings.map((s) => s.toJson()).toList()));
+    await f2.writeAsString(encoded[1]);
 
-    final f_hr = await _getFile(_hrFile);
-    await f_hr.writeAsString(
-        jsonEncode(_hrReadings.map((s) => s.toJson()).toList()));
+    final fHr = await _getFile(_hrFile);
+    await fHr.writeAsString(encoded[2]);
 
     if (_lastActivitySync != null) {
       final f = await _getFile(_lastActivitySyncFile);
@@ -125,20 +200,45 @@ class ActivityStore {
 
   // ── Add data ────────────────────────────────────────────────────────────
 
-  void addSamples(List<ActivitySample> newSamples) {
-    // De-duplicate by timestamp
-    final existing =
-        _samples.map((s) => s.timestamp.millisecondsSinceEpoch).toSet();
-    for (final s in newSamples) {
-      if (!existing.contains(s.timestamp.millisecondsSinceEpoch)) {
-        _samples.add(s);
+  /// Appends [incoming] to [list] (already sorted ascending by timestamp),
+  /// skipping timestamps already present in [keys], and re-sorts only when an
+  /// item actually landed out of order.
+  ///
+  /// The common cases are both O(k) in the number of *new* items: a live sample
+  /// appended at the end, or a fetch batch that is already sorted. Only a true
+  /// backfill pays for a sort.
+  static bool _mergeSorted<T>(
+    List<T> list,
+    Set<int> keys,
+    Iterable<T> incoming,
+    DateTime Function(T) timestampOf,
+  ) {
+    var added = false;
+    var needsSort = false;
+    for (final item in incoming) {
+      final key = timestampOf(item).millisecondsSinceEpoch;
+      if (!keys.add(key)) continue; // already stored
+      if (list.isNotEmpty &&
+          timestampOf(list.last).millisecondsSinceEpoch > key) {
+        needsSort = true;
       }
+      list.add(item);
+      added = true;
     }
-    _samples.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    if (needsSort) {
+      list.sort((a, b) => timestampOf(a).compareTo(timestampOf(b)));
+    }
+    return added;
+  }
+
+  void addSamples(List<ActivitySample> newSamples) {
+    final added =
+        _mergeSorted(_samples, _sampleKeys, newSamples, (s) => s.timestamp);
 
     if (newSamples.isNotEmpty) {
       _lastActivitySync = DateTime.now();
     }
+    if (added) _bump();
   }
 
   void updateActivitySync(DateTime ts) {
@@ -154,25 +254,15 @@ class ActivityStore {
   }
 
   void addSpo2Readings(List<Spo2Reading> readings) {
-    final existing =
-        _spo2Readings.map((r) => r.timestamp.millisecondsSinceEpoch).toSet();
-    for (final r in readings) {
-      if (!existing.contains(r.timestamp.millisecondsSinceEpoch)) {
-        _spo2Readings.add(r);
-      }
+    if (_mergeSorted(_spo2Readings, _spo2Keys, readings, (r) => r.timestamp)) {
+      _bump();
     }
-    _spo2Readings.sort((a, b) => a.timestamp.compareTo(b.timestamp));
   }
 
   void addHeartRateReadings(List<HeartRateReading> readings) {
-    final existing =
-        _hrReadings.map((r) => r.timestamp.millisecondsSinceEpoch).toSet();
-    for (final r in readings) {
-      if (!existing.contains(r.timestamp.millisecondsSinceEpoch)) {
-        _hrReadings.add(r);
-      }
+    if (_mergeSorted(_hrReadings, _hrKeys, readings, (r) => r.timestamp)) {
+      _bump();
     }
-    _hrReadings.sort((a, b) => a.timestamp.compareTo(b.timestamp));
   }
 
   // ── Queries ─────────────────────────────────────────────────────────────
@@ -247,8 +337,26 @@ class ActivityStore {
     return SleepStage.light;
   }
 
+  // Memoised sleep-session derivation. `computeSleepDays` copies, sorts and
+  // walks the entire sample history; the tabs call it several times per build
+  // (Today alone needs it for the sleep card, the score and the briefing), so
+  // without this it ran repeatedly per frame. The cache is keyed on [revision],
+  // which changes only when stored data actually changes.
+  int _sleepDaysRevision = -1;
+  List<SleepDay>? _sleepDaysCache;
+
   List<SleepDay> computeSleepDays() {
-    if (_samples.isEmpty) return [];
+    if (_sleepDaysCache != null && _sleepDaysRevision == _revision) {
+      return _sleepDaysCache!;
+    }
+    final result = _computeSleepDays();
+    _sleepDaysCache = result;
+    _sleepDaysRevision = _revision;
+    return result;
+  }
+
+  List<SleepDay> _computeSleepDays() {
+    if (_samples.isEmpty) return const [];
 
     // Sort and de-duplicate identical timestamps (the band re-sends overlapping
     // ranges, and duplicates would otherwise double-count sleep time).
@@ -412,7 +520,16 @@ class ActivityStore {
   /// Purge data older than N days to keep storage bounded.
   void purgeOlderThan(int days) {
     final cutoff = DateTime.now().subtract(Duration(days: days));
+    final before = _samples.length + _spo2Readings.length + _hrReadings.length;
     _samples.removeWhere((s) => s.timestamp.isBefore(cutoff));
     _spo2Readings.removeWhere((r) => r.timestamp.isBefore(cutoff));
+    _hrReadings.removeWhere((r) => r.timestamp.isBefore(cutoff));
+    if (_samples.length + _spo2Readings.length + _hrReadings.length != before) {
+      _rebuildKeyIndexes();
+      _bump();
+    }
   }
+
+  @visibleForTesting
+  void disposeStore() => revisionListenable.dispose();
 }

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/activity_analysis.dart';
 import '../../core/activity_sample.dart';
+import '../../core/analysis_cache.dart';
 import '../../core/ble_manager.dart';
 import '../../storage/activity_store.dart';
 import '../theme/app_theme.dart';
@@ -46,7 +47,21 @@ class _ActivityTabState extends State<ActivityTab> {
 
   @override
   Widget build(BuildContext context) {
-    final ble = context.watch<BLEManager>();
+    final ble = context.read<BLEManager>();
+    // Steps/distance/calories are live; heart rate is not rendered here, so a
+    // streamed heartbeat must not rebuild this tab (findings-15).
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        ble.activityStore.revisionListenable,
+        ble.authStateListenable,
+        ble.fetchingListenable,
+        ble.metricsListenable,
+      ]),
+      builder: (context, _) => _buildContent(context, ble),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, BLEManager ble) {
     final store = ble.activityStore;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -59,13 +74,12 @@ class _ActivityTabState extends State<ActivityTab> {
     // The coaching engine derives everything (status/pace, sedentary, active
     // minutes, gated comparisons) from data we already capture.
     final todaySamples = store.samplesForDate(today);
-    final activity = ActivityAnalysis.compute(
+    final activity = AnalysisCache.activity(
+      store,
       liveSteps: ble.metrics.steps,
-      todaySamples: todaySamples,
-      hourly: store.getStepsByHour(today),
-      allSamples: store.samples,
       now: now,
       dailyGoal: _stepGoal,
+      date: today,
     );
 
     // Days shown in the chart for Week (7) / Month (30), oldest → newest.

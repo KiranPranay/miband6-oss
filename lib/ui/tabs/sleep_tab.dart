@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/analysis_cache.dart';
 import '../../core/ble_manager.dart';
 import '../../core/activity_sample.dart';
 import '../../core/sleep_analysis.dart';
@@ -113,7 +114,20 @@ class _SleepTabState extends State<SleepTab> {
 
   @override
   Widget build(BuildContext context) {
-    final ble = context.watch<BLEManager>();
+    final ble = context.read<BLEManager>();
+    // This screen renders stored history only — no live values — so it rebuilds
+    // solely when the stored data changes. Previously a streaming heart rate
+    // rebuilt all ~2 000 lines of it several times a second (findings-15).
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        ble.activityStore.revisionListenable,
+        ble.fetchingListenable,
+      ]),
+      builder: (context, _) => _buildContent(context, ble),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, BLEManager ble) {
     final store = ble.activityStore;
     final days = store.computeSleepDays();
     final recent = _recent(days);
@@ -131,12 +145,7 @@ class _SleepTabState extends State<SleepTab> {
 
     final analysis = selected == null
         ? null
-        : SleepAnalysis.compute(
-            session: selected,
-            allDays: days,
-            hr: store.hrReadings,
-            spo2: store.spo2Readings,
-          );
+        : AnalysisCache.sleep(store, session: selected, allDays: days);
 
     return CustomScrollView(
       slivers: [

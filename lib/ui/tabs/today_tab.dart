@@ -3,9 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/activity_analysis.dart';
 import '../../core/activity_sample.dart';
+import '../../core/analysis_cache.dart';
 import '../../core/ble_manager.dart';
 import '../../core/daily_summary.dart';
-import '../../core/heart_analysis.dart';
 import '../../core/sleep_analysis.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
@@ -107,34 +107,44 @@ class _TodayTabState extends State<TodayTab> {
 
   @override
   Widget build(BuildContext context) {
-    final ble = context.watch<BLEManager>();
+    final ble = context.read<BLEManager>();
+    // Subscribe to exactly the signals this screen renders rather than the whole
+    // BLE manager. The old top-level `context.watch<BLEManager>()` rebuilt this
+    // tab — and re-ran all three analysis passes below — on every BLE
+    // notification of any kind. See findings-15.
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        ble.activityStore.revisionListenable,
+        ble.authStateListenable,
+        ble.fetchingListenable,
+        ble.metricsListenable,
+        ble.batteryListenable,
+        ble.heartRateListenable,
+      ]),
+      builder: (context, _) => _buildContent(context, ble),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, BLEManager ble) {
     final store = ble.activityStore;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
     // Today is a COMPOSITION of the existing engines — no raw re-parsing.
+    // The results are memoised against the store revision, so a rebuild caused
+    // by a live heart rate costs a map lookup rather than three full passes.
     final allDays = store.computeSleepDays();
     final lastNight = _lastNight(allDays);
     final sleep = lastNight == null
         ? null
-        : SleepAnalysis.compute(
-            session: lastNight,
-            allDays: allDays,
-            hr: store.hrReadings,
-            spo2: store.spo2Readings,
-          );
-    final heart = HeartAnalysis.compute(
-      currentBpm: ble.heartRate,
-      hrReadings: store.hrReadings,
-      samples: store.samples,
-    );
-    final activity = ActivityAnalysis.compute(
+        : AnalysisCache.sleep(store, session: lastNight, allDays: allDays);
+    final heart = AnalysisCache.heart(store, currentBpm: ble.heartRate);
+    final activity = AnalysisCache.activity(
+      store,
       liveSteps: ble.metrics.steps,
-      todaySamples: store.samplesForDate(today),
-      hourly: store.getStepsByHour(today),
-      allSamples: store.samples,
       now: now,
       dailyGoal: _stepsGoal,
+      date: today,
     );
     final spo2Readings = store.spo2Readings;
     final spo2Last = spo2Readings.isNotEmpty ? spo2Readings.last.value : null;

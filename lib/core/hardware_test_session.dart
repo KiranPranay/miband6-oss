@@ -90,7 +90,7 @@ extension HardwareTestSession on BLEManager {
       // Restore normal running state: resume realtime HR if HR works, else
       // leave the band quiescent. Never leave orphaned timers/subscriptions.
       _hrKeepAliveTimer?.cancel();
-      _realtimeHrActive = false;
+      _setRealtimeHrActive(false);
       if (_device != null &&
           _device!.isConnected &&
           _authState == AuthState.authenticated &&
@@ -184,7 +184,7 @@ extension HardwareTestSession on BLEManager {
           final lvl = raw[1];
           final charging = raw.length >= 3 && raw[2] == 0x01;
           if (lvl >= 0 && lvl <= 100) {
-            _batteryLevel = lvl;
+            _setBatteryLevel(lvl);
             _emitChange();
             _pass(2, 'battery $lvl%${charging ? ' (charging)' : ''} via '
                 'fee0/0x0006 byte[1] — canonical path CONFIRMED');
@@ -210,7 +210,7 @@ extension HardwareTestSession on BLEManager {
         final raw = await c19.read();
         final lvl = raw.isNotEmpty ? raw[0] : -1;
         if (lvl >= 0 && lvl <= 100) {
-          _batteryLevel = lvl;
+          _setBatteryLevel(lvl);
           _emitChange();
         }
         _fail(2, 'fee0/0x0006 ABSENT — served $lvl% via 0x2A19 fallback '
@@ -236,7 +236,7 @@ extension HardwareTestSession on BLEManager {
 
     // Clean slate: stop any auto-started realtime HR + its listener/timer.
     _hrKeepAliveTimer?.cancel();
-    _realtimeHrActive = false;
+    _setRealtimeHrActive(false);
     await _hrSubscription?.cancel();
     _hrSubscription = null;
 
@@ -309,7 +309,7 @@ extension HardwareTestSession on BLEManager {
         _logger.d('MB6TEST HR notify: ${_hexStr(data)} -> $bpm bpm');
         if (bpm >= 7 && bpm <= 249) {
           events.add((t: DateTime.now(), bpm: bpm));
-          _heartRate = bpm;
+          _setHeartRate(bpm);
           _emitChange();
         }
       });

@@ -36,7 +36,7 @@ extension Huami2021Auth on BLEManager {
     }
 
     _isAuthenticating = true;
-    _authState = AuthState.authenticating;
+    _setAuthState(AuthState.authenticating);
     _emitChange();
 
     try {
@@ -80,7 +80,7 @@ extension Huami2021Auth on BLEManager {
     _authTimeoutTimer = Timer(const Duration(seconds: 20), () {
       _logger.e("2021 auth timeout");
       _isAuthenticating = false;
-      _authState = AuthState.failed;
+      _setAuthState(AuthState.failed);
       _emitChange();
     });
 
@@ -148,7 +148,7 @@ extension Huami2021Auth on BLEManager {
       _authTimeoutTimer?.cancel();
       _logger.i("2021 SIGN-KEY AUTHENTICATION SUCCESS!");
       _isAuthenticating = false;
-      _authState = AuthState.authenticated;
+      _setAuthState(AuthState.authenticated);
       _emitChange();
       _onAuthSuccess();
     } else if (payload.length >= 3 &&
