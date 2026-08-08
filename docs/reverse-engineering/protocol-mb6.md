@@ -186,6 +186,145 @@ distance/calories at `[5..8]`/`[9..12]` confirmed from the real packet.)
 
 ---
 
+## 7. Sleep classification from activity samples
+
+**Sources:** GB `HuamiConst.java:36-46,124-144`, `MiBand2SampleProvider.java:50-95`,
+`MiBand6Coordinator.java:42`, `HuamiCoordinator.java:177-179`;
+hardware capture in `findings-09.md`.
+
+Mi Band 6 rides the **legacy** Huami sample path: `MiBand6Coordinator extends
+HuamiCoordinator` and does not override `getSampleProvider()`, so it uses
+`MiBand2SampleProvider` → `HuamiConst.toActivityKind`. **`HuamiExtendedSampleProvider`
+(raw kinds 120-123) is instantiated only by `ZeppOsCoordinator` and never applies
+to MB6.**
+
+### 7.1 Legacy raw-kind table (byte 0 of each 8-byte sample)
+
+| raw | constant | maps to |
+|---|---|---|
+| -1 | TYPE_UNSET | not measured |
+| 0 | TYPE_NO_CHANGE | *carry forward previous valid kind* |
+| 1 | TYPE_ACTIVITY | activity |
+| 2 | TYPE_RUNNING | activity |
+| 3 | TYPE_NONWEAR | **not worn** |
+| 4 | TYPE_RIDE_BIKE | cycling |
+| 6 | TYPE_CHARGING | **not worn** |
+| 9 | TYPE_LIGHT_SLEEP | **light sleep** |
+| 10 | TYPE_IGNORE | *carry forward previous valid kind* |
+| 11 | TYPE_DEEP_SLEEP | **deep sleep** |
+| 12 | TYPE_WAKE_UP | activity (**not** a sleep kind) |
+
+Rules GB applies (`MiBand2SampleProvider.postprocess`):
+- mask `rawKind & 0x0F` (unless the value is `-1`); the high nibble carries
+  non-kind flags. GB's own exclusion list `{0, 10, -1, 16, 80, 96, 112}` is
+  commented "all I ever had that are 0 when doing &=0xf".
+- `TYPE_NO_CHANGE`/`TYPE_IGNORE` samples inherit the last valid kind.
+
+**On the legacy path there is no REM and no AWAKE kind** — `toActivityKind` has
+no case for either, and `MiBand6Coordinator` inherits
+`supportsRemSleep() == false` / `supportsAwakeSleep() == false`.
+
+**Not-worn is a kind value (3 or 6), NOT `intensity == 0xFF` and NOT `HR == 255`.**
+Invalid HR is filtered separately: `HeartRateUtils.isValidHeartRateValue` accepts
+`> 0 && >= 10 && <= 250`.
+
+### 7.2 ⚠️ Hardware disagrees with the table — unresolved
+
+Our own captures (`findings-09.md` §3, real `activity_data.json`) show byte 0 on
+this MB6 (MILI_PANGU, FW V1.0.7.40) is **`0xF3`(243) / `0xF0`(240) overnight and
+`0x50`(80) during the day** — never 9 or 11. Masked with `& 0x0F` those become
+3 / 0 / 0, i.e. "not worn" and "no change", which cannot be right for a night of
+sleep.
+
+Two possibilities, not yet distinguished: the high nibble is a sleep flag whose
+meaning GB does not model for this firmware, or this firmware simply reports
+different kinds. **Hardware wins over the reference**, so the analyzer treats the
+`sleep` byte (offset 5) as the primary asleep gate — which findings-09 verified
+maps 1:1 to the 0xF0/0xF3 overnight values — and additionally honours GB's 9/11
+kinds where present. A probe that dumps the observed kind-byte histogram is
+queued as **P2.1** in `pending-hardware-verification.md`.
+
+### 7.3 Session stitching (GB `SleepAnalysis.calculateSleepSessions`)
+
+- minimum session length **5 min**; maximum wake gap inside a session **1 hour**;
+- **any minute with steps breaks the session**;
+- the "sleep day" window runs **18:00 → 18:00**, which is how a bedtime before
+  midnight is attached to the following day.
+
+### 7.4 The 0x48 sleep-session stream does not exist on MB6
+
+`FetchSleepSessionOperation` (594-byte records, full stage timeline + the band's
+own score) is gated on `coordinator.supportsSleepScore()`, which only
+`ZeppOsCoordinator` returns true for. Independently, we **probed the band
+directly**: fetch type `0x48` was accepted and returned
+`expected data length = 0` (`findings-09.md` §1). Same for
+`SLEEP_RESPIRATORY_RATE` (0x38). So stages must come from the per-minute stream.
+
+---
+
+## 8. Notifications
+
+**Sources:** GB `HuamiSupport.onNotification`, `writeToChunkedOld` (:3766-3792),
+`HuamiIcon.java:26-128`, `AmazfitBipTextNotificationStrategy`;
+Notify `y5/q.java`, `x5/i0.java`. Cross-checked; see `findings-17.md`.
+
+### 8.1 App notification — `fee0/0x0020`, old-chunked, type 0
+
+```
+[0xFA][0x00 0x00 0x00 0x00][0x01][iconId]
+  utf8(title)   0x00
+  utf8(body)    0x00
+  utf8(appName) 0x00
+```
+
+- 7 header bytes, then exactly **three** NUL-terminated UTF-8 fields.
+- No padding and no terminator beyond the final `0x00`.
+- Total command capped at `notificationMaxLength() = 230`; text budget = 223.
+- `[1..4]` is GB's `notificationHasExtraHeader()` block (true from MiBand4Support
+  onward). Notify shows the same block as `flag + 4-byte LE notification id`;
+  either way the **icon always lands at index 6** and GB writes `0x01` at index 5.
+
+### 8.2 Old-chunked framing (`writeToChunkedOld`)
+
+```
+MAX_CHUNKLENGTH = min(512, max(23, mtu) - 3) - 3     // 17 @ MTU 23, 241 @ MTU 247
+frame = [0x00][flags | type][count][payload slice]
+```
+
+| flags | meaning |
+|---|---|
+| `0x80` | last chunk |
+| `0xC0` | last **and** `count == 0` ⇒ the whole message fits in one frame |
+| `0x40` | consecutive middle chunk |
+| `0x00` | first chunk of a multi-chunk message |
+
+`0xC0` is therefore *not* a magic constant — it is only correct for
+single-frame messages.
+
+### 8.3 Incoming call — standard ANS `0x2A46`, **unchunked**
+
+Mi Band 6 does **not** use `onSetCallStateNew` (Bip3/BipS/GTS2/GTR2/ZeppE only).
+It inherits `HuamiSupport.onSetCallState` → `AmazfitBipTextNotificationStrategy`:
+
+```
+[0x03][0x01] + utf8(caller)   → incoming call
+[0x03][0x00]                  → dismiss
+```
+
+Notify does byte-for-byte the same (`y5/q.java w()`, `y5/a0.java`).
+
+### 8.4 Icon ids (`HuamiIcon.java`)
+
+`0` WeChat · `1` QQ · `3` Facebook · `4` Twitter · `6` Snapchat · `7` WhatsApp ·
+`10` Alarm · **`11` generic app (default)** · `12` Instagram · `13` chat-blue ·
+`21` Calendar · `22` FB Messenger/Signal · `23` Viber · `24` Line · `25` Telegram ·
+`26` KakaoTalk · `27` Skype · `28` VK · `29` Pokémon GO · `30` Hangouts ·
+`34` Email · `35` Weather · `36` HR warning.
+
+Unmapped notification types → `11`. Implemented in `lib/core/huami_icon.dart`.
+
+---
+
 ## Appendix A — Huami-2021 chunked transport (NOT used by MB6; spec for completeness)
 
 Kept because Notify implements it (it supports MB7) and the task asked us to spec

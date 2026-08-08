@@ -1,27 +1,42 @@
 package com.example.band
 
-import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
-import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Hosts two platform channels:
- *  - band/hwtest        : headless hardware-test trigger (adb intent extra).
- *  - band/notifications : notification-access permission + installed-app list,
- *                         and (via NotificationBridge) native→Dart notification
- *                         events captured by BandNotificationListener.
+ * Hosts the UI and the two activity-scoped platform channels:
+ *  - band/hwtest      : headless hardware-test trigger (adb intent extra).
+ *  - band/sleep_audio : start/stop the microphone service.
+ *
+ * `band/notifications` is deliberately NOT registered here — it lives on the
+ * process-lifetime engine created by [BandApplication], because notifications
+ * must reach Dart when no activity exists. See [NotificationChannelHost].
+ *
+ * This activity *attaches to* the warm engine rather than creating its own, so
+ * there is exactly one Dart isolate (and therefore one BLE connection) for the
+ * lifetime of the process, and destroying the activity does not kill it.
  */
 class MainActivity : FlutterActivity() {
     private val hwtestChannelName = "band/hwtest"
-    private val notifChannelName = "band/notifications"
     private val sleepAudioChannelName = "band/sleep_audio"
     private var hwtestChannel: MethodChannel? = null
     private var sleepAudioChannel: MethodChannel? = null
     private var pending = false
     private var pendingStopSleepAudio = false
+
+    /**
+     * Reuse the warm engine. Returning null (e.g. if it failed to start) makes
+     * FlutterActivity fall back to creating its own, so the UI still works.
+     */
+    override fun provideFlutterEngine(context: Context): FlutterEngine? =
+        FlutterEngineCache.getInstance().get(BandApplication.ENGINE_ID)
+
+    /** The engine outlives this activity — it belongs to the application. */
+    override fun shouldDestroyEngineWithHost(): Boolean = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -41,24 +56,6 @@ class MainActivity : FlutterActivity() {
         if (intent?.getBooleanExtra("run_hwtest", false) == true) {
             pending = true
         }
-
-        val notifChannel = MethodChannel(messenger, notifChannelName)
-        notifChannel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "isAccessGranted" -> result.success(isNotificationAccessGranted())
-                "openAccessSettings" -> {
-                    startActivity(
-                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                    result.success(null)
-                }
-                "getInstalledApps" -> result.success(getLaunchableApps())
-                else -> result.notImplemented()
-            }
-        }
-        // Let the system-bound listener reach Dart through this channel.
-        NotificationBridge.channel = notifChannel
 
         sleepAudioChannel = MethodChannel(messenger, sleepAudioChannelName)
         sleepAudioChannel!!.setMethodCallHandler { call, result ->
@@ -93,32 +90,5 @@ class MainActivity : FlutterActivity() {
             val c = sleepAudioChannel
             if (c != null) c.invokeMethod("onStopRequested", null) else pendingStopSleepAudio = true
         }
-    }
-
-    private fun isNotificationAccessGranted(): Boolean {
-        val flat = Settings.Secure.getString(
-            contentResolver,
-            "enabled_notification_listeners",
-        ) ?: return false
-        val me = ComponentName(this, BandNotificationListener::class.java)
-        return flat.split(":").any {
-            val c = ComponentName.unflattenFromString(it)
-            c != null && c == me
-        }
-    }
-
-    private fun getLaunchableApps(): List<Map<String, String>> {
-        val pm = packageManager
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val seen = HashSet<String>()
-        val apps = ArrayList<Map<String, String>>()
-        for (ri in pm.queryIntentActivities(intent, 0)) {
-            val pkg = ri.activityInfo.packageName ?: continue
-            if (pkg == packageName) continue
-            if (!seen.add(pkg)) continue
-            apps.add(mapOf("package" to pkg, "app" to ri.loadLabel(pm).toString()))
-        }
-        apps.sortBy { (it["app"] ?: "").lowercase() }
-        return apps
     }
 }

@@ -37,9 +37,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
+    <!-- BandApplication (not the default ${applicationName}) creates a
+         process-lifetime FlutterEngine so the notification relay and the BLE
+         connection survive the activity being destroyed. See findings-17. -->
     <application
         android:label="band"
-        android:name="${applicationName}"
+        android:name=".BandApplication"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

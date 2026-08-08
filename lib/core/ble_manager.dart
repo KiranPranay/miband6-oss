@@ -483,20 +483,36 @@ class BLEManager extends ChangeNotifier {
     await _startForegroundService();
 
     try {
-      await _device!.requestMtu(247);
-      _logger.d("Requested MTU 247");
+      // Record what we actually got, not what we asked for: notification
+      // chunking is computed from the negotiated MTU, and a failed/partial
+      // negotiation must produce more small frames rather than a truncated
+      // notification (findings-17).
+      final granted = await _device!.requestMtu(247);
+      _mtu = granted > 0 ? granted : _mtu;
+      alertManager.setMtu(_mtu);
+      _logger.i("MTU negotiated: $_mtu (requested 247)");
     } catch (e) {
-      _logger.e("MTU request failed: $e");
+      _logger.e("MTU request failed: $e — keeping $_mtu");
+      alertManager.setMtu(_mtu);
     }
 
     _logger.i("Discovering services...");
     final services = await _discoverServicesCached(force: true);
 
+    // Standard Alert Notification Service NEW_ALERT (0x2A46). Mi Band 6 takes
+    // incoming-call alerts here, not on the chunked fee0 channel — see
+    // AmazfitBipTextNotificationStrategy (protocol-mb6.md §8.3, findings-17).
+    final newAlert = await _findChar('1811', '2a46');
+    alertManager.setNewAlertCharacteristic(newAlert);
+    _logger.i(newAlert != null
+        ? 'Found ANS NEW_ALERT characteristic (0x2A46) for call alerts'
+        : 'ANS NEW_ALERT (0x2A46) not found — call alerts unavailable');
+
     BluetoothService? authService;
     for (var svc in services) {
       final uuid = svc.uuid.str.toLowerCase();
       _logger.d("SERVICE UUID: $uuid");
-      
+
       // Discover Custom Alert Service (fee0)
       if (uuid.contains("fee0")) {
         for (var char in svc.characteristics) {

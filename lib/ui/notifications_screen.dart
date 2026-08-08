@@ -204,13 +204,57 @@ class _EnableCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.lg),
         boxShadow: AppShadows.card,
       ),
-      child: SwitchListTile(
-        value: relay.enabled,
-        onChanged: (v) => relay.setEnabled(v),
-        activeThumbColor: AppColors.primary,
-        title: Text('Forward notifications to band', style: AppText.title),
-        subtitle: Text('Selected apps below will alert your band',
-            style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: relay.enabled,
+            onChanged: (v) => relay.setEnabled(v),
+            activeThumbColor: AppColors.primary,
+            title: Text('Forward notifications to band', style: AppText.title),
+            subtitle: Text('Selected apps below will alert your band',
+                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          ),
+          if (relay.enabled) ...[
+            const Divider(height: 1),
+            SwitchListTile(
+              value: relay.privacyMode,
+              onChanged: (v) => relay.setPrivacyMode(v),
+              activeThumbColor: AppColors.primary,
+              title: Text('Private alerts', style: AppText.body),
+              subtitle: Text(
+                  'Send the app and title only — never the message text',
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+            ),
+            const Divider(height: 1),
+            SwitchListTile(
+              value: relay.suppressWhenScreenOn,
+              onChanged: (v) => relay.setSuppressWhenScreenOn(v),
+              activeThumbColor: AppColors.primary,
+              title: Text('Skip while using your phone', style: AppText.body),
+              subtitle: Text(
+                  "Don't buzz your wrist when the screen is already on",
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              title: Text('Send a test notification', style: AppText.body),
+              subtitle: Text(
+                  'Goes straight to the band, skipping Android — isolates '
+                  'which half of the path is at fault',
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+              trailing:
+                  const Icon(Icons.send_rounded, color: AppColors.primary),
+              onTap: () {
+                relay.sendTest();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Test alert sent — check your band'),
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
       ),
     );
   }
