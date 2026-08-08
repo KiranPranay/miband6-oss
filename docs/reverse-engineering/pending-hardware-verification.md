@@ -1,5 +1,46 @@
 # Pending hardware verification
 
+## Ledger — what is verified vs what is not (2026-08-09 overhaul)
+
+**Nothing in the 2026-08-09 overhaul has touched a physical band.** No adb
+device was attached for the entire session. Everything below is either
+unit-tested, analyzer-clean and APK-compiling, or explicitly listed as unproven.
+
+### Verified on hardware (earlier sessions, unchanged by this work)
+- Sign-key (ECDH) authentication — `test-results-01.md`, all 7 gates passed
+- Realtime heart rate via `0x2A37`/`0x2A39` + the 12 s keep-alive
+- Battery via `fee0/0x0006`
+- Activity fetch, 8-byte sample layout, HR at byte 3
+- SpO2 (`0x25`) record layout — hand-decoded from real bytes (findings-08)
+- `0x48` sleep-session fetch returns **zero** records on this band (findings-09)
+- Overnight snoring detection (findings-10)
+
+### Implemented this session — NOT verified on hardware
+| Area | Evidence it is *probably* right | What would prove it |
+|---|---|---|
+| Performance (findings-15) | 19 unit tests; O(n)-per-heartbeat work removed | P1.1 profile capture |
+| Connection supervisor (16) | 7 backoff tests; state machine | P4.1-P4.8 |
+| Notifications (17) | 14 byte-level tests vs GB + Notify; APK builds | **P5.2** (post-swipe delivery) |
+| Sleep analyzer (18) | 25 tests incl. every edge case named in the brief | **P2.3** (vs Zepp Life) |
+| Band settings (19) | 32 tests pinning bytes *and* target characteristic | **P3.2** (cadence actually changes) |
+| Stress (20) | 28 tests; layouts from GB + Notify + Mi Fit | P6.1-P6.4 |
+| Light/dark theme | contrast enforced by test, 8 real light-theme failures fixed | **P7.1** (never seen on a device) |
+
+### Established as *not possible* on this firmware
+- **HRV / recovery** — 34/34 captured `0x2A37` packets are 2 bytes with flags
+  `0x00` (RR bit clear); `0x49` is ZeppOS-gated. P6.5 is the probe that could
+  overturn this.
+- **REM sleep** — the REM byte is identically 0; Gate 7 fails if it is reported.
+- **Sleep-session stream `0x48`** — probed, band returned length 0.
+- **SpO2 all-day / sleep-breathing toggles** — ZeppOS-only config items.
+
+### Open protocol contradiction
+`protocol-mb6.md` §7.2: Gadgetbridge's legacy table says sleep is kind **9/11**;
+our captures show **0xF0/0xF3**. The analyzer honours both. **Gate 7 logs the
+kind-byte histogram — one run settles it (P2.1).**
+
+---
+
 Steps that need the physical Mi Band 6 (and/or an attached Android device) and
 could **not** be run in the session that introduced them. Nothing in this file
 should be treated as verified. When a device is available, work top-down and
