@@ -81,7 +81,10 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
 
   void _connectToDevice(BluetoothDevice device) async {
     FlutterBluePlus.stopScan();
-    await context.read<BLEManager>().connect(device);
+    // startSupervision (rather than a bare connect) records the user's intent
+    // to stay connected, so the supervisor auto-reconnects after drops and the
+    // band comes back on its own after an app restart or a reboot.
+    await context.read<BLEManager>().startSupervision(target: device);
     if (!mounted) return;
     Navigator.pop(context); // Go back to Home
   }

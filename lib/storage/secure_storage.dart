@@ -9,6 +9,7 @@ class StorageManager {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _authKeyKey = "mi_band_auth_key";
   static const String _lastDeviceKey = "mi_band_last_device_id";
+  static const String _wantsConnectedKey = "mi_band_wants_connected";
 
   // SharedPreferences keys for activity metrics
   static const String _stepsKey = "mi_band_steps";
@@ -76,6 +77,26 @@ class StorageManager {
   Future<void> clearLastDeviceId() async {
     await _storage.delete(key: _lastDeviceKey);
     _logger.d("Last device cleared.");
+  }
+
+  // ── Connection intent ─────────────────────────────────────────────────────
+
+  /// Records whether the user wants the band connected.
+  ///
+  /// This is *intent*, not state: it survives app restarts, process death and
+  /// foreground-service revival, so the supervisor knows on cold start whether
+  /// to start reconnecting without waiting for the user to open a screen.
+  Future<void> setWantsConnected(bool value) async {
+    await _storage.write(key: _wantsConnectedKey, value: value ? '1' : '0');
+  }
+
+  /// True when a band is paired and the user has not explicitly disconnected.
+  /// Defaults to true when a device MAC is stored but the flag was never
+  /// written — i.e. bands paired before this flag existed keep working.
+  Future<bool> getWantsConnected() async {
+    final raw = await _storage.read(key: _wantsConnectedKey);
+    if (raw == null) return (await getLastDeviceId())?.isNotEmpty ?? false;
+    return raw == '1';
   }
 
   // ── Activity metrics ──────────────────────────────────────────────────────

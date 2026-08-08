@@ -18,6 +18,20 @@
     <!-- Wake lock to keep CPU alive when screen is off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Android 13+ (API 33): a foreground service still needs this to show its
+         persistent notification. Without it the service runs but is invisible,
+         which is both a worse experience and more likely to be reclaimed. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Asked for explicitly (with an explanation screen), never silently: Doze
+         will otherwise suspend the BLE link for long stretches while the phone
+         is idle, which is exactly when overnight sleep tracking runs. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Optional, behind a user-facing setting: re-establish the band connection
+         after a phone reboot without needing the app to be opened. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Opt-in overnight snoring detection (phone microphone, on-device only).
          Audio is processed in memory and never recorded to disk or uploaded. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

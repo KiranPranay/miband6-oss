@@ -5,6 +5,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'dart:math';
 import 'logger.dart';
+import 'reconnect_backoff.dart';
 import 'encryption.dart';
 import '../storage/secure_storage.dart';
 import 'band_metrics.dart';
@@ -12,12 +13,14 @@ import 'activity_sample.dart';
 import 'activity_fetcher.dart';
 import '../storage/activity_store.dart';
 import 'alert_manager.dart';
+import 'background_permissions.dart';
 import 'ecdh_b163.dart';
 import 'huami2021_chunked.dart';
 import 'ui_throttle.dart';
 
 part 'hardware_test_session.dart';
 part 'huami2021_auth.dart';
+part 'connection_supervisor.dart';
 
 // Top-level callback required by flutter_foreground_task
 @pragma('vm:entry-point')
@@ -59,6 +62,11 @@ class BLEManager extends ChangeNotifier {
   Timer? _hrKeepAliveTimer;
   bool _realtimeHrActive = false;
 
+  /// Whether the user wants continuous HR streaming. Distinct from
+  /// [_realtimeHrActive], which is whether it is *currently* running: after a
+  /// reconnect the intent is what decides whether to re-arm streaming.
+  bool _userWantsHrStreaming = true;
+
   // Hardware test session (see hardware_test_session.dart). Exposed so the UI
   // can disable the trigger button while a session is in progress.
   bool _isTestSessionRunning = false;
@@ -80,6 +88,44 @@ class BLEManager extends ChangeNotifier {
   bool _isReconnecting = false;
   bool _userDisconnected = false;
 
+  // ── Connection supervision (see connection_supervisor.dart) ───────────────
+
+  /// True while the user wants a live connection. Persisted, so the app
+  /// resumes supervising on its own after a restart or a service revival.
+  bool _userWantsConnected = false;
+
+  /// Retry schedule for the connection supervisor (1 → 2 → 5 → 15 → 30 → 60 s
+  /// with jitter, then held at the cap, retried indefinitely).
+  final ReconnectBackoff _backoff = ReconnectBackoff();
+
+  /// When we last heard *anything* from the band. Used to detect the half-open
+  /// link where GATT still claims "connected" but no data ever arrives.
+  DateTime? _lastPacketAt;
+
+  Timer? _heartbeatTimer;
+  StreamSubscription<BluetoothAdapterState>? _adapterSub;
+
+  ConnectionPhase _connectionPhase = ConnectionPhase.idle;
+  ConnectionPhase get connectionPhase => _connectionPhase;
+
+  /// The single, explicit connection state for the UI and the persistent
+  /// notification to render.
+  final ValueNotifier<ConnectionPhase> connectionPhaseListenable =
+      ValueNotifier<ConnectionPhase>(ConnectionPhase.idle);
+
+  void _setPhase(ConnectionPhase phase) {
+    if (_connectionPhase == phase) return;
+    _connectionPhase = phase;
+    connectionPhaseListenable.value = phase;
+    _isReconnecting = phase == ConnectionPhase.waitingToRetry ||
+        phase == ConnectionPhase.connecting;
+    _emitChange();
+  }
+
+  /// Records inbound traffic for the liveness heartbeat. Called from every
+  /// notification/read path.
+  void _markPacket() => _lastPacketAt = DateTime.now();
+
   BandMetrics _metrics = const BandMetrics();
   int? _batteryLevel;
   int? _heartRate;
@@ -88,6 +134,12 @@ class BLEManager extends ChangeNotifier {
   ActivityFetcher? _activityFetcher;
   final ActivityStore activityStore = ActivityStore();
   late final AlertManager alertManager = AlertManager(_logger);
+  late final BackgroundPermissions _backgroundPermissions =
+      BackgroundPermissions(_logger);
+
+  /// Exposed so Settings can show the current background-permission state and
+  /// offer the battery-optimization exemption with an explanation.
+  BackgroundPermissions get backgroundPermissions => _backgroundPermissions;
   bool _isFetchingActivity = false;
 
   bool get isConnected => _device != null && _device!.isConnected;
@@ -213,7 +265,13 @@ class BLEManager extends ChangeNotifier {
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
         eventAction: ForegroundTaskEventAction.repeat(10000),
-        autoRunOnBoot: false,
+        // Come back by ourselves after a reboot or an app update, so a paired
+        // band reconnects without the user having to open the app. The
+        // supervisor still checks the persisted "wants connected" intent before
+        // doing anything, so a user who explicitly disconnected stays
+        // disconnected.
+        autoRunOnBoot: true,
+        autoRunOnMyPackageReplaced: true,
         allowWakeLock: true,
       ),
     );
@@ -221,11 +279,15 @@ class BLEManager extends ChangeNotifier {
 
   Future<void> _startForegroundService() async {
     if (await FlutterForegroundTask.isRunningService) return;
+    // Android 13+ needs POST_NOTIFICATIONS before the service can show its
+    // persistent notification. Requesting it here (rather than at first launch)
+    // means we ask at the moment the reason is obvious: a band just connected.
+    await _backgroundPermissions.requestNotifications();
     _initForegroundTaskConfig();
     await FlutterForegroundTask.startService(
       serviceId: 1001,
       notificationTitle: 'Mi Band',
-      notificationText: 'Connected — keeping band alive',
+      notificationText: _foregroundStatusText(),
       callback: startCallback,
     );
   }
@@ -245,21 +307,48 @@ class BLEManager extends ChangeNotifier {
     }
   }
 
+  /// Persistent-notification body: connection state + battery + last sync.
+  ///
+  /// This notification is the only thing the user sees while the app is in the
+  /// background, so it has to answer "is it working?" without opening the app.
+  String _foregroundStatusText() {
+    final parts = <String>[_connectionPhase.label];
+    final battery = _batteryLevel;
+    if (battery != null) parts.add('$battery%');
+    final sync = _lastSyncTime;
+    if (sync != null) {
+      final mins = DateTime.now().difference(sync).inMinutes;
+      parts.add(mins < 1
+          ? 'synced just now'
+          : (mins < 60 ? 'synced ${mins}m ago' : 'synced ${mins ~/ 60}h ago'));
+    }
+    return parts.join(' · ');
+  }
+
+  Future<void> _refreshForegroundNotification() =>
+      _updateForegroundNotification(_foregroundStatusText());
+
   // ---------------------------------------------------------------------------
   // Auto-connect on app startup
   // ---------------------------------------------------------------------------
 
-  /// Call this once at app startup. Reads the saved device MAC and connects
-  /// automatically — no user action needed.
+  /// Call this once at app startup.
+  ///
+  /// Resumes supervision when a band is paired and the user has not explicitly
+  /// disconnected — the supervisor then owns connecting, retrying with backoff,
+  /// and reacting to the Bluetooth adapter. See `connection_supervisor.dart`.
   Future<void> tryAutoConnect() async {
     final savedId = await _storage.getLastDeviceId();
     if (savedId == null || savedId.isEmpty) {
       _logger.d("No saved device ID — skipping auto-connect.");
       return;
     }
-    _logger.i("Auto-connect: found saved device $savedId. Connecting...");
-    final device = BluetoothDevice.fromId(savedId);
-    await connect(device);
+    if (!await _storage.getWantsConnected()) {
+      _logger.i("Auto-connect: user previously disconnected — staying idle.");
+      return;
+    }
+    _logger.i("Auto-connect: supervising saved device $savedId.");
+    await startSupervision();
   }
 
   // ---------------------------------------------------------------------------
@@ -271,6 +360,7 @@ class BLEManager extends ChangeNotifier {
     _logger.i("Connecting to ${target.remoteId}...");
     _device = target;
     _cachedServices = null; // new connection ⇒ new GATT database
+    _setPhase(ConnectionPhase.connecting);
     _emitImmediate(); // the user tapped Connect and is watching for feedback
 
     _connSubscription?.cancel();
@@ -320,10 +410,18 @@ class BLEManager extends ChangeNotifier {
     // last event before the process is backgrounded.
     _flushPendingWrites();
 
-    _stopForegroundService();
-
-    if (!_userDisconnected && _device != null) {
-      _scheduleReconnect();
+    // Remember whether HR was streaming so the next successful auth can put it
+    // back the way the user left it.
+    if (!_userDisconnected && _userWantsConnected) {
+      // Keep the foreground service alive while we are actively reconnecting:
+      // stopping it here is what previously let Android reclaim the process
+      // mid-backoff, so the band never came back until the app was reopened.
+      _setPhase(ConnectionPhase.waitingToRetry);
+      _updateForegroundNotification('Disconnected — reconnecting…');
+      _scheduleReconnectWithBackoff();
+    } else {
+      _stopForegroundService();
+      _setPhase(ConnectionPhase.idle);
     }
   }
 
@@ -353,6 +451,8 @@ class BLEManager extends ChangeNotifier {
   void _setBatteryLevel(int? level) {
     _batteryLevel = level;
     batteryListenable.value = level;
+    // The background notification shows the battery, so keep it current.
+    if (level != null) _refreshForegroundNotification();
   }
 
   void _setRealtimeHrActive(bool active) {
@@ -365,32 +465,16 @@ class BLEManager extends ChangeNotifier {
     fetchingListenable.value = fetching;
   }
 
-  void _scheduleReconnect() {
-    _reconnectTimer?.cancel();
-    _isReconnecting = true;
-    _emitChange();
-    _logger.i("Will attempt reconnect in 3 s...");
-    _reconnectTimer = Timer(const Duration(seconds: 3), () async {
-      if (_userDisconnected || _device == null) {
-        _isReconnecting = false;
-        _emitChange();
-        return;
-      }
-      _logger.i("Reconnecting to ${_device!.remoteId}...");
-      try {
-        await _device!.connect(autoConnect: false);
-      } catch (e) {
-        _logger.e("Reconnect error: $e — retrying in 5 s");
-        _reconnectTimer = Timer(const Duration(seconds: 5), _scheduleReconnect);
-      }
-    });
-  }
-
   Future<void> _handleConnected() async {
     _reconnectTimer?.cancel();
     _isReconnecting = false;
+    _markPacket(); // the link is alive; start the liveness clock
     _logger.i("Connected successfully.");
     if (_device == null) return;
+
+    // A successful link resets the backoff schedule, so the *next* unrelated
+    // drop starts again at 1 s rather than inheriting a 60 s penalty.
+    _backoff.reset();
 
     // Save MAC so we can auto-connect on next app launch
     await _storage.saveLastDeviceId(_device!.remoteId.str);
@@ -550,6 +634,7 @@ class BLEManager extends ChangeNotifier {
   }
 
   void _handleAuthResponse(List<int> response) async {
+    _markPacket();
     _logger.d(
       "Received raw bytes: ${response.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
     );
@@ -645,13 +730,17 @@ class BLEManager extends ChangeNotifier {
   }
 
   void _onAuthSuccess() async {
-    _updateForegroundNotification('Connected & authenticated');
+    _backoff.reset();
+    _markPacket();
+    _refreshForegroundNotification();
 
     // Step 1: Sync time (critical for some bands to enable other features)
     await _syncTime();
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Step 2: Initialize display & settings
+    // Step 2: Re-apply settings. The band loses some of these across a reset,
+    // and a reconnect must restore the state the user configured — Gadgetbridge
+    // does the same on every connect rather than only at pairing time.
     await _setDateDisplay();
     await _setTimeFormat();
     await _setUserInfo();
@@ -662,7 +751,13 @@ class BLEManager extends ChangeNotifier {
     await _readBattery();
     // Realtime HR over the standard 0x180D service (0x2A37/0x2A39) with the
     // required ~14 s keep-alive ping. See protocol-mb6.md §3.
-    await startRealtimeHeartRate();
+    // Re-armed only if the user had it on — a reconnect must restore the
+    // previous state, not silently switch streaming back on.
+    if (_userWantsHrStreaming) {
+      await startRealtimeHeartRate();
+    } else {
+      _logger.i('HR: streaming stays off (user had it disabled).');
+    }
 
     await Future.delayed(const Duration(seconds: 2));
 
@@ -852,6 +947,7 @@ class BLEManager extends ChangeNotifier {
   }
 
   void _applyStepsPacket(List<int> data) {
+    _markPacket();
     final parsed = BandMetrics.fromStepsPacket(data);
     if (parsed == null) {
       _logger.d("Steps: packet not parseable (${data.length} B)");
@@ -1095,6 +1191,7 @@ class BLEManager extends ChangeNotifier {
   }
 
   void _onHeartRateNotified(List<int> data) {
+    _markPacket();
     if (data.length < 2) {
       _logger.d('HR notify (ignored, ${data.length}B): ${_hexStr(data)}');
       return;
@@ -1128,6 +1225,7 @@ class BLEManager extends ChangeNotifier {
 
   /// Start continuous realtime HR streaming (with the required ~14 s keep-alive).
   Future<void> startRealtimeHeartRate() async {
+    _userWantsHrStreaming = true;
     if (!await _setupHeartRate()) return;
     await _writeHrControl(_hrStopManual, 'stop-manual');
     await _writeHrControl(_hrStartContinuous, 'start-continuous');
@@ -1150,6 +1248,7 @@ class BLEManager extends ChangeNotifier {
 
   /// Stop continuous realtime HR streaming.
   Future<void> stopRealtimeHeartRate() async {
+    _userWantsHrStreaming = false;
     _hrKeepAliveTimer?.cancel();
     _setRealtimeHrActive(false);
     await _writeHrControl(_hrStopContinuous, 'stop-continuous');
@@ -1240,6 +1339,7 @@ class BLEManager extends ChangeNotifier {
   }
 
   void _applyHuamiBattery(List<int> raw) {
+    _markPacket();
     // [flags, level%, chargeState, ...] — level is byte[1].
     if (raw.length < 2) {
       _logger.d("Battery (0x0006) short packet: ${_hexStr(raw)}");
@@ -1280,10 +1380,21 @@ class BLEManager extends ChangeNotifier {
     _emitNow();
   }
 
-  /// Keeps [authStateListenable] in sync with [_authState].
+  /// Keeps [authStateListenable] — and the coarser [ConnectionPhase] — in sync
+  /// with [_authState]. Authentication is a phase of connecting, so the two
+  /// must never be able to disagree.
   void _setAuthState(AuthState state) {
     _authState = state;
     authStateListenable.value = state;
+    switch (state) {
+      case AuthState.authenticating:
+        _setPhase(ConnectionPhase.authenticating);
+      case AuthState.authenticated:
+        _setPhase(ConnectionPhase.ready);
+      case AuthState.failed:
+      case AuthState.notAuthenticated:
+        break; // the disconnect/retry paths own the phase here
+    }
   }
 
   @override
@@ -1292,9 +1403,11 @@ class BLEManager extends ChangeNotifier {
     _uiCoalescer.dispose();
     _metricsSaveDebouncer.dispose();
     _storeSaveDebouncer.dispose();
+    _cancelSupervision();
     _authTimeoutTimer?.cancel();
     _reconnectTimer?.cancel();
     _hrKeepAliveTimer?.cancel();
+    connectionPhaseListenable.dispose();
     _connSubscription?.cancel();
     _charSubscription?.cancel();
     _stepsSubscription?.cancel();
@@ -1332,17 +1445,19 @@ class BLEManager extends ChangeNotifier {
     _emitChange();
   }
 
-  /// Explicit user-initiated disconnect. Clears the saved device so the next
-  /// app launch does NOT auto-reconnect.
+  /// Explicit user-initiated disconnect. Clears the saved device and the
+  /// "wants connected" intent, so neither the supervisor nor the next app
+  /// launch tries to reconnect.
   Future<void> disconnect() async {
     _userDisconnected = true;
-    _reconnectTimer?.cancel();
+    await stopSupervision();
     _isReconnecting = false;
     await _storage.clearLastDeviceId();
     await _stopForegroundService();
     _logger.i("Disconnecting (user initiated) — saved device cleared.");
     await _device?.disconnect();
     _device = null;
-    _emitChange();
+    _flushPendingWrites();
+    _emitImmediate();
   }
 }

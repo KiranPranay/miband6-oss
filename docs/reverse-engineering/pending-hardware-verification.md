@@ -64,3 +64,36 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
 - **Cradle-safe:** connection/auth, battery, settings writes + read-back,
   notification delivery, fetch of *previously recorded* history.
 - **Wrist-required:** realtime HR values, stress samples, a real sleep session.
+
+---
+
+## P4 — Background connection (findings-16)
+
+- [ ] **P4.1 Airplane-mode toggle.** Enable airplane mode for 60 s, disable.
+      Expect: phase → `bluetoothOff` (no retry storm in the log), then on adapter
+      ON a single `Supervisor: Bluetooth adapter ON` followed by a reconnect
+      **at the bottom of the backoff** (1 s), not the 60 s cap.
+- [ ] **P4.2 Walk out of range.** Leave range for ~10 min. Expect the logged
+      retry deltas to follow 1 → 2 → 5 → 15 → 30 → 60 s and then hold at 60 s.
+      Record the observed reconnect time once back in range.
+- [ ] **P4.3 Band reboot.** Reboot the band; confirm re-auth runs the full
+      sign-key flow, settings are re-applied, and HR streaming returns **only if
+      it was on before** (`_userWantsHrStreaming`).
+- [ ] **P4.4 Half-open link.** Hardest to force: block traffic without a GATT
+      disconnect (e.g. band in a metal enclosure). Expect
+      `no packet for N min while connected — forcing a reconnect cycle` within
+      6 min, then a normal reconnect.
+- [ ] **P4.5 Task removal.** Swipe the app from recents while connected.
+      Expect the foreground service to survive and the notification to keep
+      updating (state · battery · last sync).
+- [ ] **P4.6 Phone reboot.** With `autoRunOnBoot: true`, confirm the service
+      returns after a reboot and reconnects **only** when the persisted
+      "wants connected" intent is true. Verify that a user who explicitly
+      disconnected stays disconnected across a reboot.
+- [ ] **P4.7 Permissions.** On Android 13+, confirm POST_NOTIFICATIONS is
+      requested at first connect and the persistent notification actually
+      appears; confirm the battery-optimization exemption flow opens the system
+      dialog and that declining degrades gracefully (no nagging loop).
+- [ ] **P4.8 Reconnect timing table.** Record observed
+      `disconnect → ready` times for P4.1–P4.3 and fill the table in
+      `findings-16.md` §4.
