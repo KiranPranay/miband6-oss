@@ -180,7 +180,7 @@ class _HeartTabState extends State<HeartTab> {
                 const SizedBox(height: AppSpacing.xs),
                 Row(
                   children: [
-                    const Icon(Icons.favorite_rounded,
+                    Icon(Icons.favorite_rounded,
                         size: 14, color: AppColors.heart),
                     const SizedBox(width: AppSpacing.xs),
                     Text('${bpm ?? '--'} BPM now', style: AppText.label),
@@ -317,7 +317,7 @@ class _HeartHero extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          const Divider(height: 1, color: AppColors.divider),
+          Divider(height: 1, color: AppColors.divider),
           const SizedBox(height: AppSpacing.md),
           // Resting HR gets prominence — it's the health-relevant number.
           Row(
@@ -329,7 +329,7 @@ class _HeartHero extends StatelessWidget {
                   color: AppColors.sleep.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.self_improvement_rounded,
+                child: Icon(Icons.self_improvement_rounded,
                     color: AppColors.sleep, size: 20),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -382,7 +382,7 @@ class _LiveBadge extends StatelessWidget {
           Container(
             width: 7,
             height: 7,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 color: AppColors.heart, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
@@ -474,7 +474,7 @@ class _InsightsCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.lightbulb_rounded,
+              Icon(Icons.lightbulb_rounded,
                   size: 18, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Text('Insights', style: AppText.title),
@@ -584,7 +584,7 @@ class _HeartRateChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: yInterval,
           getDrawingHorizontalLine: (_) =>
-              const FlLine(color: AppColors.divider, strokeWidth: 1),
+              FlLine(color: AppColors.divider, strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
         rangeAnnotations: RangeAnnotations(horizontalRangeAnnotations: bands),
@@ -748,7 +748,7 @@ class _HighestCard extends StatelessWidget {
               color: AppColors.heart.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.arrow_upward_rounded,
+            child: Icon(Icons.arrow_upward_rounded,
                 color: AppColors.heart, size: 22),
           ),
           const SizedBox(width: AppSpacing.md),
@@ -883,7 +883,7 @@ class _WeekSummaryCard extends StatelessWidget {
                     value: v(heart.weekResting),
                     accent: AppColors.sleep)),
           ]),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
             child: Divider(height: 1, color: AppColors.divider),
           ),
@@ -893,7 +893,7 @@ class _WeekSummaryCard extends StatelessWidget {
             Expanded(child: _CenterStat(label: 'Lowest', value: v(heart.weekLow))),
           ]),
           if (heart.vsLastWeekAvg != null) ...[
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Divider(height: 1, color: AppColors.divider),
             ),
@@ -927,7 +927,7 @@ class _HeartBaselineNote extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.insights_rounded, size: 15, color: AppColors.sleep),
+              Icon(Icons.insights_rounded, size: 15, color: AppColors.sleep),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text('Building your baseline · $count of $needed days',
@@ -965,9 +965,11 @@ class _HeartBaselineNote extends StatelessWidget {
 class _CenterStat extends StatelessWidget {
   final String label;
   final String value;
-  final Color accent;
+  final Color? accent;
+  // `accent` can no longer default to a palette colour: those are getters now
+  // (dark mode), so the default is resolved at build time instead.
   const _CenterStat(
-      {required this.label, required this.value, this.accent = AppColors.heart});
+      {required this.label, required this.value, this.accent});
 
   @override
   Widget build(BuildContext context) {
@@ -980,7 +982,9 @@ class _CenterStat extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            Text(value, style: AppText.title.copyWith(color: accent)),
+            Text(value,
+                style: AppText.title
+                    .copyWith(color: accent ?? AppColors.heart)),
             if (value != '—') ...[
               const SizedBox(width: 3),
               Text('bpm', style: AppText.unit),
@@ -1051,7 +1055,7 @@ class _RecommendationsCard extends StatelessWidget {
                   margin: const EdgeInsets.only(top: 5),
                   width: 6,
                   height: 6,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                       color: AppColors.success, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -1104,8 +1108,8 @@ class _MoreMetricsCard extends StatelessWidget {
               builder: (_) => const StressScreen(),
             )),
           ),
-          const Divider(height: 1, color: AppColors.divider),
-          const _MetricRow(
+          Divider(height: 1, color: AppColors.divider),
+          _MetricRow(
             icon: Icons.battery_charging_full_rounded,
             color: AppColors.inkFaint,
             title: 'Recovery',
@@ -1152,7 +1156,7 @@ class _MetricRow extends StatelessWidget {
               style: AppText.caption.copyWith(color: AppColors.inkMuted)),
           if (onTap != null) ...[
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 color: AppColors.inkFaint, size: 20),
           ],
         ],

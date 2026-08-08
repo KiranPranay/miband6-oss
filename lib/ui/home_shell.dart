@@ -28,7 +28,7 @@ class _NavDest {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _dests = [
+  static final _dests = [
     _NavDest(Icons.today_outlined, Icons.today_rounded, 'Today',
         AppColors.primary),
     _NavDest(Icons.favorite_border_rounded, Icons.favorite_rounded, 'Heart',

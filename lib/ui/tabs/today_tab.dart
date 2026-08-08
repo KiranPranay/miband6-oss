@@ -343,7 +343,7 @@ class _TodayTabState extends State<TodayTab> {
             reduced: reduced,
           ),
           if (sleep != null) ...[
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Divider(height: 1, color: AppColors.divider),
             ),
@@ -423,7 +423,7 @@ class _HealthHero extends StatelessWidget {
                 color: AppColors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.insights_rounded,
+              child: Icon(Icons.insights_rounded,
                   color: AppColors.primary, size: 22),
             ),
             const SizedBox(width: AppSpacing.md),
@@ -481,7 +481,7 @@ class _HealthHero extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          const Divider(height: 1, color: AppColors.divider),
+          Divider(height: 1, color: AppColors.divider),
           const SizedBox(height: AppSpacing.md),
           for (var i = 0; i < summary.components.length; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.md),
@@ -519,7 +519,7 @@ class _ComponentRow extends StatelessWidget {
               style: AppText.title.copyWith(color: color)),
           const SizedBox(width: AppSpacing.sm),
         ] else ...[
-          const Text('—',
+          Text('—',
               style: TextStyle(color: AppColors.inkFaint)),
           const SizedBox(width: AppSpacing.sm),
         ],
@@ -605,7 +605,7 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
           if (onTap != null)
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 color: AppColors.inkFaint, size: 22),
         ],
       ),
@@ -680,7 +680,7 @@ class _TrendNote extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(Icons.insights_rounded, size: 14, color: AppColors.inkFaint),
+        Icon(Icons.insights_rounded, size: 14, color: AppColors.inkFaint),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
@@ -778,7 +778,7 @@ class _BriefingCard extends StatelessWidget {
                   margin: const EdgeInsets.only(top: 5),
                   width: 6,
                   height: 6,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                       color: AppColors.primary, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: AppSpacing.md),

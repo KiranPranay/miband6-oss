@@ -246,7 +246,7 @@ class _SleepTabState extends State<SleepTab> {
                     color: AppColors.sleep.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.nightlight_round,
+                  child: Icon(Icons.nightlight_round,
                       color: AppColors.sleep, size: 30),
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -333,7 +333,7 @@ class _ScoreHero extends StatelessWidget {
             _DeltaLine(deltaMin: a.vsYesterdayMin!),
           ],
           const SizedBox(height: AppSpacing.lg),
-          const Divider(height: 1, color: AppColors.divider),
+          Divider(height: 1, color: AppColors.divider),
           const SizedBox(height: AppSpacing.md),
           _ScoreBreakdown(components: a.scoreComponents),
         ],
@@ -617,7 +617,7 @@ class _InsightsCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.lightbulb_rounded,
+              Icon(Icons.lightbulb_rounded,
                   size: 18, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Text('Insights', style: AppText.title),
@@ -664,7 +664,7 @@ class _AiAnalysisCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.lg),
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => const ComingSoonScreen(
+          builder: (_) => ComingSoonScreen(
             title: 'AI Analysis',
             description:
                 'Personalized AI summaries of your sleep trends — in development.',
@@ -695,7 +695,7 @@ class _AiAnalysisCard extends StatelessWidget {
                   color: AppColors.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.auto_awesome_rounded,
+                child: Icon(Icons.auto_awesome_rounded,
                     color: AppColors.primary, size: 20),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -731,7 +731,7 @@ class _AiAnalysisCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
+              Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
             ],
           ),
         ),
@@ -891,7 +891,7 @@ class _HypnoPainter extends CustomPainter {
   }
 
   static const _rowLabels = ['Awake', 'REM', 'Light', 'Deep'];
-  static const _rowColors = [
+  static final _rowColors = [
     AppColors.sleepAwake,
     AppColors.sleepRem,
     AppColors.sleepLight,
@@ -1023,7 +1023,7 @@ class _StageCaveat extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.info_outline_rounded,
+          Icon(Icons.info_outline_rounded,
               size: 15, color: AppColors.inkMuted),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -1063,7 +1063,7 @@ class _BaselineNote extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.insights_rounded,
+              Icon(Icons.insights_rounded,
                   size: 15, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -1430,7 +1430,7 @@ class _RecommendationsCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.auto_awesome_rounded,
+              Icon(Icons.auto_awesome_rounded,
                   size: 18, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Text('Recommendations', style: AppText.title),
@@ -1447,7 +1447,7 @@ class _RecommendationsCard extends StatelessWidget {
                   child: Container(
                     width: 6,
                     height: 6,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                         color: AppColors.primary, shape: BoxShape.circle),
                   ),
                 ),
@@ -1486,7 +1486,7 @@ class _WeeklySummary extends StatelessWidget {
       return AppCard(
         child: Row(
           children: [
-            const Icon(Icons.calendar_month_rounded,
+            Icon(Icons.calendar_month_rounded,
                 size: 18, color: AppColors.primary),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -1532,7 +1532,7 @@ class _WeeklySummary extends StatelessWidget {
             Container(width: 1, height: 34, color: AppColors.divider),
             Expanded(child: stat[1]),
           ]),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
             child: Divider(height: 1, color: AppColors.divider),
           ),
@@ -1542,7 +1542,7 @@ class _WeeklySummary extends StatelessWidget {
             Expanded(child: stat[3]),
           ]),
           if (a.sleepDebtMin != null) ...[
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Divider(height: 1, color: AppColors.divider),
             ),
@@ -1604,7 +1604,7 @@ class _SleepDebtRow extends StatelessWidget {
             const SizedBox(width: AppSpacing.sm),
             Text('Sleep debt', style: AppText.label.copyWith(color: AppColors.ink)),
             const SizedBox(width: 6),
-            const Icon(Icons.info_outline_rounded,
+            Icon(Icons.info_outline_rounded,
                 size: 13, color: AppColors.inkFaint),
             const Spacer(),
             Text(
@@ -1916,7 +1916,7 @@ class _SnoreOptIn extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: const Icon(Icons.mic_rounded,
+            child: Icon(Icons.mic_rounded,
                 color: AppColors.primary, size: 22),
           ),
           const SizedBox(width: AppSpacing.md),
@@ -1931,7 +1931,7 @@ class _SnoreOptIn extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
+          Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
         ],
       ),
     );
@@ -1951,7 +1951,7 @@ class _SnoreListeningCard extends StatelessWidget {
           Container(
             width: 10,
             height: 10,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 color: AppColors.danger, shape: BoxShape.circle),
           ),
           const SizedBox(width: AppSpacing.md),
@@ -1987,7 +1987,7 @@ class _SnoreResult extends StatelessWidget {
                   color: AppColors.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: const Icon(Icons.mic_rounded,
+                child: Icon(Icons.mic_rounded,
                     color: AppColors.primary, size: 19),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -2004,7 +2004,7 @@ class _SnoreResult extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onTrackAgain,
-                icon: const Icon(Icons.refresh_rounded,
+                icon: Icon(Icons.refresh_rounded,
                     color: AppColors.inkMuted),
                 tooltip: 'Track again tonight',
               ),

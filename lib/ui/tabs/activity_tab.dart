@@ -228,7 +228,7 @@ class _ActivityTabState extends State<ActivityTab> {
                           unit: 'bpm',
                           label: 'Activity HR',
                         )
-                      : const _NoDataTile(
+                      : _NoDataTile(
                           icon: Icons.favorite_rounded,
                           color: AppColors.heart,
                           label: 'Activity HR',
@@ -407,7 +407,7 @@ class _InsightsCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.lightbulb_rounded,
+                  Icon(Icons.lightbulb_rounded,
                       size: 18, color: AppColors.primary),
                   const SizedBox(width: AppSpacing.sm),
                   Text('Insights', style: AppText.title),
@@ -660,7 +660,7 @@ class _BaselineNote extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.insights_rounded,
+              Icon(Icons.insights_rounded,
                   size: 15, color: AppColors.activity),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -733,7 +733,7 @@ class _PeriodSummaryCard extends StatelessWidget {
                         : '—')),
           ]),
           if (vs != null || a.activeStreakDays != null) ...[
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Divider(height: 1, color: AppColors.divider),
             ),
@@ -747,7 +747,7 @@ class _PeriodSummaryCard extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.local_fire_department_rounded,
+                      Icon(Icons.local_fire_department_rounded,
                           size: 16, color: AppColors.calories),
                       const SizedBox(width: 6),
                       Text('${a.activeStreakDays}-day streak',
@@ -867,7 +867,7 @@ class _ScoreCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          const Divider(height: 1, color: AppColors.divider),
+          Divider(height: 1, color: AppColors.divider),
           const SizedBox(height: AppSpacing.md),
           for (var i = 0; i < a.scoreComponents.length; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.md),
@@ -940,7 +940,7 @@ class _RecommendationsCard extends StatelessWidget {
                   margin: const EdgeInsets.only(top: 5),
                   width: 6,
                   height: 6,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                       color: AppColors.activity, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -1026,7 +1026,7 @@ class _HourlyStepsChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           getDrawingHorizontalLine: (_) =>
-              const FlLine(color: AppColors.divider, strokeWidth: 1),
+              FlLine(color: AppColors.divider, strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
         titlesData: FlTitlesData(
@@ -1129,7 +1129,7 @@ class _DailyStepsChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           getDrawingHorizontalLine: (_) =>
-              const FlLine(color: AppColors.divider, strokeWidth: 1),
+              FlLine(color: AppColors.divider, strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
         titlesData: FlTitlesData(

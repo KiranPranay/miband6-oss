@@ -28,7 +28,7 @@ class SettingsScreen extends StatelessWidget {
           'Settings',
           style: AppText.h1,
         ),
-        iconTheme: const IconThemeData(color: AppColors.ink),
+        iconTheme: IconThemeData(color: AppColors.ink),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -241,7 +241,7 @@ class _BandStatusCard extends StatelessWidget {
                   color: AppColors.surfaceAlt,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.watch,
+                child: Icon(Icons.watch,
                     color: AppColors.inkMuted, size: 24),
               ),
               const SizedBox(width: 12),
@@ -253,7 +253,7 @@ class _BandStatusCard extends StatelessWidget {
                       device?.platformName.isNotEmpty == true
                           ? device!.platformName
                           : 'Mi Band',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.ink,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -262,7 +262,7 @@ class _BandStatusCard extends StatelessWidget {
                     if (device != null)
                       Text(
                         device.remoteId.str,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.inkFaint,
                           fontSize: 11,
                         ),
@@ -273,7 +273,7 @@ class _BandStatusCard extends StatelessWidget {
               if (battery != null)
                 _BatteryWidget(level: battery)
               else if (connected)
-                const SizedBox(
+                SizedBox(
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
@@ -283,7 +283,7 @@ class _BandStatusCard extends StatelessWidget {
           ),
 
           const SizedBox(height: 16),
-          const Divider(color: AppColors.divider, height: 1),
+          Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 16),
 
           // ── Status rows ──────────────────────────────────────────
@@ -469,7 +469,7 @@ class _SettingsTile extends StatelessWidget {
                 ),
               )
             : null,
-        trailing: const Icon(Icons.chevron_right,
+        trailing: Icon(Icons.chevron_right,
             color: AppColors.inkFaint, size: 20),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

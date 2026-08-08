@@ -112,7 +112,7 @@ class _GradientOrbState extends State<_GradientOrb>
             child: Container(
               width: 108,
               height: 108,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.surface,
               ),

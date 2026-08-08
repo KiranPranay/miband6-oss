@@ -58,7 +58,7 @@ class _StressBody extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.ink),
+        iconTheme: IconThemeData(color: AppColors.ink),
         title: Text('Stress', style: AppText.h1),
       ),
       body: ListView(

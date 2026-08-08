@@ -53,7 +53,12 @@ class ChartCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          SizedBox(height: height, child: child),
+          // RepaintBoundary: charts are the most expensive thing to rasterise
+          // on these screens and they only change when the underlying data
+          // does. Isolating them here means scrolling, a live heart-rate tick
+          // or a toggle elsewhere on the page cannot force a chart repaint.
+          // Applied once in the shared card so every chart gets it.
+          RepaintBoundary(child: SizedBox(height: height, child: child)),
         ],
       ),
     );

@@ -12,6 +12,7 @@ import 'core/sleep_audio_controller.dart';
 
 import 'ui/home_shell.dart';
 import 'ui/theme/app_theme.dart';
+import 'ui/theme/tokens.dart';
 
 /// Headless trigger for the hardware test session (see MainActivity.kt +
 /// docs/reverse-engineering/capture-logs.md). Lets the adb loop start the test
@@ -88,16 +89,60 @@ Future<void> _runHwTestWhenAuthed(BLEManager ble, BLELogger logger) async {
   await ble.runHardwareTestSession();
 }
 
-class MiBandApp extends StatelessWidget {
+/// Hosts the app and keeps the token palette in step with the platform theme.
+///
+/// The design tokens ([AppColors]) are process-wide getters rather than
+/// `BuildContext` lookups, so exactly one place is responsible for pointing them
+/// at the right [AppPalette] before a frame is built — that place is here.
+/// Watching `platformBrightness` means a system dark-mode switch takes effect
+/// immediately, without restarting the app.
+class MiBandApp extends StatefulWidget {
   const MiBandApp({super.key});
 
   @override
+  State<MiBandApp> createState() => _MiBandAppState();
+}
+
+class _MiBandAppState extends State<MiBandApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _syncPalette();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_syncPalette() && mounted) setState(() {});
+  }
+
+  /// Points the tokens at the palette matching the current platform brightness.
+  /// Returns true when it actually changed.
+  bool _syncPalette() {
+    final brightness =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    return AppColors.setPalette(
+        brightness == Brightness.dark ? AppPalette.dark : AppPalette.light);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Build the theme AFTER the palette is set — the token getters resolve
+    // against whatever palette is active at build time.
+    _syncPalette();
     return WithForegroundTask(
       child: MaterialApp(
         title: 'Mi Band',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.system,
         home: const _AppRoot(),
       ),
     );

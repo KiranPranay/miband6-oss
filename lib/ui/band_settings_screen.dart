@@ -49,7 +49,7 @@ class _BandSettingsBody extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.ink),
+        iconTheme: IconThemeData(color: AppColors.ink),
         title: Text('Band settings', style: AppText.h1),
       ),
       body: !config.isLoaded
@@ -228,7 +228,7 @@ class _OfflineNotice extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.info_outline, size: 18, color: AppColors.warning),
+            Icon(Icons.info_outline, size: 18, color: AppColors.warning),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -256,7 +256,7 @@ class _ErrorNotice extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.error_outline, size: 18, color: AppColors.danger),
+            Icon(Icons.error_outline, size: 18, color: AppColors.danger),
             const SizedBox(width: 8),
             Expanded(
               child: Text(message,
@@ -357,7 +357,7 @@ class _ChoiceTile<T> extends StatelessWidget {
           children: [
             Text(labelOf(value),
                 style: AppText.body.copyWith(color: AppColors.primary)),
-            const Icon(Icons.chevron_right, color: AppColors.inkFaint),
+            Icon(Icons.chevron_right, color: AppColors.inkFaint),
           ],
         ),
         onTap: () async {
@@ -380,7 +380,7 @@ class _ChoiceTile<T> extends StatelessWidget {
                     ListTile(
                       title: Text(labelOf(o), style: AppText.body),
                       trailing: o == value
-                          ? const Icon(Icons.check, color: AppColors.primary)
+                          ? Icon(Icons.check, color: AppColors.primary)
                           : null,
                       onTap: () => Navigator.pop(ctx, o),
                     ),

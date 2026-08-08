@@ -190,3 +190,20 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
       none — record the flags byte observed in each mode either way.
 - [ ] **P6.6 HRV fetch 0x49 probe.** Send `0x49` via `fetchRawData` with `0x13`
       as a positive control. Expect length 0 (as `0x48` did). Record the result.
+
+---
+
+## P7 — UI/UX (docs/ui-ux-review.md)
+
+- [ ] **P7.1 Dark mode on a device.** It compiles and the palette is
+      contrast-tested, but nobody has *looked* at it. Check every screen in dark
+      mode; pay attention to charts (fl_chart colours), the hypnogram, and the
+      card/scaffold separation where shadows do little work.
+- [ ] **P7.2 System theme switch is live.** Toggle the OS theme with the app in
+      the foreground: the palette must repoint without a restart.
+- [ ] **P7.3 Largest accessibility font size.** Check for clipping, especially
+      the hero numbers on Today/Heart/Sleep.
+- [ ] **P7.4 Reduced motion.** Enable the OS setting and confirm decorative
+      animation (the pulsing HR ring) stops.
+- [ ] **P7.5 Screen reader.** TalkBack pass — expected to reveal the missing
+      semantic labels listed as "Still open #1".

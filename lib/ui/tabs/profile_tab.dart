@@ -41,11 +41,11 @@ class ProfileTab extends StatelessWidget {
                 Container(
                   width: 60,
                   height: 60,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: AppColors.primarySoft,
                   ),
-                  child: const Icon(Icons.person,
+                  child: Icon(Icons.person,
                       color: AppColors.primary, size: 32),
                 ),
                 const SizedBox(width: AppSpacing.lg),
@@ -106,7 +106,7 @@ class ProfileTab extends StatelessWidget {
                   title: 'Stress',
                   onTap: () => _push(
                     context,
-                    const ComingSoonScreen(
+                    ComingSoonScreen(
                       title: 'Stress',
                       description:
                           'Continuous stress tracking is coming soon.',
@@ -122,7 +122,7 @@ class ProfileTab extends StatelessWidget {
                   title: 'AI Analysis',
                   onTap: () => _push(
                     context,
-                    const ComingSoonScreen(
+                    ComingSoonScreen(
                       title: 'AI Analysis',
                       description:
                           'Personalized AI insights from your health data — coming soon.',
@@ -173,7 +173,7 @@ class ProfileTab extends StatelessWidget {
                                   AppColors.primary.withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.watch_rounded,
+                            child: Icon(Icons.watch_rounded,
                                 color: AppColors.primary, size: 20),
                           ),
                           const SizedBox(width: AppSpacing.md),
@@ -341,7 +341,7 @@ class _DeviceCard extends StatelessWidget {
           // Last sync line
           Row(
             children: [
-              const Icon(Icons.sync_rounded,
+              Icon(Icons.sync_rounded,
                   size: 15, color: AppColors.inkFaint),
               const SizedBox(width: AppSpacing.sm),
               Text(
@@ -363,7 +363,7 @@ class _DeviceCard extends StatelessWidget {
                     label: const Text('Disconnect'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.danger,
-                      side: const BorderSide(color: AppColors.danger),
+                      side: BorderSide(color: AppColors.danger),
                       padding: const EdgeInsets.symmetric(
                           vertical: AppSpacing.md),
                       shape: RoundedRectangleBorder(
@@ -439,7 +439,7 @@ class _FeatureRow extends StatelessWidget {
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(child: Text(title, style: AppText.title)),
-          const Icon(Icons.chevron_right,
+          Icon(Icons.chevron_right,
               color: AppColors.inkFaint, size: 22),
         ],
       ),

@@ -7,14 +7,17 @@ class SegmentedToggle extends StatelessWidget {
   final List<String> options;
   final int index;
   final ValueChanged<int> onChanged;
-  final Color accent;
+  /// Null means "use the brand primary", resolved at build time. It cannot be
+  /// a default parameter value any more: the palette is now swappable for dark
+  /// mode, so its colours are getters rather than compile-time constants.
+  final Color? accent;
 
   const SegmentedToggle({
     super.key,
     required this.options,
     required this.index,
     required this.onChanged,
-    this.accent = AppColors.primary,
+    this.accent,
   });
 
   @override
@@ -44,7 +47,9 @@ class SegmentedToggle extends StatelessWidget {
                 child: Text(
                   options[i],
                   style: AppText.label.copyWith(
-                    color: i == index ? accent : AppColors.inkMuted,
+                    color: i == index
+                        ? (accent ?? AppColors.primary)
+                        : AppColors.inkMuted,
                     fontWeight: FontWeight.w700,
                   ),
                 ),

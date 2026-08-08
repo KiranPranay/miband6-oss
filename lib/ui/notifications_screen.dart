@@ -56,13 +56,13 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.ink),
+        iconTheme: IconThemeData(color: AppColors.ink),
         title: Text('Notifications',
             style: AppText.title.copyWith(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(
             tooltip: 'Reload apps',
-            icon: const Icon(Icons.refresh, color: AppColors.inkMuted),
+            icon: Icon(Icons.refresh, color: AppColors.inkMuted),
             onPressed: () => relay.refreshInstalledApps(),
           ),
         ],
@@ -79,8 +79,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               onChanged: (v) => setState(() => _query = v.toLowerCase()),
               decoration: InputDecoration(
                 hintText: 'Search apps…',
-                hintStyle: const TextStyle(color: AppColors.inkFaint),
-                prefixIcon: const Icon(Icons.search, color: AppColors.inkFaint),
+                hintStyle: TextStyle(color: AppColors.inkFaint),
+                prefixIcon: Icon(Icons.search, color: AppColors.inkFaint),
                 filled: true,
                 fillColor: AppColors.surface,
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -94,7 +94,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadii.sm),
-                  borderSide: const BorderSide(color: AppColors.primary),
+                  borderSide: BorderSide(color: AppColors.primary),
                 ),
               ),
             ),
@@ -243,7 +243,7 @@ class _EnableCard extends StatelessWidget {
                   'which half of the path is at fault',
                   style: AppText.caption.copyWith(color: AppColors.inkMuted)),
               trailing:
-                  const Icon(Icons.send_rounded, color: AppColors.primary),
+                  Icon(Icons.send_rounded, color: AppColors.primary),
               onTap: () {
                 relay.sendTest();
                 ScaffoldMessenger.of(context).showSnackBar(

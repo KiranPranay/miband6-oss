@@ -87,7 +87,7 @@ class _Consent extends StatelessWidget {
               color: AppColors.primarySoft,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.mic_rounded,
+            child: Icon(Icons.mic_rounded,
                 color: AppColors.primary, size: 34),
           ),
         ),
@@ -211,9 +211,9 @@ class _Ready extends StatelessWidget {
           Container(
             width: 96,
             height: 96,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 color: AppColors.primarySoft, shape: BoxShape.circle),
-            child: const Icon(Icons.nightlight_round,
+            child: Icon(Icons.nightlight_round,
                 color: AppColors.primary, size: 44),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -361,7 +361,7 @@ class _PulsingMicState extends State<_PulsingMic>
             child: Container(
               width: 84,
               height: 84,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                   color: AppColors.primary, shape: BoxShape.circle),
               child: const Icon(Icons.mic_rounded,
                   color: Colors.white, size: 40),
@@ -392,7 +392,7 @@ class _PermissionNeeded extends StatelessWidget {
             decoration: BoxDecoration(
                 color: AppColors.warning.withValues(alpha: 0.14),
                 shape: BoxShape.circle),
-            child: const Icon(Icons.mic_off_rounded,
+            child: Icon(Icons.mic_off_rounded,
                 color: AppColors.warning, size: 34),
           ),
           const SizedBox(height: AppSpacing.lg),

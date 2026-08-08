@@ -3,57 +3,82 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'tokens.dart';
 
-/// The light, professional, lively theme for the redesign.
+/// The app's light and dark themes.
+///
+/// Both are produced by the same builder from an [AppPalette], so the two can
+/// never drift apart structurally — only their colours differ.
+///
+/// Note that [AppColors] must already be pointing at the matching palette when
+/// a theme is built (see `ThemedApp` in `main.dart`), because the token getters
+/// resolve against the *active* palette rather than taking one as an argument.
 class AppTheme {
   AppTheme._();
 
-  static ThemeData get light {
-    final base = ThemeData.light(useMaterial3: true);
+  static ThemeData get light => _build(AppPalette.light);
+
+  static ThemeData get dark => _build(AppPalette.dark);
+
+  static ThemeData _build(AppPalette p) {
+    final base = p.brightness == Brightness.dark
+        ? ThemeData.dark(useMaterial3: true)
+        : ThemeData.light(useMaterial3: true);
+
     final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.primary,
-      brightness: Brightness.light,
-      surface: AppColors.surface,
+      seedColor: p.primary,
+      brightness: p.brightness,
+      surface: p.surface,
     ).copyWith(
-      primary: AppColors.primary,
-      onPrimary: Colors.white,
-      surface: AppColors.surface,
-      onSurface: AppColors.ink,
+      primary: p.primary,
+      onPrimary: p.brightness == Brightness.dark ? const Color(0xFF10121A) : Colors.white,
+      surface: p.surface,
+      onSurface: p.ink,
+      error: p.danger,
     );
 
     final textTheme = GoogleFonts.manropeTextTheme(base.textTheme).apply(
-      bodyColor: AppColors.ink,
-      displayColor: AppColors.ink,
+      bodyColor: p.ink,
+      displayColor: p.ink,
     );
 
     return base.copyWith(
       colorScheme: scheme,
-      scaffoldBackgroundColor: AppColors.scaffold,
+      scaffoldBackgroundColor: p.scaffold,
       textTheme: textTheme,
       splashFactory: InkSparkle.splashFactory,
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        iconTheme: IconThemeData(color: AppColors.ink),
+        iconTheme: IconThemeData(color: p.ink),
         titleTextStyle: TextStyle(
-          color: AppColors.ink,
+          color: p.ink,
           fontSize: 20,
           fontWeight: FontWeight.w800,
         ),
       ),
-      dividerColor: AppColors.divider,
+      dividerColor: p.divider,
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? Colors.white : Colors.white,
-        ),
+        thumbColor: WidgetStateProperty.resolveWith((s) => Colors.white),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              ? AppColors.primary
-              : AppColors.inkFaint.withValues(alpha: 0.4),
+              ? p.primary
+              : p.inkFaint.withValues(alpha: 0.4),
         ),
       ),
-      iconTheme: const IconThemeData(color: AppColors.inkMuted),
+      iconTheme: IconThemeData(color: p.inkMuted),
+      // 48dp minimum touch targets everywhere (WCAG / Material target size).
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      listTileTheme: ListTileThemeData(
+        iconColor: p.inkMuted,
+        textColor: p.ink,
+        minVerticalPadding: 10,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: p.surfaceAlt,
+        contentTextStyle: TextStyle(color: p.ink),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }
