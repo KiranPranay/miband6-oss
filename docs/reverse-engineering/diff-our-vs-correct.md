@@ -47,3 +47,13 @@ Source tags: **GB**=Gadgetbridge, **NOTIFY**=com.mc.miband1.
 | 39 | Enable all-day stress | absent | `FE 06 00 01` → config char | ✅ **added** (`BandCommands.stressMonitoring`) |
 | 40 | `0x2A37` flags byte | ignored; `data[1]` read blindly | full HRS decode (uint16 HR, contact, energy, RR) | ✅ **fixed** (`HeartRateMeasurement`) |
 | 41 | RR intervals / HRV | assumed obtainable | **not sent by this firmware** (34/34 packets are 2 B, flags 0x00); `0x49` is ZeppOS-gated | ✅ documented; HRV maths implemented but unfed |
+| 42 | Sleep/wake gate | `sleep byte > 0` | **high nibble `0xF`** + low nibble ∉ {3,6} + steps==0 | ✅ **fixed** — old rule over-reported sleep ~30 % (10 831 false samples) |
+| 43 | `sleep` byte semantics | assumed boolean | carries **56-62 asleep, 0-2 awake** — not a flag | ✅ documented (findings-21) |
+| 44 | Not-worn inside sleep | ignored | low nibble 3/6 applies **regardless** of the high nibble (`0xF3` = 0.04 % HR coverage) | ✅ **fixed** — caused 14 h "nights" |
+| 45 | `deepSleep` byte | `& 0x7F > 52` ⇒ deep | **no physiological signal** (HR flat across all buckets) | ✅ **abandoned**; deep now from detrended HR |
+| 46 | Wake scorer | invented Cole-Kripke weights | **Chinoy 2020** weighted sum, threshold 10, validated on a *Huami* scalar | ✅ **replaced** |
+| 47 | Cole-Kripke coefficients | 0.04/0.2/0.4/0.8/2.0/0.4/0.2 | **106/54/58/76/230/74/67, P=0.001** | ✅ **corrected** (kept non-default) |
+| 48 | HR gap filling | borrowed a reading ±5 min | ≤3 min, else leave unstaged | ✅ **fixed** — interpolation can manufacture deep sleep |
+| 49 | Session over-merge | gap rule only | + 12 h cap + 18:00 sleep-day split | ✅ **fixed** (31 h → max 9.6 h) |
+| 50 | Sleep regularity | absent | **SRI** (Phillips 2017), 200×concordant/pairs − 100 | ✅ **added**, real value 70.1 |
+| 51 | HR streaming intent | not persisted | persisted — a restart must not resume the 1 Hz drain | ✅ **fixed**, hardware-verified |

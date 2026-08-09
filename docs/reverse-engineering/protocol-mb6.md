@@ -228,21 +228,91 @@ no case for either, and `MiBand6Coordinator` inherits
 Invalid HR is filtered separately: `HeartRateUtils.isValidHeartRateValue` accepts
 `> 0 && >= 10 && <= 250`.
 
-### 7.2 ⚠️ Hardware disagrees with the table — unresolved
+### 7.2 ✅ RESOLVED on hardware — the byte has two independent halves
 
-Our own captures (`findings-09.md` §3, real `activity_data.json`) show byte 0 on
-this MB6 (MILI_PANGU, FW V1.0.7.40) is **`0xF3`(243) / `0xF0`(240) overnight and
-`0x50`(80) during the day** — never 9 or 11. Masked with `& 0x0F` those become
-3 / 0 / 0, i.e. "not worn" and "no change", which cannot be right for a night of
-sleep.
+**Settled 2026-08-10 against 60 404 real samples over 53 days** (findings-21).
+The earlier contradiction was a misreading: the kind byte is not one value, it is
+**two independent nibbles**, and both carry meaning.
 
-Two possibilities, not yet distinguished: the high nibble is a sleep flag whose
-meaning GB does not model for this firmware, or this firmware simply reports
-different kinds. **Hardware wins over the reference**, so the analyzer treats the
-`sleep` byte (offset 5) as the primary asleep gate — which findings-09 verified
-maps 1:1 to the 0xF0/0xF3 overnight values — and additionally honours GB's 9/11
-kinds where present. A probe that dumps the observed kind-byte histogram is
-queued as **P2.1** in `pending-hardware-verification.md`.
+```
+   category byte
+   ┌───────┬───────┐
+   │ high  │  low  │
+   └───────┴───────┘
+      │        └── HuamiConst kind (3 = NONWEAR, 6 = CHARGING, 9 = LIGHT,
+      │            11 = DEEP, 0/10 = carry forward, 1/2 = activity)
+      └─────────── 0xF = ASLEEP, anything else = awake/activity
+```
+
+**High nibble `0xF` is the sleep flag.** Share of samples carrying it, by hour:
+
+| 00 | 02 | 04 | 06 | 08 | 12 | 16 | 20 |
+|---|---|---|---|---|---|---|---|
+| 18.9 % | 84.2 % | **96.8 %** | **98.6 %** | 67.4 % | 8.2 % | 6.1 % | 3.3 % |
+
+and it separates on physiology, which is the real proof:
+
+| | high nibble `0xF` | everything else |
+|---|---|---|
+| median heart rate (valid) | **65 bpm** | **81 bpm** |
+| median movement intensity | 0 | 32 |
+
+A ~20 % nocturnal heart-rate dip with no movement is what sleep looks like.
+
+**Low nibble 3 means the band recorded nothing — at any hour.** The decisive
+measurement is heart-rate coverage, because a worn band measures a pulse:
+
+| kind | samples | with a valid heart rate |
+|---|---|---|
+| `0xF0` | 7 619 | **99.6 %** |
+| `0xF9` | 504 | 98.2 % |
+| `0x50` | 24 306 | 96.8 % |
+| `0x60` | 8 644 | 95.9 % |
+| **`0xF3`** | 7 654 | **0.04 %** |
+| **`0x73`** | 1 572 | **0.13 %** |
+
+`0xF3` at night is *not* sleep; it is the not-worn/no-measurement state inside a
+sleep context. Split by time of day it is 0.0 % HR coverage both at 01:00-08:00
+and at 10:00-18:00 — the same state either way.
+
+So Gadgetbridge's `HuamiConst` table was right all along about the **low** nibble;
+what it does not model is the high nibble, which it explicitly treats as unknown
+flags (`determinePreviousValidActivityType` skips 16, 80, 96, 112 with the
+comment "all I ever had that are 0 when doing &=0xf" — i.e. `0x10, 0x50, 0x60,
+0x70`).
+
+**The correct rule:**
+
+```
+asleep  ⇔  (category >> 4) & 0x0F == 0xF
+           AND (category & 0x0F) ∉ {3, 6}
+           AND steps == 0
+```
+
+Sanity check on the same data: median **444 samples/day ≈ 7.4 h/night**, with
+99.6 % heart-rate coverage and a median sleep heart rate of 65 bpm.
+
+### 7.2b The `sleep` byte (offset 5) is not a boolean
+
+It carries **56-62 during sleep and 0-2 during the day**. Any `> 0` test leaks:
+measured against the high-nibble flag, `sleep > 0` marked **10 831 extra
+samples** as asleep, concentrated at 20:00-00:00, 580 of them with a non-zero
+step count — inflating reported sleep by ~30 %. Do not use it as a gate.
+
+### 7.2c The `deepSleep` byte (offset 6) carries no stage information
+
+Mean heart rate by `ds & 0x7F` bucket across 16 228 sleep samples:
+
+| bucket | 0-9 | 30-39 | 40-49 | 50-59 | 60-69 | 70-79 | 80-89 | 90-99 |
+|---|---|---|---|---|---|---|---|---|
+| mean HR | 75.4 | 66.1 | 66.6 | 66.6 | 65.9 | 67.1 | 67.6 | 65.9 |
+
+Flat. Deep sleep must show a **lower** heart rate; this shows none. Nor does any
+sub-state cluster early in the night as slow-wave sleep should. The
+`deepSleep & 0x7F > 52` rule from findings-09 was separating noise, and deep/light
+must be derived from heart rate instead (see `lib/core/sleep_analyzer.dart`).
+
+`remSleep` (offset 7) is identically 0 — confirmed again here. **No REM.**
 
 ### 7.3 Session stitching (GB `SleepAnalysis.calculateSleepSessions`)
 
