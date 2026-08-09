@@ -250,3 +250,54 @@ I read the heart chart's y-axis as topping out at 189 and inferred a 181 bpm
 artifact during sleep. The data disproves it — today's readings are 53-101 with
 none above 150. It was a misread label, not a defect. No despiking change made,
 because there is no evidence of spiking in 60 578 readings.
+
+---
+
+## 9. Two further observations from tonight's live capture
+
+### 9.1 Low nibble 11 is *not* deep sleep either
+
+Enabling sleep-assisted HR made a previously rare kind appear more often:
+high nibble `0xD`. Median heart rate by sleep-context kind, whole history:
+
+| kind | low nibble | n (with HR) | median HR |
+|---|---|---|---|
+| `0xF0` | 0 | 7 696 | **65** |
+| `0xF9` | 9 (LIGHT) | 495 | 67 |
+| `0xD0` | 0 | 105 | 71 |
+| `0xDB` | **11 (DEEP in GB's table)** | 25 | **79** |
+
+`0xDB` has the **highest** heart rate of any sleep kind. Deep sleep has the
+lowest. So Gadgetbridge's `TYPE_DEEP_SLEEP = 11` does not carry that meaning on
+this firmware either.
+
+The timeline places it: `0xD*` appears only at sleep *onset* and in the evening
+(hours 0-3 and 18-23, 151 samples in 53 days), e.g. tonight —
+
+```
+02:02  0x50  hr=62  sl=6     awake
+02:11  0x5A  hr=0   sl=47
+02:12  0x50  hr=60  sl=53
+02:13  0xD0  hr=66  sl=55    ← transition
+02:15  0xDB  hr=0   sl=57
+02:16  0xD0  hr=60  sl=57
+02:17  0xF0  hr=63  sl=57    ← settled sleep
+```
+
+High nibble `0xD` is a **sleep-onset/transition** state, not a depth. This is
+further reason to derive deep/light from heart rate rather than from the vendor
+kind bytes.
+
+### 9.2 The `sleep` byte is a graded ramp, which is why `> 0` leaked
+
+The same trace shows it climbing as sleep consolidates: `6 → 47 → 53 → 55 → 57`,
+settling at 56-62 once asleep. It is a sleep depth/confidence value, not a flag —
+so a `> 0` test fires during every drowsy, settling or simply still period, which
+is exactly the 20:00-00:00 over-reporting measured in §2.1.
+
+### 9.3 Sleep-assisted HR samples far denser than the configured interval
+
+With `15 00 01` (sleep-assisted) plus `14 01` (1-minute periodic), the observed
+median gap between heart-rate samples is **0.3 min (~18 s)**, with 90 % of
+samples carrying a reading. So the "1 minute" interval is a floor, not the actual
+overnight cadence — good news for staging, which needs the density.
