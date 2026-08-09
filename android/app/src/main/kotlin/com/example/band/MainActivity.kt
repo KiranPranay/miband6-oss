@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     private var hwtestChannel: MethodChannel? = null
     private var sleepAudioChannel: MethodChannel? = null
     private var pending = false
+    private var pendingSleepCapture = false
     private var pendingStopSleepAudio = false
 
     /**
@@ -50,11 +51,19 @@ class MainActivity : FlutterActivity() {
                     pending = false
                     result.success(p)
                 }
+                "checkSleepCaptureTrigger" -> {
+                    val p = pendingSleepCapture
+                    pendingSleepCapture = false
+                    result.success(p)
+                }
                 else -> result.notImplemented()
             }
         }
         if (intent?.getBooleanExtra("run_hwtest", false) == true) {
             pending = true
+        }
+        if (intent?.getBooleanExtra("sleep_capture", false) == true) {
+            pendingSleepCapture = true
         }
 
         sleepAudioChannel = MethodChannel(messenger, sleepAudioChannelName)
@@ -85,6 +94,14 @@ class MainActivity : FlutterActivity() {
         if (intent.getBooleanExtra("run_hwtest", false)) {
             val c = hwtestChannel
             if (c != null) c.invokeMethod("runHardwareTest", null) else pending = true
+        }
+        if (intent.getBooleanExtra("sleep_capture", false)) {
+            val c = hwtestChannel
+            if (c != null) {
+                c.invokeMethod("applySleepCapture", null)
+            } else {
+                pendingSleepCapture = true
+            }
         }
         if (intent.getBooleanExtra("stop_sleep_audio", false)) {
             val c = sleepAudioChannel

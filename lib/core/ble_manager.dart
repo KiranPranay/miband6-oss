@@ -1347,6 +1347,20 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _emitChange();
   }
 
+  /// Switch the band to a low-power unattended overnight recording.
+  ///
+  /// Stops the 1 Hz realtime stream (which would flatten the band's battery
+  /// long before morning) and turns on the band's own internal monitors, whose
+  /// data is collected by the next activity fetch. See
+  /// [BandConfigController.applySleepCaptureMode].
+  Future<void> enterSleepCaptureMode(
+      {HrInterval interval = HrInterval.oneMinute}) async {
+    await stopRealtimeHeartRate();
+    await bandConfig.applySleepCaptureMode(interval: interval);
+    _logger.i('SLEEPCAP: band configured for overnight capture '
+        '(battery=${_batteryLevel ?? '?'}%)');
+  }
+
   /// Stop continuous realtime HR streaming.
   Future<void> stopRealtimeHeartRate() async {
     _userWantsHrStreaming = false;

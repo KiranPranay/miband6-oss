@@ -162,6 +162,39 @@ class BandConfigController extends ChangeNotifier {
     return allOk;
   }
 
+  /// Configure the band for an unattended overnight recording.
+  ///
+  /// Continuous realtime HR (the `0x2A37` stream) samples about once a second,
+  /// which is superb data and a terrible idea overnight: it is the band's
+  /// workout-grade mode and flattens the battery in a few hours. The band can
+  /// instead sample *internally* at a fixed cadence for a fraction of the power
+  /// and hand the whole night over on the next fetch.
+  ///
+  /// So sleep capture means: stop streaming, and turn on the on-band monitors
+  /// that actually populate the overnight record —
+  ///  * periodic HR at [interval] (1 min gives ~480 points a night, which is
+  ///    what the stage estimator needs);
+  ///  * sleep-assisted HR, the firmware's own denser-while-asleep mode;
+  ///  * all-day HR, so the record does not stop at the session edges;
+  ///  * all-day stress, without which fetch type 0x13 returns nothing at all.
+  ///
+  /// Returns the settings that were applied.
+  Future<BandSettings> applySleepCaptureMode({
+    HrInterval interval = HrInterval.oneMinute,
+  }) async {
+    _logger.i('BandConfig: entering SLEEP CAPTURE mode '
+        '(periodic HR ${interval.label}, sleep-assisted + all-day HR + stress on, '
+        'realtime streaming off)');
+    final next = _settings.copyWith(
+      hrInterval: interval,
+      hrSleepAssisted: true,
+      hrAllDayMonitoring: true,
+      stressMonitoring: true,
+    );
+    await update(next);
+    return next;
+  }
+
   // ── Convenience setters used by the settings screen ──────────────────────
 
   Future<bool> setHrInterval(HrInterval v) =>

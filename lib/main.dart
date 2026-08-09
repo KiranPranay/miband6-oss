@@ -52,6 +52,9 @@ void _wireHardwareTestTrigger(BLEManager ble, BLELogger logger) {
     if (call.method == 'runHardwareTest') {
       logger.i('MB6TEST: intent trigger received (hot) — will run after auth');
       await _runHwTestWhenAuthed(ble, logger);
+    } else if (call.method == 'applySleepCapture') {
+      logger.i('SLEEPCAP: intent trigger received — will apply after auth');
+      await _applySleepCaptureWhenAuthed(ble, logger);
     }
     return null;
   });
@@ -65,10 +68,30 @@ void _wireHardwareTestTrigger(BLEManager ble, BLELogger logger) {
             'will run after auth');
         await _runHwTestWhenAuthed(ble, logger);
       }
+      final sleepCap = await _hwTestChannel
+              .invokeMethod<bool>('checkSleepCaptureTrigger') ??
+          false;
+      if (sleepCap) {
+        logger.i('SLEEPCAP: intent trigger received (cold launch)');
+        await _applySleepCaptureWhenAuthed(ble, logger);
+      }
     } catch (e) {
       logger.d('MB6TEST: checkLaunchTrigger unavailable: $e');
     }
   });
+}
+
+/// Wait for auth, then put the band into low-power overnight capture.
+Future<void> _applySleepCaptureWhenAuthed(BLEManager ble, BLELogger logger) async {
+  for (var i = 0; i < 120; i++) {
+    if (ble.authState == AuthState.authenticated) break;
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+  if (ble.authState != AuthState.authenticated) {
+    logger.e('SLEEPCAP: aborting — band not authenticated after 60 s');
+    return;
+  }
+  await ble.enterSleepCaptureMode();
 }
 
 /// Wait (up to 60 s) for the band to authenticate, then run the gated session.
