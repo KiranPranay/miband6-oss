@@ -25,6 +25,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-18.md` | **Sleep accuracy** — the stage table was ZeppOS's, not MB6's; rebuilt session detection (5 min/60 min/steps-break/18:00 day), not-worn by kind, HR-dip deep staging. |
 | `findings-19.md` | **Band settings** — every config command with its target characteristic; re-applied on every reconnect. |
 | `findings-20.md` | **Stress** — MB6 measures stress natively (0x13/0x12); full `0x2A37` flags decode proves this firmware sends **no RR intervals**, so no HRV. |
+| `findings-21.md` | **The sleep encoding, settled on 60 404 live samples** — the kind byte is two independent nibbles (high `0xF` = asleep, low = HuamiConst kind incl. NONWEAR). Exposed and fixed three defects: a sleep gate over-reporting ~30 %, sessions merging into 31-hour "nights", and a `deepSleep` byte with no physiological signal. |
 | `pending-hardware-verification.md` | **Everything not yet confirmed on the band** — read this before trusting any claim from the 2026-08-09 overhaul. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |
@@ -82,6 +83,27 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | Hardware gates 7-10 (sleep/notif/settings/stress) | ✅ added, ⏳ never run |
 
 ## Iteration log
+- **21** (2026-08-10, band worn overnight): **Audited the shipping pipeline
+  against 60 404 real samples over 53 days.** Settled the §7.2 contradiction —
+  the category byte is *two* nibbles, and Gadgetbridge was right about the low
+  one all along. Found the sleep/wake gate (`sleep byte > 0`) marking 10 831
+  extra samples asleep, mostly 20:00-00:00 evening stillness, inflating sleep
+  ~30 %; found `0xF3` (0.04 % heart-rate coverage — the band recording nothing)
+  being counted as sleep, which produced 14-hour "nights"; and found the
+  `deepSleep` byte carries no stage information at all (mean HR flat across
+  every bucket). Replaced the wake scorer with **Chinoy 2020**, the only
+  algorithm validated against PSG on a *Huami* per-minute scalar (90.3 %
+  accuracy, published threshold), corrected Cole-Kripke's coefficients to the
+  real published ones, and rebuilt deep sleep on a circadian-**detrended**
+  heart-rate dip. Stopped the HR aligner interpolating across ±5 min, which
+  could manufacture deep sleep out of a sensor dropout. Added the **Sleep
+  Regularity Index** (Phillips 2017; real value 70.1) and fixed the stress
+  baseline to compare like-with-like across the circadian cycle. Deep share went
+  from a median 5.7 % (0-41 %) to 13.4 %, impossible nights 3 → 0.
+  **Hardware-verified:** sign-key auth intact, supervisor backoff live, every
+  config command accepted, and a real bug caught — the HR-streaming intent was
+  not persisted, so a restart resumed the 1 Hz drain that would have flattened a
+  28 %-battery band before morning.
 - **15-20** (2026-08-09): **Full overhaul.** Performance (findings-15): root-caused
   the lag as a chain — every BLE notify called `notifyListeners()`, every tab did a
   top-level `context.watch<BLEManager>()`, every rebuild re-ran three O(n) analyses,
