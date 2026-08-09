@@ -10,6 +10,7 @@ class StorageManager {
   static const String _authKeyKey = "mi_band_auth_key";
   static const String _lastDeviceKey = "mi_band_last_device_id";
   static const String _wantsConnectedKey = "mi_band_wants_connected";
+  static const String _wantsHrStreamKey = "mi_band_wants_hr_stream";
 
   // SharedPreferences keys for activity metrics
   static const String _stepsKey = "mi_band_steps";
@@ -98,6 +99,21 @@ class StorageManager {
     if (raw == null) return (await getLastDeviceId())?.isNotEmpty ?? false;
     return raw == '1';
   }
+
+  /// Whether the user wants continuous (1 Hz) realtime heart-rate streaming.
+  ///
+  /// Persisted because it is a *power* decision, not just a UI toggle: the
+  /// realtime stream is the band's workout-grade mode and drains it in hours.
+  /// If this were not remembered, any app restart — a crash, a system kill,
+  /// an overnight OOM — would silently resume streaming and flatten the band
+  /// before morning.
+  Future<void> setWantsHrStreaming(bool value) async {
+    await _storage.write(key: _wantsHrStreamKey, value: value ? '1' : '0');
+  }
+
+  /// Defaults to true so existing installs behave as before.
+  Future<bool> getWantsHrStreaming() async =>
+      (await _storage.read(key: _wantsHrStreamKey)) != '0';
 
   // ── Activity metrics ──────────────────────────────────────────────────────
 

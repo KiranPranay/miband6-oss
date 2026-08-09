@@ -307,6 +307,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   // ---------------------------------------------------------------------------
 
   Future<void> _loadPersistedData() async {
+    _userWantsHrStreaming = await _storage.getWantsHrStreaming();
     await activityStore.load();
     _lastSyncTime = activityStore.lastActivitySync;
     _emitChange();
@@ -1327,6 +1328,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// Start continuous realtime HR streaming (with the required ~14 s keep-alive).
   Future<void> startRealtimeHeartRate() async {
     _userWantsHrStreaming = true;
+    _storage.setWantsHrStreaming(true);
     if (!await _setupHeartRate()) return;
     await _writeHrControl(_hrStopManual, 'stop-manual');
     await _writeHrControl(_hrStartContinuous, 'start-continuous');
@@ -1364,6 +1366,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// Stop continuous realtime HR streaming.
   Future<void> stopRealtimeHeartRate() async {
     _userWantsHrStreaming = false;
+    _storage.setWantsHrStreaming(false);
     _hrKeepAliveTimer?.cancel();
     _setRealtimeHrActive(false);
     await _writeHrControl(_hrStopContinuous, 'stop-continuous');
