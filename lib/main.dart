@@ -81,8 +81,17 @@ void _wireHardwareTestTrigger(BLEManager ble, BLELogger logger) {
   });
 }
 
+/// Guards against a trigger being delivered twice (MainActivity now both
+/// invokes and sets a pending flag, so either path may fire first).
+bool _sleepCaptureRequested = false;
+
 /// Wait for auth, then put the band into low-power overnight capture.
 Future<void> _applySleepCaptureWhenAuthed(BLEManager ble, BLELogger logger) async {
+  if (_sleepCaptureRequested) {
+    logger.d('SLEEPCAP: already requested — ignoring duplicate trigger');
+    return;
+  }
+  _sleepCaptureRequested = true;
   for (var i = 0; i < 120; i++) {
     if (ble.authState == AuthState.authenticated) break;
     await Future.delayed(const Duration(milliseconds: 500));

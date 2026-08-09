@@ -1,59 +1,61 @@
 import 'activity_sample.dart';
 
-/// Rebuilt sleep-session detection for Mi Band 6.
+/// Sleep-session detection and staging for Mi Band 6.
 ///
-/// ## Where the rules come from
+/// Every rule here was checked against **60 404 real samples spanning 53 days**
+/// pulled off the device, not just against the reference implementation. Where
+/// the two disagreed, the data won. See `findings-21.md`.
 ///
-/// **Gadgetbridge, legacy Huami path** — Mi Band 6 uses `MiBand2SampleProvider`
-/// → `HuamiConst.toActivityKind` (`MiBand6Coordinator` extends `HuamiCoordinator`
-/// and never overrides `getSampleProvider`). Consequences, all verified in
-/// source and recorded in `protocol-mb6.md` §7:
+/// ## What the band actually tells us
 ///
-/// * raw kinds: `9` = light sleep, `11` = deep sleep, `3` = not worn,
-///   `6` = charging (also not worn), `0`/`10` = carry the previous valid kind
-///   forward, everything else = awake/activity;
-/// * `rawKind & 0x0F` before comparing — the high nibble carries flags;
-/// * **there is no REM and no AWAKE kind on this path** — the legacy mapping has
-///   no case for either, and `MiBand6Coordinator` reports
-///   `supportsRemSleep() == false`;
-/// * **not-worn is a kind value, not `intensity == 0xFF`** (a guess the old code
-///   made) and not `HR == 255`;
-/// * session stitching (`SleepAnalysis.calculateSleepSessions`): minimum session
-///   5 min, maximum wake gap inside a session 60 min, and **any minute
-///   containing steps breaks the session**;
-/// * the "sleep day" runs 18:00 → 18:00, which is how a bedtime before midnight
-///   is attributed to the following morning.
+/// The per-minute `category` byte splits into two independent halves:
 ///
-/// **Hardware overrides the reference where they disagree.** Our own captures
-/// (`findings-09.md`) show this firmware never emits kind 9 or 11: overnight
-/// samples carry `0xF3`/`0xF0` and daytime `0x50`. Masked with `& 0x0F` those
-/// become 3/0/0 — i.e. "not worn" — which is plainly wrong for a night of sleep.
-/// So [_isAsleepSample] treats the `sleep` byte (offset 5) as the primary
-/// signal, which findings-09 verified maps 1:1 to those overnight values, and
-/// additionally honours kinds 9/11 when a firmware does emit them. The
-/// discrepancy is flagged in `protocol-mb6.md` §7.2 with a queued probe.
+/// * **high nibble `0xF` = asleep.** 96.8 % of 04:00 samples carry it, 98.6 % at
+///   06:00, ~3-8 % midday. It separates on physiology too: median heart rate
+///   65 bpm versus 81, median movement 0 versus 32.
+/// * **low nibble = `HuamiConst` kind**, and it is meaningful *independently* of
+///   the high nibble. Kind 3 (NONWEAR) and 6 (CHARGING) mean the band recorded
+///   nothing: `0xF3` has a valid heart rate in **0.04 %** of 7 654 samples,
+///   against 99.6 % for `0xF0`. Counting `0xF3` as sleep is what used to produce
+///   14-hour "nights".
 ///
-/// ## HR-assisted refinement
+/// Two things this firmware genuinely cannot give us:
+/// * **REM** — byte 7 is identically 0, and the legacy kind table has no REM
+///   case. It is never reported, and the hardware gate fails if it ever is.
+/// * **Sleep depth from the vendor bytes** — the `deepSleep` byte carries no
+///   physiological signal at all. Mean heart rate by `ds` bucket across 16 228
+///   sleep samples: 66.1 / 66.6 / 66.6 / 65.9 / 67.1 / 67.6 / 65.9 / 65.2 bpm.
+///   Flat. Deep sleep must show a *lower* heart rate; this shows none.
 ///
-/// Actigraphy alone cannot separate "asleep" from "lying still, awake", and it
-/// cannot see sleep depth at all. Two published ideas are used, both as *priors*
-/// over the band's own signal rather than as replacements for it:
+/// ## The algorithms, and why these ones
 ///
-/// * **Cole–Kripke** (Cole RJ, Kripke DF, Gruen W, Mullaney DJ, Gillin JC,
-///   "Automatic sleep/wake identification from wrist activity", *Sleep* 1992;
-///   15(5):461-9) scores each epoch from a weighted window of activity counts
-///   *around* it, not from that epoch alone. [_coleKripkeAwake] applies their
-///   weighting shape to the band's per-minute intensity so an isolated twitch
-///   does not create a wake episode, while a sustained burst does.
-/// * **Heart-rate dip staging**, as used in consumer-wearable validation work
-///   (e.g. de Zambotti et al. on multi-sensor consumer devices): deep sleep is
-///   accompanied by a sustained fall in heart rate relative to the sleeper's own
-///   nightly baseline. [_refineWithHeartRate] marks deep only where HR stays
-///   below a personal threshold for a run of minutes, instead of the previous
-///   `deepSleep & 0x7F > 52` cut, which was tuned by eye on a handful of nights.
+/// * **Sleep/wake within a session — Chinoy et al.** (*PLOS ONE* 2020;15(9):
+///   e0238464). A weighted activity sum, validated against polysomnography on a
+///   **Huami** device's minute-level scalar — the same vendor lineage as this
+///   band — at 90.3 % accuracy with a swept-optimal threshold of 10 for that
+///   scalar. Both the algorithm and its operating point are published for our
+///   class of input. See [_weightedSumAwake].
+/// * **Cole–Kripke** (*Sleep* 1992;15(5):461-9) is implemented with its real
+///   published coefficients and kept for reference, but is **not** the default:
+///   its weights are defined over ActiGraph counts, and converting our intensity
+///   byte to those would be an invention. See [coleKripkeAwake].
+/// * **Deep sleep — detrended heart-rate dip.** Heart rate falls to its nightly
+///   minimum during slow-wave sleep, but it *also* falls towards a circadian
+///   nadir near 04:00-05:00 regardless of stage, so an absolute threshold finds
+///   the trough rather than the cycles. Subtracting a rolling ±45-minute median
+///   (about one sleep cycle) removes that drift; sustained runs below the local
+///   baseline are then marked deep. See [_refineWithHeartRate].
 ///
-/// Both are explicitly **estimates**. REM is never reported: this firmware does
-/// not measure it (byte 7 is always 0), and inventing it would be dishonest.
+/// ## Honesty
+///
+/// Deep/light is an **estimate**. Consumer wearables agree with polysomnography
+/// only 50-65 % of the time on multi-state staging, and deep is among the
+/// weakest classes. A known unresolved limitation: on our captures the estimated
+/// deep sleep is not front-loaded (mean position ~0.55 of the night) when
+/// slow-wave sleep should dominate the early cycles. Detrending improved this
+/// but did not fix it, and without polysomnography, tuning further would just be
+/// fitting to a prior. It is reported in `tool/analyze_capture.dart` rather than
+/// hidden.
 class SleepAnalyzer {
   const SleepAnalyzer._();
 
@@ -432,7 +434,7 @@ class SleepAnalyzer {
         out.add(_Staged(s.timestamp, SleepStage.awake));
         continue;
       }
-      if (!_isAsleepSample(s) || _coleKripkeAwake(intensities, i)) {
+      if (!_isAsleepSample(s) || _weightedSumAwake(intensities, i)) {
         out.add(_Staged(s.timestamp, SleepStage.awake));
         continue;
       }
@@ -528,7 +530,59 @@ class SleepAnalyzer {
   static double _intensityToCounts(int intensity) =>
       intensity * intensityCountScale;
 
+  /// Actiwatch/Philips-Respironics weighted sum — **the primary wake scorer**.
+  ///
+  /// Chinoy ED, Cuellar JA, Huwa KE, et al. "Performance of seven consumer
+  /// sleep-tracking devices compared with polysomnography." / "PSG validation of
+  /// minute-to-minute scoring for sleep and wake periods in a consumer wearable
+  /// device", *PLOS ONE* 2020;15(9):e0238464.
+  ///
+  /// ```
+  /// TotalActivity = E₀ + 0.2·E₋₁ + 0.2·E₊₁ + 0.04·E₋₂ + 0.04·E₊₂
+  /// TotalActivity > threshold → wake
+  /// ```
+  ///
+  /// **Why this and not Cole–Kripke.** Chinoy et al. validated this exact form
+  /// against polysomnography on a **Huami** device's minute-level scalar — the
+  /// same vendor lineage as this band — and swept the threshold to an optimum of
+  /// **10** for that scalar (versus 40 for research-grade Actiwatch counts),
+  /// reaching 90.3 % ± 4.3 accuracy and 95.5 % sleep sensitivity on the held-out
+  /// set. So both the algorithm *and its operating point* are published for our
+  /// class of input, where Cole–Kripke's coefficients are defined over ActiGraph
+  /// counts we would have to invent a conversion for.
+  ///
+  /// On our captures this scores 18.8 % of band-flagged sleep minutes as wake,
+  /// i.e. a sleep efficiency near 81 % — in the normal adult range without any
+  /// tuning on our part.
+  ///
+  /// Caveat kept in view: their scalar was a vector magnitude from the vendor
+  /// cloud API, ours is the raw intensity byte. Same family, not provably the
+  /// same units. Their paper also reports wake **specificity** of only
+  /// 55.6 % ± 22.7 — wake detection is unreliable per subject, which is why the
+  /// UI presents wake episodes as an estimate.
+  static const double chinoyWakeThreshold = 10.0;
+
+  static bool _weightedSumAwake(List<int> intensity, int i) {
+    double at(int idx) =>
+        (idx < 0 || idx >= intensity.length) ? 0 : intensity[idx].toDouble();
+    final total = at(i) +
+        0.2 * (at(i - 1) + at(i + 1)) +
+        0.04 * (at(i - 2) + at(i + 2));
+    return total > chinoyWakeThreshold;
+  }
+
   /// True when Cole–Kripke scores this minute as wake.
+  ///
+  /// Retained and tested, but **not** the default — see [_weightedSumAwake].
+  /// Using it requires [intensityCountScale], a conversion we cannot validate.
+  ///
+  /// Public only so tests can exercise it. Deliberately no `@visibleForTesting`
+  /// annotation: this library is kept free of Flutter imports so that
+  /// `tool/analyze_capture.dart` can run it under plain `dart run`, against a
+  /// real captured night, with no engine.
+  static bool coleKripkeAwake(List<int> intensity, int i) =>
+      _coleKripkeAwake(intensity, i);
+
   static bool _coleKripkeAwake(List<int> intensity, int i) {
     double at(int idx) => (idx < 0 || idx >= intensity.length)
         ? 0
@@ -583,6 +637,14 @@ class SleepAnalyzer {
   /// As with [intensityCountScale], this is an operating point matched to
   /// population norms, **not** a validation against polysomnography.
   static const double deepDipBpm = 1.0;
+
+  /// Furthest a staged minute may borrow a heart rate from.
+  ///
+  /// Beyond this the minute is left unstaged rather than filled in. Fabricating
+  /// heart rate across a dropout is the most likely way to ship a
+  /// plausible-looking lie: interpolated values have almost no variance, and low
+  /// variance at a low level is precisely what the deep-sleep rule looks for.
+  static const int maxHrGapMinutes = 3;
 
   /// Half-width of the median filter applied to heart rate before staging.
   ///
@@ -713,9 +775,17 @@ class SleepAnalyzer {
       (byMinute[key] ??= []).add(r.value);
     }
 
+    // Reach at most [maxHrGapMinutes] for a substitute reading.
+    //
+    // This used to reach ±5 minutes, which is nearest-neighbour interpolation
+    // by another name: a five-minute PPG dropout became five copies of one
+    // value. That is dangerous here specifically, because a repeated value has
+    // near-zero local variance — exactly the signature the deep-sleep rule keys
+    // on — so a sensor dropout could manufacture a deep-sleep block. A gap
+    // longer than the limit yields null and the minute is simply not staged.
     double? rawAt(DateTime t) {
       final base = t.millisecondsSinceEpoch ~/ 60000;
-      for (var d = 0; d <= 5; d++) {
+      for (var d = 0; d <= maxHrGapMinutes; d++) {
         for (final k in (d == 0 ? [base] : [base - d, base + d])) {
           final v = byMinute[k];
           if (v != null && v.isNotEmpty) {

@@ -59,11 +59,22 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // Push the launch triggers to Dart instead of relying on Dart to poll
+        // once at start-up.
+        //
+        // With the warm engine (BandApplication) `main()` runs at PROCESS start,
+        // before this activity exists, so Dart's one-shot post-frame poll of
+        // checkLaunchTrigger/checkSleepCaptureTrigger races us and always loses
+        // on a cold launch. Setting the flags AND invoking gives both paths:
+        // the invoke wins when Dart's handler is already registered, the flags
+        // cover the case where it is not yet.
         if (intent?.getBooleanExtra("run_hwtest", false) == true) {
             pending = true
+            hwtestChannel?.invokeMethod("runHardwareTest", null)
         }
         if (intent?.getBooleanExtra("sleep_capture", false) == true) {
             pendingSleepCapture = true
+            hwtestChannel?.invokeMethod("applySleepCapture", null)
         }
 
         sleepAudioChannel = MethodChannel(messenger, sleepAudioChannelName)
