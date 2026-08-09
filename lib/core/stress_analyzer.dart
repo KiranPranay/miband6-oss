@@ -202,7 +202,12 @@ class StressAnalyzer {
   static const int baselineDays = 7;
 
   /// Minimum readings before a personal baseline is trusted.
-  static const int minBaselineSamples = 60;
+  ///
+  /// Applies **per circadian bin** (see `_circadianBin`), so the effective
+  /// requirement is this many readings at a comparable time of day, not this
+  /// many overall. Lowered from 60 accordingly — splitting the day into four
+  /// bins divides the available history by roughly four.
+  static const int minBaselineSamples = 20;
 
   /// Minimum HR readings needed for an estimate at all.
   static const int minHrSamples = 10;
@@ -288,10 +293,23 @@ class StressAnalyzer {
     final recentAvg =
         recent.map((r) => r.value).reduce((a, b) => a + b) / recent.length;
 
-    // Personal baseline: the resting end of the last 7 days.
+    // Personal baseline: the resting end of the last 7 days, **from the same
+    // circadian bin**.
+    //
+    // Resting heart rate varies across the 24-hour cycle by more than the
+    // deviation we are trying to detect: night RHR averages 50.5 bpm against
+    // 54.5 in the day, a 3.9 bpm offset (Speed C, Arneil T, Harle R, et al.,
+    // "Measure by measure: Resting heart rate across the 24-hour cycle",
+    // *PLOS Digital Health* 2023;2(4):e0000236). Comparing an evening reading
+    // against an all-hours baseline therefore guarantees a systematic error —
+    // it would read "calm" at 3 a.m. and "elevated" every afternoon, purely
+    // from the clock.
+    final bin = _circadianBin(now);
     final baselineStart = now.subtract(const Duration(days: baselineDays));
     final history = hr
-        .where((r) => r.timestamp.isAfter(baselineStart))
+        .where((r) =>
+            r.timestamp.isAfter(baselineStart) &&
+            _circadianBin(r.timestamp) == bin)
         .map((r) => r.value)
         .toList()
       ..sort();
@@ -330,10 +348,23 @@ class StressAnalyzer {
       sampleCount: recent.length,
       hasPersonalBaseline: true,
       explanation:
-          'Estimated from how far your heart rate sits above your own 7-day '
-          'resting range. This is not HRV — your band does not report '
-          'beat-to-beat intervals.',
+          'Estimated from how far your heart rate sits above your own resting '
+          'range for this time of day. This is not HRV — your band does not '
+          'report beat-to-beat intervals, and heart rate alone cannot measure '
+          'psychological stress.',
     );
+  }
+
+  /// Time-of-day bucket used to keep baselines comparable.
+  ///
+  /// Boundaries follow the circadian-RHR literature: a night bin covering the
+  /// usual sleep window, then morning / midday / evening.
+  static int _circadianBin(DateTime t) {
+    final h = t.hour;
+    if (h >= 22 || h < 6) return 0; // night
+    if (h < 11) return 1; // morning
+    if (h < 16) return 2; // midday
+    return 3; // evening
   }
 
   static double _percentile(List<int> sorted, double p) {

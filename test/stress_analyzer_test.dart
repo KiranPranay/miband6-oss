@@ -362,4 +362,72 @@ void main() {
       expect(days.last.samples, 5);
     });
   });
+
+  group('circadian baselines', () {
+    // Night resting heart rate averages ~3.9 bpm below daytime (Speed et al.,
+    // PLOS Digital Health 2023;2(4):e0000236). That offset is larger than the
+    // deviation we are trying to detect, so a night reading compared against an
+    // all-hours baseline reads artificially calm, and an afternoon one
+    // artificially elevated.
+    List<HeartRateReading> dayAndNight(DateTime end) {
+      final out = <HeartRateReading>[];
+      final rnd = Random(11);
+      for (var d = 1; d <= 7; d++) {
+        for (var h = 0; h < 24; h++) {
+          for (var m = 0; m < 12; m++) {
+            final t = end.subtract(Duration(days: d)).copyWith(
+                hour: h, minute: m * 5, second: 0, millisecond: 0);
+            // Night (22:00-06:00) sits ~10 bpm below the daytime level.
+            final base = (h >= 22 || h < 6) ? 55 : 65;
+            out.add(HeartRateReading(
+                timestamp: t, value: base + rnd.nextInt(8)));
+          }
+        }
+      }
+      return out;
+    }
+
+    test('the same heart rate is judged differently by time of day', () {
+      final night = DateTime(2026, 8, 8, 3, 0);
+      final afternoon = DateTime(2026, 8, 8, 14, 0);
+
+      // An identical 68 bpm: unremarkable in the afternoon, high at 3 a.m.
+      final atNight = StressAnalyzer.current(
+        bandReadings: const [],
+        hrReadings: [
+          ...dayAndNight(night),
+          ..._hr(night.subtract(const Duration(minutes: 5)), 6, 68),
+        ],
+        now: night,
+      );
+      final atNoon = StressAnalyzer.current(
+        bandReadings: const [],
+        hrReadings: [
+          ...dayAndNight(afternoon),
+          ..._hr(afternoon.subtract(const Duration(minutes: 5)), 6, 68),
+        ],
+        now: afternoon,
+      );
+
+      expect(atNight.score, isNotNull);
+      expect(atNoon.score, isNotNull);
+      expect(atNight.score!, greaterThan(atNoon.score!),
+          reason: '68 bpm is a bigger departure from a night baseline than '
+              'from a daytime one');
+    });
+
+    test('the explanation says the baseline is time-of-day specific', () {
+      final now = DateTime(2026, 8, 8, 14, 0);
+      final est = StressAnalyzer.current(
+        bandReadings: const [],
+        hrReadings: [
+          ...dayAndNight(now),
+          ..._hr(now.subtract(const Duration(minutes: 5)), 6, 70),
+        ],
+        now: now,
+      );
+      expect(est.explanation, contains('this time of day'));
+      expect(est.explanation.toLowerCase(), contains('not hrv'));
+    });
+  });
 }
