@@ -162,6 +162,33 @@ class _BandSettingsBody extends StatelessWidget {
                   ),
                 ]),
 
+                _Section('Overnight'),
+                _Card(children: [
+                  ListTile(
+                    title: Text('Prepare for sleep', style: AppText.body),
+                    subtitle: Text(
+                        'Stops live heart-rate streaming and lets the band '
+                        'record the night itself at 1-minute intervals. Far '
+                        'kinder to the battery, and it is what fills in the '
+                        'sleep and stress history.',
+                        style: AppText.caption
+                            .copyWith(color: AppColors.inkMuted)),
+                    trailing: const Icon(Icons.nightlight_round,
+                        color: Color(0xFF6366F1)),
+                    onTap: () async {
+                      await ble.enterSleepCaptureMode();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'Band set to overnight capture — 1-minute heart '
+                              'rate, sleep-assisted, stress recording on.'),
+                        ),
+                      );
+                    },
+                  ),
+                ]),
+
                 _Section('Goals & reminders'),
                 _Card(children: [
                   _StepGoalTile(

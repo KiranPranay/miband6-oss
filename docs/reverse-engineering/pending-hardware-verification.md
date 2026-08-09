@@ -1,10 +1,41 @@
 # Pending hardware verification
 
-## Ledger — what is verified vs what is not (2026-08-09 overhaul)
+## Ledger — verified vs not
 
-**Nothing in the 2026-08-09 overhaul has touched a physical band.** No adb
-device was attached for the entire session. Everything below is either
-unit-tested, analyzer-clean and APK-compiling, or explicitly listed as unproven.
+### ✅ VERIFIED ON HARDWARE 2026-08-10 (Pixel 9a + band worn overnight)
+
+- `2021 SIGN-KEY AUTHENTICATION SUCCESS` — auth path intact after the whole
+  2026-08-09 overhaul. This was the main regression risk and it is clear.
+- MTU negotiated **247**; ANS `0x2A46` discovered for call alerts.
+- **Connection supervisor backoff observed live**: retry #1 at 0.8 s, #2 at
+  1.8 s, then connected — the jittered 1→2 s schedule, working (P4 partial).
+- **Every band configuration command accepted** (P3.1), including
+  `FE 06 00 01` (all-day stress), `14 01` (1-minute HR interval),
+  `15 00 01` (sleep-assisted HR), `06 22 00 01` (all-day HR).
+- **Protocol §7.2 settled** (P2.1) — see findings-21. The kind byte is two
+  independent nibbles; 60 404 real samples decided it.
+- Realtime-streaming intent survives a force-stop + relaunch.
+- Warm engine starts and the app reconnects on launch.
+
+### 🐞 FOUND ON HARDWARE, FIXED
+- `_userWantsHrStreaming` was not persisted, so any restart silently resumed the
+  1 Hz stream. At 28 % battery that would have flattened the band in ~3 h and
+  lost the night. Now persisted; verified across a restart.
+- The warm engine broke the cold-launch intent trigger (Dart polled before
+  MainActivity attached). MainActivity now pushes the trigger.
+- Sleep pipeline: three defects, all quantified against real data (findings-21).
+
+### ⏳ STILL NOT VERIFIED
+| Area | What would prove it |
+|---|---|
+| Notifications (findings-17) | **P5.2** post-swipe delivery. Gate 8 was deliberately NOT run overnight — it buzzes the band and the user was asleep. |
+| Sleep accuracy | **P2.3** minute-by-minute vs Zepp Life / Sleep as Android for the same night. Still the only real accuracy check. |
+| HR interval effect | **P3.2** — that 1-min periodic HR actually changes sample cadence in the next fetch. Tonight's capture is the test. |
+| Stress data | **P6.1-P6.4** — all-day stress was only enabled at 02:02, so the first real stress records arrive with tonight's night. |
+| Dark mode | **P7.1** — still never seen on a device. |
+| Deep-sleep front-loading | Unresolved; needs polysomnography, not more tuning. |
+
+---
 
 ### Verified on hardware (earlier sessions, unchanged by this work)
 - Sign-key (ECDH) authentication — `test-results-01.md`, all 7 gates passed
