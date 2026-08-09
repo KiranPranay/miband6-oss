@@ -15,6 +15,7 @@ import 'dart:io';
 
 import 'package:band/core/activity_sample.dart';
 import 'package:band/core/sleep_analyzer.dart';
+import 'package:band/core/sleep_regularity.dart';
 
 double _mean(List<num> v) =>
     v.isEmpty ? 0 : v.fold<num>(0, (a, b) => a + b) / v.length;
@@ -114,6 +115,20 @@ void main(List<String> args) {
   }
   check('REM never reported', remLeak == 0,
       '$remLeak night(s) reported REM (firmware cannot measure it)');
+
+  final sri = SleepRegularity.compute(samples, hr: hr);
+  stdout.writeln('\n=== Sleep Regularity Index ===');
+  if (sri == null) {
+    stdout.writeln('  no data');
+  } else if (!sri.hasValue) {
+    stdout.writeln('  ${sri.explanation}');
+  } else {
+    stdout.writeln('  SRI = ${sri.index!.toStringAsFixed(1)}  (${sri.label})  '
+        'from ${sri.comparedDays} day-pairs, ${sri.pairCount} epoch pairs');
+    stdout.writeln('  UK Biobank median 81.0 (IQR 73.8-86.3)');
+    check('SRI within bounds', sri.index! >= -100 && sri.index! <= 100,
+        sri.index!.toStringAsFixed(1));
+  }
 
   // Deep sleep should concentrate in the first half of the night.
   final positions = <double>[];

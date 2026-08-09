@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/analysis_cache.dart';
+import '../../core/sleep_regularity.dart';
 import '../../core/ble_manager.dart';
 import '../../core/activity_sample.dart';
 import '../../core/sleep_analysis.dart';
@@ -205,6 +206,11 @@ class _SleepTabState extends State<SleepTab> {
                 const SizedBox(height: AppSpacing.xl),
                 const SectionHeader('Sleep sounds'),
                 const _SnoringSection(),
+                const SizedBox(height: AppSpacing.xl),
+                const SectionHeader('Sleep regularity'),
+                _RegularityCard(
+                    result: SleepRegularity.compute(store.samples,
+                        hr: store.hrReadings)),
                 const SizedBox(height: AppSpacing.xl),
                 const SectionHeader('This week'),
                 _WeeklySummary(a: analysis, nights: _perNight(days)),
@@ -2088,4 +2094,93 @@ class _SnoreTimelinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SnoreTimelinePainter old) =>
       old.session != session;
+}
+
+/// Sleep Regularity Index — how consistently the user sleeps at the same times.
+///
+/// Shown with the population median beside it, because a bare "70" means
+/// nothing on its own. Gated: below the 5-day minimum it says how many days are
+/// still needed instead of showing a number.
+class _RegularityCard extends StatelessWidget {
+  const _RegularityCard({required this.result});
+
+  final SleepRegularityResult? result;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = result;
+    if (r == null || !r.hasValue) {
+      return AppCard(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Text(
+            r?.explanation ??
+                'Sleep regularity needs a few days of data.',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted),
+          ),
+        ),
+      );
+    }
+    final v = r.index!;
+    // Position on the -100..100 scale, for the bar.
+    final frac = ((v + 100) / 200).clamp(0.0, 1.0);
+    return AppCard(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(v.toStringAsFixed(0), style: AppText.metric),
+                const SizedBox(width: AppSpacing.sm),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(r.label,
+                      style: AppText.title.copyWith(color: AppColors.sleep)),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            RepaintBoundary(
+              child: LayoutBuilder(
+                builder: (context, c) => Stack(
+                  children: [
+                    Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    // Population median marker.
+                    Positioned(
+                      left: c.maxWidth *
+                          ((SleepRegularity.populationMedian + 100) / 200),
+                      child: Container(
+                          width: 2, height: 8, color: AppColors.inkFaint),
+                    ),
+                    Container(
+                      height: 8,
+                      width: c.maxWidth * frac,
+                      decoration: BoxDecoration(
+                        color: AppColors.sleep,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              '${r.explanation} Based on ${r.comparedDays} days.',
+              style: AppText.caption.copyWith(color: AppColors.inkMuted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
