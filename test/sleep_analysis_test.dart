@@ -76,4 +76,54 @@ void main() {
       expect(a.weekAvgMin, 420);
     });
   });
+
+  group('score coherence (findings-21 follow-up)', () {
+    test('a deep-sleep shortfall scores proportionally, not generously', () {
+      // 8 % deep against a 13-23 % healthy band. The old rule (100 - 4/pt)
+      // scored this 80/100 while the app simultaneously told the user "deep
+      // sleep below the healthy range" — visible on the same card.
+      final s = _night(DateTime(2026, 8, 9), deep: 24, light: 279, rem: 0);
+      final a = SleepAnalysis.compute(
+          session: s, allDays: [s], hr: const [], spo2: const []);
+
+      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep');
+      expect(deep.score, lessThan(75),
+          reason: 'a below-range value must not score like a healthy one');
+      expect(deep.score, greaterThan(0));
+    });
+
+    test('zero deep sleep scores near zero, not half marks', () {
+      final s = _night(DateTime(2026, 8, 9), deep: 0, light: 420, rem: 0);
+      final a = SleepAnalysis.compute(
+          session: s, allDays: [s], hr: const [], spo2: const []);
+      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep');
+      expect(deep.score, 0, reason: 'the old rule gave 48/100 for no deep sleep');
+    });
+
+    test('a healthy deep share still scores full marks', () {
+      // 17 % of 420 min.
+      final s = _night(DateTime(2026, 8, 9), deep: 71, light: 349, rem: 0);
+      final a = SleepAnalysis.compute(
+          session: s, allDays: [s], hr: const [], spo2: const []);
+      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep');
+      expect(deep.score, 100);
+    });
+
+    test('a night under 6 h is never labelled Great or Excellent', () {
+      // 5 h 3 m — the real night that was being called "Great".
+      final s = _night(DateTime(2026, 8, 9), deep: 24, light: 279, rem: 0);
+      final a = SleepAnalysis.compute(
+          session: s, allDays: [s], hr: const [], spo2: const []);
+      expect(a.rating, isNot('Great'));
+      expect(a.rating, isNot('Excellent'));
+    });
+
+    test('a full night can still earn the top ratings', () {
+      // 8 h with a healthy deep share.
+      final s = _night(DateTime(2026, 8, 9), deep: 82, light: 398, rem: 0);
+      final a = SleepAnalysis.compute(
+          session: s, allDays: [s], hr: const [], spo2: const []);
+      expect(['Great', 'Excellent'], contains(a.rating));
+    });
+  });
 }

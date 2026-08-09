@@ -261,10 +261,25 @@ class SleepAnalysis {
     ];
 
     // Score: duration (45%), deep band (25%), REM band (15%), efficiency (15%).
+    // Sub-score for a percentage that has a healthy band.
+    //
+    // The old form subtracted 4 points per percentage point outside the band,
+    // which is not proportional to what the metric can actually do. Deep sleep
+    // realistically spans 0-30 %, so that rule scored a night with 8 % deep at
+    // **80/100** while the app's own insight called the same night "deep sleep
+    // below the healthy range" — a flat contradiction visible on screen — and a
+    // night with *zero* deep sleep still scored 48.
+    //
+    // Below the band the score is now proportional to the shortfall: 0 % scores
+    // 0, the healthy floor scores 100. Above the band it tapers gently, because
+    // more deep sleep than average is not a problem worth punishing hard.
     double band(int pct, int low, int high) {
       if (pct >= low && pct <= high) return 100;
-      final d = pct < low ? low - pct : pct - high;
-      return (100 - d * 4).clamp(0, 100).toDouble();
+      if (pct < low) {
+        if (low <= 0) return 100;
+        return (100.0 * pct / low).clamp(0, 100).toDouble();
+      }
+      return (100 - (pct - high) * 2).clamp(60, 100).toDouble();
     }
 
     // The score is the weighted sum of named sub-scores (REM is excluded — not
@@ -295,13 +310,24 @@ class SleepAnalysis {
         .fold<double>(0, (a, c) => a + c.score * c.weight)
         .round()
         .clamp(0, 100);
-    final rating = score >= 85
+    // Rating, with a duration floor.
+    //
+    // A short night cannot be "Great" however efficient it was. The National
+    // Sleep Foundation's consensus (Hirshkowitz et al., Sleep Health 2015)
+    // recommends 7-9 h for adults and classes under 6 h as not recommended, so
+    // the headline word is capped below that. Without this the app called a
+    // 5 h 3 m night "Great" on the same card that said "slept 2 h 57 m under
+    // your goal".
+    var rating = score >= 85
         ? 'Excellent'
         : score >= 70
             ? 'Great'
             : score >= 55
                 ? 'Fair'
                 : 'Poor';
+    if (total < 360 && (rating == 'Excellent' || rating == 'Great')) {
+      rating = 'Fair';
+    }
 
     // Bedtime consistency over recent post-fix nights (gated like other
     // baselines — only meaningful with enough clean nights).
@@ -353,7 +379,9 @@ class SleepAnalysis {
     insights.add(stages[0].status == MetricStatus.below
         ? const SleepInsight(false, 'Deep sleep below the healthy range')
         : const SleepInsight(true, 'Healthy amount of deep sleep'));
-    insights.add(eff >= 90
+    // 85 % is the classic normal cutoff for sleep efficiency; a 90 % bar
+    // labelled a perfectly ordinary night "restless".
+    insights.add(eff >= 85
         ? SleepInsight(true, 'Slept continuously · $eff% efficiency')
         : SleepInsight(false, 'Restless night · $eff% efficiency'));
 
