@@ -203,3 +203,50 @@ measuring anything. The check stays in the harness and reports FAIL.
   is also installed on this phone and is a second independent reference.
 - Gate 8 (notification delivery) was **not** run tonight on purpose: it buzzes
   the band and the user was asleep.
+
+---
+
+## 8. On-screen audit (2026-08-10, 02:45-02:50, live app)
+
+Screenshots of the running app on the device, each number checked against an
+independent calculation from the pulled data. Dark mode also confirmed working
+(part of **P7.1**).
+
+### Factually correct — no change needed
+
+| Screen | Shown | Independent check |
+|---|---|---|
+| Today / Heart | Resting HR **60 bpm** | Standard method (lowest sustained 30-min sleep mean) gives **60.7**; ours 60.0. Within 1 bpm. |
+| Heart | "-- BPM now", "no reading" | Correct: realtime streaming was deliberately off for the night. Honest, not a blank. |
+| Heart | Today's HR trace | Pulled data: 702 readings, **53-101 bpm**, zero above 150. Sane. |
+| Activity | **30 steps**, 9 970 to go | Band counter read `30 steps, 20 m, 2 kcal`. Exact. |
+| Activity | "683 fewer steps than yesterday" | Aug 9 per-minute total = 713. 713 − 30 = 683. Exact. |
+| Activity | "No long sitting stretches", longest 12 m 00:00-00:11 | Correct — sedentary excludes sleep, and the user was awake only ~1 h of the day so far. |
+| Sleep | 5 h 3 m asleep, Deep 24 m (8 %), Light 4 h 39 m (92 %) | Analyzer output for the same night: total 303 m, deep 24 m, eff 83 %. Exact, and the stages sum to the total. |
+
+### Defects found on screen and fixed
+
+1. **The score contradicted itself.** The breakdown showed "Deep sleep **80 %**"
+   while the Insights list immediately below said "Deep sleep below the healthy
+   range" — both from the same 8 % deep share. `band()` subtracted a flat 4
+   points per percentage point outside the healthy range, which is not
+   proportional to a metric that only spans ~0-30 %: a night with **zero** deep
+   sleep still scored 48/100. Now proportional (0 % → 0, healthy floor → 100).
+   **On device: 80 % → 62 %**, and the bar turned amber, agreeing with the
+   insight.
+
+2. **A 5 h 3 m night was rated "Great"** on the same card that said "Slept
+   2 h 57 m under your 8 h goal". The NSF consensus (Hirshkowitz et al.,
+   *Sleep Health* 2015) recommends 7-9 h for adults and classes under 6 h as not
+   recommended, so the headline is now capped at "Fair" below 6 h.
+   **On device: score 71 "Great" → 66 "Fair".**
+
+3. **"Restless night" fired below 90 % efficiency**, labelling an ordinary night
+   restless. 85 % is the classic normal cutoff; moved.
+
+### Investigated and dismissed
+
+I read the heart chart's y-axis as topping out at 189 and inferred a 181 bpm
+artifact during sleep. The data disproves it — today's readings are 53-101 with
+none above 150. It was a misread label, not a defect. No despiking change made,
+because there is no evidence of spiking in 60 578 readings.
