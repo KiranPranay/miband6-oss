@@ -267,15 +267,32 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
 
 ## P7 — UI/UX (docs/ui-ux-review.md)
 
-- [ ] **P7.1 Dark mode on a device.** It compiles and the palette is
-      contrast-tested, but nobody has *looked* at it. Check every screen in dark
-      mode; pay attention to charts (fl_chart colours), the hypnogram, and the
-      card/scaffold separation where shadows do little work.
-- [ ] **P7.2 System theme switch is live.** Toggle the OS theme with the app in
-      the foreground: the palette must repoint without a restart.
+- [x] **P7.1 Dark mode on a device.** Done 2026-08-12, all five tabs at both
+      scroll extremes plus Settings, Notifications and Stress. It was worth
+      doing: the pass found a solid-white card and near-invisible headings, both
+      from one cause (findings-22 §1), plus unreadable "on" switches. Charts and
+      the card/scaffold separation held up.
+- [x] **P7.2 System theme switch is live.** Done 2026-08-12 — and this was the
+      bug. The palette repointed, but `const` widgets never rebuilt, so they
+      kept the old colours. Fixed via `_PaletteGate`; pinned by
+      `test/palette_swap_test.dart`. Re-check by hand after any change to how
+      `AppColors.setPalette` is called.
 - [ ] **P7.3 Largest accessibility font size.** Check for clipping, especially
       the hero numbers on Today/Heart/Sleep.
 - [ ] **P7.4 Reduced motion.** Enable the OS setting and confirm decorative
       animation (the pulsing HR ring) stops.
 - [ ] **P7.5 Screen reader.** TalkBack pass — expected to reveal the missing
       semantic labels listed as "Still open #1".
+
+---
+
+## P8 — Step-count source (findings-22, "Still open")
+
+- [ ] **P8.1 Reconcile the two step counts.** On 2026-08-11 23:36 the band's own
+      `0x0007` characteristic read **5,269 steps** while the UI showed **3,959**
+      for the same moment. Today/Activity both derive their figure by summing
+      minute-level activity samples; the realtime characteristic is the band's
+      own running counter. Decide which is authoritative, then make one of them
+      the single source. Likely explanation is that the summed samples miss
+      whatever the fetch has not yet delivered — compare the two immediately
+      before and immediately after a manual `syncNow()`.

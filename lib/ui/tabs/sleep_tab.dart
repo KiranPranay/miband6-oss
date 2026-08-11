@@ -192,7 +192,7 @@ class _SleepTabState extends State<SleepTab> {
                 _RegularityCard(
                     result: SleepRegularity.compute(store.samples,
                         hr: store.hrReadings)),
-                                const SectionHeader('This week'),
+                                const SectionHeader('Recent nights'),
                 _WeeklySummary(a: analysis, nights: _perNight(days)),
                 const SizedBox(height: AppSpacing.sm),
                 _WeekChart(nights: _perNight(days)),
@@ -1465,6 +1465,32 @@ class _WeeklySummary extends StatelessWidget {
     return names[(d.weekday - 1).clamp(0, 6)];
   }
 
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _shortDate(DateTime d) =>
+      '${d.day} ${_months[(d.month - 1).clamp(0, 11)]}';
+
+  /// "7 nights · 1 Jul – 10 Aug", or null when there is nothing to describe.
+  ///
+  /// A weekday alone is ambiguous the moment the pool covers more than a week —
+  /// "Best night: Friday" could be any of several Fridays.
+  String? get _span {
+    final pool = nights.length <= 7 ? nights : nights.sublist(nights.length - 7);
+    if (pool.isEmpty) return null;
+    final first = pool.first.date;
+    final last = pool.last.date;
+    final count = '${pool.length} night${pool.length == 1 ? '' : 's'}';
+    if (first.year == last.year &&
+        first.month == last.month &&
+        first.day == last.day) {
+      return '$count · ${_shortDate(first)}';
+    }
+    return '$count · ${_shortDate(first)} – ${_shortDate(last)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!a.hasPersonalBaseline) {
@@ -1503,15 +1529,33 @@ class _WeeklySummary extends StatelessWidget {
       _MiniStat(
         label: 'Best night',
         value: a.bestNight != null ? _weekdayLong(a.bestNight!.date) : '—',
+        detail: a.bestNight != null ? _shortDate(a.bestNight!.date) : null,
       ),
       _MiniStat(
         label: 'Lowest night',
         value: a.worstNight != null ? _weekdayLong(a.worstNight!.date) : '—',
+        detail: a.worstNight != null ? _shortDate(a.worstNight!.date) : null,
       ),
     ];
     return AppCard(
       child: Column(
         children: [
+          // Say which nights these are.
+          //
+          // The pool is the last N *recorded* nights, not the last N days — a
+          // deliberate choice, because a personal baseline needs a minimum
+          // number of nights rather than a calendar window. But the section was
+          // headed "This week", and on real data those seven nights ran from
+          // 1 July to 10 August. Every figure below was true of that pool and
+          // false of the week, so the pool now names itself.
+          if (_span != null) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(_span!,
+                  style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           Row(children: [
             Expanded(child: stat[0]),
             Container(width: 1, height: 34, color: AppColors.divider),
@@ -1657,6 +1701,13 @@ class _WeekChart extends StatelessWidget {
     final maxY = (maxMinutes <= 0 ? 60 : maxMinutes) * 1.2;
     const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+    // These are the last seven *recorded* nights, not the last seven days, so
+    // when a night is missing they can span more than a week — and the axis then
+    // reads "Wed Thu Fri Sat Sun Sun Mon", two bars with the same name and no
+    // way to tell which is which. Fall back to dates whenever that happens.
+    final weekdays = recent.map((d) => d.date.weekday).toList();
+    final ambiguous = weekdays.toSet().length != weekdays.length;
+
     return AppCard(
       child: SizedBox(
         height: 168,
@@ -1688,10 +1739,13 @@ class _WeekChart extends StatelessWidget {
                     if (i < 0 || i >= recent.length) {
                       return const SizedBox.shrink();
                     }
-                    final wd = recent[i].date.weekday;
+                    final date = recent[i].date;
+                    final text = ambiguous
+                        ? '${date.day}/${date.month}'
+                        : labels[(date.weekday - 1).clamp(0, 6)];
                     return Padding(
                       padding: const EdgeInsets.only(top: AppSpacing.sm),
-                      child: Text(labels[(wd - 1).clamp(0, 6)],
+                      child: Text(text,
                           style: AppText.caption.copyWith(
                               color: AppColors.inkMuted, fontSize: 10)),
                     );

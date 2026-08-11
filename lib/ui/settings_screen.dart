@@ -9,7 +9,6 @@ import 'auth_key_screen.dart';
 import 'debug_console.dart';
 import 'notifications_screen.dart';
 import 'theme/tokens.dart';
-import 'theme/app_theme.dart';
 import 'widgets/section_header.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -25,10 +24,7 @@ class SettingsScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: Text(
-          'Settings',
-          style: AppText.h1,
-        ),
+        title: const Text('Settings'),
         iconTheme: IconThemeData(color: AppColors.ink),
       ),
       body: ListView(

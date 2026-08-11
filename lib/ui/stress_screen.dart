@@ -59,7 +59,7 @@ class _StressBody extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: AppColors.ink),
-        title: Text('Stress', style: AppText.h1),
+        title: const Text('Stress'),
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg,

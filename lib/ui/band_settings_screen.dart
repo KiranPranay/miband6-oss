@@ -50,7 +50,7 @@ class _BandSettingsBody extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: AppColors.ink),
-        title: Text('Band settings', style: AppText.h1),
+        title: const Text('Band settings'),
       ),
       body: !config.isLoaded
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
