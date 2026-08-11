@@ -904,8 +904,11 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       _logger.d('Sync: already in progress');
       return;
     }
-    _logger.i('Sync: manual refresh requested');
-    await _fetchActivityData();
+    // A manual sync deliberately re-requests a wide window. It is the user's
+    // way to recover a hole — the band keeps roughly a week of history, so a
+    // gap left by a phone that was off or disconnected can still be pulled back.
+    _logger.i('Sync: manual refresh requested (deep backfill)');
+    await _fetchActivityData(deep: true);
   }
 
   Future<void> _syncTime() async {
@@ -986,7 +989,9 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     });
   }
 
-  Future<void> _fetchActivityData() async {
+  /// Fetches band data. [deep] forces a wide (7-day) window instead of the
+  /// incremental one, so an existing hole can be backfilled.
+  Future<void> _fetchActivityData({bool deep = false}) async {
     if (_device == null || !_device!.isConnected) return;
 
     _setFetchingActivity(true);
@@ -1011,7 +1016,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
           : now;
       final haveDeepHistory =
           earliest.isBefore(now.subtract(const Duration(days: 3)));
-      final since = (lastSync != null && haveDeepHistory)
+      final since = (!deep && lastSync != null && haveDeepHistory)
           ? lastSync.subtract(const Duration(hours: 6))
           : now.subtract(const Duration(days: 7));
 
@@ -1022,13 +1027,29 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       final samples = await _activityFetcher!.fetchActivityData(since);
       if (samples.isNotEmpty) {
         activityStore.addSamples(samples);
-        activityStore.updateActivitySync(DateTime.now());
-        _logger.i('Activity fetch: got ${samples.length} samples');
+        // Watermark = the newest sample we actually received, NOT wall-clock
+        // now.
+        //
+        // This used to be DateTime.now(), which silently loses data: the next
+        // fetch asks for `lastSync - 6 h`, so if the app was disconnected for
+        // longer than that — an overnight gap, a killed process, a flat phone —
+        // the watermark had already jumped past the missing window and it was
+        // never re-requested, even though the band still held it. Observed on
+        // 2026-08-10: samples run 1/min to 06:29 and then stop dead until
+        // 17:00, a 10.5-hour hole in a night the band had recorded.
+        final newest = samples
+            .map((s) => s.timestamp)
+            .reduce((a, b) => a.isAfter(b) ? a : b);
+        activityStore.updateActivitySync(newest);
+        _logger.i('Activity fetch: got ${samples.length} samples '
+            '(newest ${newest.toIso8601String()})');
 
         final hrReadings = ActivityFetcher.heartRatesFromSamples(samples);
         if (hrReadings.isNotEmpty) {
           activityStore.addHeartRateReadings(hrReadings);
-          activityStore.updateHrSync(DateTime.now());
+          activityStore.updateHrSync(hrReadings
+              .map((r) => r.timestamp)
+              .reduce((a, b) => a.isAfter(b) ? a : b));
           _logger.i('HR history: derived ${hrReadings.length} readings from activity');
         }
       } else {
@@ -1055,7 +1076,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       final spo2 = await _activityFetcher!.fetchSpo2(since);
       if (spo2.isNotEmpty) {
         activityStore.addSpo2Readings(spo2);
-        activityStore.updateSpo2Sync(DateTime.now());
+        activityStore.updateSpo2Sync(
+            spo2.map((r) => r.timestamp).reduce((a, b) => a.isAfter(b) ? a : b));
         _logger.i('SPO2 fetch: got ${spo2.length} readings');
       } else {
         _logger.i('SPO2 fetch: no new data');

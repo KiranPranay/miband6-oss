@@ -329,4 +329,51 @@ void main() {
       expect(days.single.totalSleepMinutes, greaterThan(0));
     });
   });
+
+  group('unmeasured minutes (0xF3 — band flagged sleep but measured nothing)', () {
+    // 0xF3 = the band's sleep flag set, low nibble 3 = no measurement. Across
+    // 60k real samples this kind has a valid heart rate 0.04% of the time, at
+    // every hour of day — it is the band recording nothing, and it is excluded.
+    //
+    // A bounded "bridge" (counting short unmeasured runs between measured sleep
+    // as sleep) was implemented and then REVERTED: the night it was meant to
+    // rescue turned out to have only 4% not-worn minutes, so the hypothesis was
+    // wrong, and the bridged minutes were still being staged awake, which
+    // inflated wake episodes. Left out rather than half-working.
+    ActivitySample unmeasured(DateTime t) => ActivitySample(
+          timestamp: t,
+          category: 0xF3,
+          intensity: 0,
+          steps: 0,
+          heartRate: 0,
+          sleep: 60,
+        );
+
+    test('an unmeasured block is never counted as sleep', () {
+      final t = DateTime(2026, 8, 9, 12, 0);
+      final samples =
+          List.generate(300, (i) => unmeasured(t.add(Duration(minutes: i))));
+      expect(SleepAnalyzer.detectSessions(samples), isEmpty,
+          reason: 'a band on a desk must not produce a night');
+    });
+
+    test('a long unmeasured block does not extend a real night', () {
+      final t = DateTime(2026, 8, 9, 23, 0);
+      final samples = <ActivitySample>[
+        ..._run(t, 60),
+        ...List.generate(
+            180, (i) => unmeasured(t.add(Duration(minutes: 60 + i)))),
+        ..._run(t.add(const Duration(minutes: 240)), 60),
+      ];
+      for (final d in SleepAnalyzer.detectSessions(samples)) {
+        expect(d.totalSleepMinutes, lessThan(180),
+            reason: 'a 3-hour dead block must not be counted as sleep');
+      }
+    });
+
+    test('isNotWorn is true for 0xF3 regardless of the sleep flag', () {
+      expect(SleepAnalyzer.isNotWorn(unmeasured(DateTime(2026, 8, 9, 3))),
+          isTrue);
+    });
+  });
 }
