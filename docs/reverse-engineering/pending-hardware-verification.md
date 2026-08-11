@@ -32,7 +32,7 @@
 | Sleep accuracy | **P2.3** minute-by-minute vs Zepp Life / Sleep as Android for the same night. Still the only real accuracy check. |
 | HR interval effect | **P3.2** — that 1-min periodic HR actually changes sample cadence in the next fetch. Tonight's capture is the test. |
 | Stress data | **P6.1-P6.4** — all-day stress was only enabled at 02:02, so the first real stress records arrive with tonight's night. |
-| Dark mode | **P7.1** — still never seen on a device. |
+| ~~Dark mode~~ | **P7.1/P7.2 done 2026-08-12** — and the pass paid for itself: a solid-white card, near-invisible headings and unreadable "on" switches, all found by looking. See findings-22. |
 | Deep-sleep front-loading | Unresolved; needs polysomnography, not more tuning. |
 
 ---
@@ -55,7 +55,7 @@
 | Sleep analyzer (18) | 25 tests incl. every edge case named in the brief | **P2.3** (vs Zepp Life) |
 | Band settings (19) | 32 tests pinning bytes *and* target characteristic | **P3.2** (cadence actually changes) |
 | Stress (20) | 28 tests; layouts from GB + Notify + Mi Fit | P6.1-P6.4 |
-| Light/dark theme | contrast enforced by test, 8 real light-theme failures fixed | **P7.1** (never seen on a device) |
+| Light/dark theme | contrast enforced by test, 8 real light-theme failures fixed | **P7.1/P7.2 verified 2026-08-12** (findings-22) |
 
 ### Established as *not possible* on this firmware
 - **HRV / recovery** — 34/34 captured `0x2A37` packets are 2 bytes with flags

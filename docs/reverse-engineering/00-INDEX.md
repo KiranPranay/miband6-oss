@@ -26,6 +26,7 @@ by extracting the real wire protocol from the **Notify** (`com.mc.miband1`) and
 | `findings-19.md` | **Band settings** — every config command with its target characteristic; re-applied on every reconnect. |
 | `findings-20.md` | **Stress** — MB6 measures stress natively (0x13/0x12); full `0x2A37` flags decode proves this firmware sends **no RR intervals**, so no HRV. |
 | `findings-21.md` | **The sleep encoding, settled on 60 404 live samples** — the kind byte is two independent nibbles (high `0xF` = asleep, low = HuamiConst kind incl. NONWEAR). Exposed and fixed three defects: a sleep gate over-reporting ~30 %, sessions merging into 31-hour "nights", and a `deepSleep` byte with no physiological signal. |
+| `findings-22.md` | **The first on-device dark-mode pass** — "the UI is inconsistent" was mostly *one* bug: global style tokens read at build time, frozen into `const` widgets that Flutter never rebuilds. Plus the nav-clearance arithmetic, four different tab headers, and four charts/labels claiming more than the data supports (incl. a "This week" that spanned 1 Jul – 10 Aug). |
 | `pending-hardware-verification.md` | **Everything not yet confirmed on the band** — read this before trusting any claim from the 2026-08-09 overhaul. |
 | `verification-checklist.md` | Per-claim → log-line checklist to confirm fixes on the real band. |
 | `hardware-test-session.md` | **Runnable** gated session guide (gates 0→6) for the physical band. |

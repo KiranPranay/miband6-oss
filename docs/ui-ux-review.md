@@ -1,6 +1,6 @@
 # UI/UX review — principles, where they are applied, and what is still open
 
-**Date:** 2026-08-09
+**Date:** 2026-08-09, revised 2026-08-12 after the first on-device pass
 **Scope:** every screen in `lib/ui/`. This documents *decisions*, not aspirations
 — each principle below names the concrete place it is implemented, and the
 "Still open" section is deliberately explicit about what has **not** been done.
@@ -90,9 +90,22 @@ previous state, and that is worse than an ugly correct one.
 
 Implemented this pass. The token layer was `static const` colours baked for
 light only; it is now an `AppPalette` with `light`/`dark` instances and
-`AppColors` getters that resolve against the active one. `MiBandApp` observes
-`platformBrightness` and repoints the palette, so a system theme change applies
-immediately without a restart.
+`AppColors` getters that resolve against the active one.
+
+**Repointing the palette is not enough** — this is the correction the device
+pass forced (findings-22 §1). The getters resolve at *build* time, and Flutter
+skips rebuilding a `const` widget whose instance has not changed, so any const
+widget built under the wrong palette keeps those colours for the rest of the
+session. Android reports light brightness for the first frame or two of a cold
+start, which was enough to leave headings in light-mode ink on a dark scaffold
+and one card painted solid white. `_PaletteGate` now keys the subtree on the
+resolved `Theme.of(context).brightness`, so a change *discards* the elements
+rather than updating them.
+
+The general lesson, worth carrying to any similar token layer: a global mutable
+style read at build time is one `const` away from going stale. Skipping
+`BuildContext` is exactly what makes these tokens convenient and exactly what
+breaks them.
 
 Dark is **not** an inversion:
 - surfaces are near-black (`#0E1017`/`#171A23`), not pure black — pure black
@@ -170,9 +183,16 @@ These are **not** done. They are listed here rather than quietly omitted.
    to roughly the pixel width before plotting, and support pinch/scrub. Deferred
    because it needs on-device profiling to tune (queued with P1.1).
 5. **Haptic feedback on band writes** is not wired.
-6. **Dark mode has not been seen on a device.** It compiles, the palette is
-   contrast-tested, and the switching logic is exercised by tests — but nobody
-   has looked at it. Queued as **P7.1**.
+6. ~~**Dark mode has not been seen on a device.**~~ Done 2026-08-12 — all five
+   tabs at both scroll extremes, plus Settings, Notifications and Stress. The
+   pass found a solid-white card, near-invisible section headings and "on"
+   switches with no visible thumb; see findings-22. Automated contrast tests had
+   passed throughout, because they check the palettes, not which palette a
+   widget ended up holding.
+7. **Layout is verified by screenshot, not by test.** The nav clearance and the
+   palette swap now have unit tests, but "does anything overlap on this screen"
+   is still checked by eye. Golden tests over the five tabs at two scroll
+   positions would catch a regression cheaply.
 
 ## Verification status
 
@@ -182,5 +202,7 @@ These are **not** done. They are listed here rather than quietly omitted.
 | Palette switching | ✅ automated test |
 | Hue stability across themes | ✅ automated test |
 | `flutter analyze` | ✅ clean |
-| Visual appearance on device | ❌ **not verified — no device this session** |
+| Visual appearance on device | ✅ 2026-08-12, all five tabs + pushed screens (findings-22) |
+| Bottom-nav clearance arithmetic | ✅ automated test (`nav_clearance_test.dart`) |
+| Palette survives a brightness change | ✅ automated test (`palette_swap_test.dart`) |
 | Screen-reader pass | ❌ not done (see Still open #1) |
