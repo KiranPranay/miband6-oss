@@ -62,8 +62,8 @@ class _StressBody extends StatelessWidget {
         title: Text('Stress', style: AppText.h1),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 96),
+        padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg,
+            AppSpacing.xxl + MediaQuery.viewPaddingOf(context).bottom),
         children: [
           _Hero(estimate: estimate),
           const SizedBox(height: AppSpacing.lg),

@@ -211,6 +211,40 @@ class AppSpacing {
   static const double xxxl = 32;
 }
 
+/// Layout constants shared between the shell and everything that scrolls under
+/// it.
+///
+/// The floating nav is drawn over the body (`Scaffold.extendBody`), so a scroll
+/// view that ends flush with the viewport ends *underneath* the nav. Every tab
+/// used to reserve a hardcoded 96 px for it, which is simply too small — the
+/// pill is 66 high, sits 12 above the bottom edge, and on a gesture-navigation
+/// phone another ~24 of system inset sits below that. The last card was clipped
+/// on all five tabs. Ask [navClearance] instead of guessing.
+class AppLayout {
+  AppLayout._();
+
+  /// Height of the floating nav pill.
+  static const double navBarHeight = 66;
+
+  /// Gap between the pill and the bottom safe-area edge.
+  static const double navBarMargin = 12;
+
+  /// Space a scrolling surface must leave at the bottom so the floating nav
+  /// never covers its last item, including a breathing gap above the pill.
+  ///
+  /// Under `Scaffold.extendBody` Flutter already measures the bottom bar and
+  /// reports its full height — pill, margin and system inset together — as the
+  /// body's `MediaQuery.padding.bottom`. That measured value is authoritative,
+  /// so prefer it; the constants below are only a fallback for callers that are
+  /// not inside such a Scaffold.
+  static double navClearance(BuildContext context) {
+    final measured = MediaQuery.paddingOf(context).bottom;
+    final assumed =
+        navBarHeight + navBarMargin + MediaQuery.viewPaddingOf(context).bottom;
+    return (measured > assumed ? measured : assumed) + AppSpacing.lg;
+  }
+}
+
 class AppRadii {
   AppRadii._();
   static const double sm = 12;

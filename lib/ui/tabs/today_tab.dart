@@ -12,6 +12,7 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
+import '../widgets/tab_header.dart';
 
 /// The hero "Today" dashboard: greeting + connection status, a pulsing live
 /// heart-rate ring with a measure/stop control, the day's key stats, a steps
@@ -183,17 +184,16 @@ class _TodayTabState extends State<TodayTab> {
                   _HealthHero(summary: summary),
                   const SizedBox(height: AppSpacing.lg),
 
-                  // --- Personalized briefing ---
-                  if (summary.briefing.isNotEmpty) ...[
-                    _BriefingCard(lines: summary.briefing),
-                    const SizedBox(height: AppSpacing.lg),
-                  ],
-
                   // --- Today's aggregated insights ---
+                  //
+                  // The briefing card that used to sit here has gone. It listed
+                  // sleep duration, steps-to-goal and resting HR — every one of
+                  // which is already on this screen, in the score card above and
+                  // again as a tappable row under "Your day". Counting it, a
+                  // short night was reported six times before the first scroll.
                   if (summary.insights.isNotEmpty) ...[
                     const SectionHeader("Today's insights"),
                     _TodayInsightsCard(insights: summary.insights),
-                    const SizedBox(height: AppSpacing.lg),
                   ],
 
                   // --- Linked summary cards (salience-ordered) ---
@@ -223,7 +223,7 @@ class _TodayTabState extends State<TodayTab> {
               ),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 96)),
+          const SliverNavClearance(),
         ],
       ),
     );
@@ -235,44 +235,14 @@ class _TodayTabState extends State<TodayTab> {
 
   Widget _buildHeader(BLEManager ble) {
     final now = DateTime.now();
-    final greeting = _greeting(now.hour);
-
-    return SliverAppBar(
-      pinned: true,
-      expandedHeight: 156,
-      backgroundColor: AppColors.scaffold,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      automaticallyImplyLeading: false,
-      flexibleSpace: FlexibleSpaceBar(
-        background: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.lg,
-              AppSpacing.lg,
-              AppSpacing.md,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                Text(
-                  greeting,
-                  style: AppText.h1,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                // Connection detail now lives in the informative band-status card.
-                Text(_dateLine(now), style: AppText.label),
-              ],
-            ),
-          ),
-        ),
-      ),
+    // Same header component as the other four tabs. Today keeps a greeting
+    // rather than a noun for its title — it is the one screen you land on, and
+    // "Good morning / Wednesday, 12 August" orients you in a way "Today" does
+    // not — but the geometry, the pinning and the safe-area handling are shared,
+    // so the tabs no longer each behave slightly differently at the top.
+    return TabHeaderSliver(
+      title: _greeting(now.hour),
+      subtitle: _dateLine(now),
     );
   }
 
@@ -759,43 +729,6 @@ class _WatchStatusCard extends StatelessWidget {
               color: batteryLow ? AppColors.danger : AppColors.success,
               size: 20,
             ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Personalized, data-driven briefing lines ("You slept 8h 21m", …).
-class _BriefingCard extends StatelessWidget {
-  final List<String> lines;
-  const _BriefingCard({required this.lines});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < lines.length; i++) ...[
-            if (i > 0) const SizedBox(height: AppSpacing.sm),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 5),
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                      color: AppColors.primary, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Text(lines[i],
-                      style: AppText.body.copyWith(color: AppColors.ink)),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );

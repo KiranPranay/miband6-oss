@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/section_header.dart';
+import '../widgets/tab_header.dart';
 
 import '../settings_screen.dart';
 import '../notifications_screen.dart';
@@ -33,36 +34,17 @@ class ProfileTab extends StatelessWidget {
     return CustomScrollView(
       slivers: [
         // 1. Header --------------------------------------------------------
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg, AppSpacing.xxl, AppSpacing.lg, AppSpacing.lg),
-            child: Row(
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.primarySoft,
-                  ),
-                  child: Icon(Icons.person,
-                      color: AppColors.primary, size: 32),
-                ),
-                const SizedBox(width: AppSpacing.lg),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Your Band', style: AppText.h1),
-                    const SizedBox(height: 2),
-                    Text('Mi Band 6',
-                        style: AppText.label
-                            .copyWith(color: AppColors.inkMuted)),
-                  ],
-                ),
-              ],
+        TabHeaderSliver(
+          title: 'Your Band',
+          subtitle: deviceName,
+          leading: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.primarySoft,
             ),
+            child: Icon(Icons.person, color: AppColors.primary, size: 24),
           ),
         ),
 
@@ -219,7 +201,7 @@ class ProfileTab extends StatelessWidget {
         ),
 
         // 5. Bottom spacer (floating nav) ----------------------------------
-        const SliverToBoxAdapter(child: SizedBox(height: 96)),
+        const SliverNavClearance(),
       ],
     );
   }

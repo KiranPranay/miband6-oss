@@ -175,9 +175,51 @@ class _MiBandAppState extends State<MiBandApp> with WidgetsBindingObserver {
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.system,
-        home: const _AppRoot(),
+        // Keyed on the palette so a brightness change *discards* the element
+        // tree instead of updating it.
+        //
+        // This is load-bearing, not a tidiness measure. `AppText.h1`, `AppCard`
+        // and friends read the palette through global getters at build time, and
+        // Flutter skips rebuilding a `const` widget whose instance is unchanged.
+        // So any `const SectionHeader(...)` / `const AppCard(...)` first built
+        // under the wrong palette keeps those colours forever — the widget never
+        // rebuilds, because from the framework's point of view nothing about it
+        // changed.
+        //
+        // That is exactly what happened on this device: Android reports
+        // `platformBrightness == light` for the first frame or two of a cold
+        // start and corrects itself afterwards, so whatever had been built by
+        // then was frozen in light-mode colours on a dark screen — headings in
+        // #161B2E on a #0E1017 background (near-invisible), and the "More heart
+        // metrics" card painted #FFFFFF white. Sections built later, once data
+        // arrived, came out correct. Hence the patchy, screen-by-screen
+        // inconsistency, all from a single cause.
+        //
+        // Changing the key forces every element below it to be rebuilt from
+        // scratch, const widgets included. See test/palette_swap_test.dart.
+        home: const _PaletteGate(child: _AppRoot()),
       ),
     );
+  }
+}
+
+/// Keeps [AppColors] pointed at the palette matching the theme that is actually
+/// in effect, and rebuilds the subtree from scratch whenever that changes.
+///
+/// This sits *below* `MaterialApp` on purpose: `Theme.of(context).brightness` is
+/// the resolved answer, after `themeMode`, the platform value and any override
+/// have been applied — unlike `platformDispatcher.platformBrightness`, which is
+/// only an input and is briefly wrong during a cold start.
+class _PaletteGate extends StatelessWidget {
+  final Widget child;
+  const _PaletteGate({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    AppColors.setPalette(
+        brightness == Brightness.dark ? AppPalette.dark : AppPalette.light);
+    return KeyedSubtree(key: ValueKey(brightness), child: child);
   }
 }
 

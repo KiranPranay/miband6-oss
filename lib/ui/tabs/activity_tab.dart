@@ -15,6 +15,7 @@ import '../widgets/app_card.dart';
 import '../widgets/chart_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
+import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 import '../widgets/stat_card.dart';
 
@@ -94,32 +95,13 @@ class _ActivityTabState extends State<ActivityTab> {
     return CustomScrollView(
       slivers: [
         // 1. Collapsing header.
-        SliverAppBar(
-          pinned: true,
-          expandedHeight: 152,
-          backgroundColor: AppColors.scaffold,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          automaticallyImplyLeading: false,
-          flexibleSpace: FlexibleSpaceBar(
-            titlePadding: const EdgeInsets.only(
-                left: AppSpacing.lg, bottom: AppSpacing.lg),
-            title: Text('Activity', style: AppText.h1),
-            expandedTitleScale: 1.6,
-            background: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg, 0, AppSpacing.lg, 56),
-              child: Align(
-                alignment: Alignment.bottomLeft,
-                child: Text(
-                  ble.isConnected
-                      ? 'Keep moving — every step counts.'
-                      : 'Band disconnected — showing last synced data.',
-                  style: AppText.label,
-                ),
-              ),
-            ),
-          ),
+        TabHeaderSliver(
+          title: 'Activity',
+          subtitle: ble.isConnected
+              ? 'Keep moving — every step counts.'
+              : 'Band disconnected — showing last synced data.',
+          subtitleIcon: Icons.directions_walk_rounded,
+          subtitleIconColor: AppColors.activity,
         ),
 
         SliverToBoxAdapter(
@@ -243,15 +225,13 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 // 6. Activity score (Today) — decomposed into real components.
                 if (range == 0 && activity.activityScore != null) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  const SectionHeader('Activity score'),
+                                    const SectionHeader('Activity score'),
                   _ScoreCard(a: activity),
                 ],
 
                 // 7. Recommendations (Today) — action-oriented, non-medical.
                 if (range == 0 && activity.recommendations.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  const SectionHeader('Recommendations'),
+                                    const SectionHeader('Recommendations'),
                   _RecommendationsCard(items: activity.recommendations),
                 ],
               ],
@@ -260,7 +240,7 @@ class _ActivityTabState extends State<ActivityTab> {
         ),
 
         // Bottom spacer so the floating nav never covers content.
-        const SliverToBoxAdapter(child: SizedBox(height: 96)),
+        const SliverNavClearance(),
       ],
     );
   }
@@ -890,12 +870,28 @@ class _ScoreRow extends StatelessWidget {
       children: [
         Row(
           children: [
+            // "· 50%" used to sit here bare, and it is the component's *weight*
+            // in the formula — not how well the day went. Next to a bar filled
+            // to 40% and a detail reading "3,959 / 10,000", the only sensible
+            // interpretation was the wrong one. Name it.
             Expanded(
-              child: Text('${c.label}  ·  ${(c.weight * 100).round()}%',
+              child: Text(c.label,
                   style: AppText.label.copyWith(color: AppColors.ink)),
             ),
-            Text(c.detail,
-                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+            Text('${c.score}%',
+                style: AppText.label.copyWith(
+                    color: AppColors.activity, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Row(
+          children: [
+            Expanded(
+              child: Text(c.detail,
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+            ),
+            Text('weight ${(c.weight * 100).round()}%',
+                style: AppText.caption.copyWith(color: AppColors.inkFaint)),
           ],
         ),
         const SizedBox(height: 6),

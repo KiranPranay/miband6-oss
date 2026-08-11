@@ -124,7 +124,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                 relay.setAppSelected(app.package, v ?? false)
                             : null,
                         activeColor: AppColors.primary,
-                        checkColor: Colors.white,
+                        // The tick has to contrast with the fill. Dark mode's
+                        // primary is a light indigo, so a white tick on it is
+                        // barely there — same mistake the switches made.
+                        checkColor: AppColors.isDark
+                            ? const Color(0xFF10121A)
+                            : Colors.white,
                         title: Text(app.name, style: AppText.body),
                         subtitle: Text(app.package,
                             style: AppText.caption
@@ -209,7 +214,6 @@ class _EnableCard extends StatelessWidget {
           SwitchListTile(
             value: relay.enabled,
             onChanged: (v) => relay.setEnabled(v),
-            activeThumbColor: AppColors.primary,
             title: Text('Forward notifications to band', style: AppText.title),
             subtitle: Text('Selected apps below will alert your band',
                 style: AppText.caption.copyWith(color: AppColors.inkMuted)),
@@ -219,7 +223,6 @@ class _EnableCard extends StatelessWidget {
             SwitchListTile(
               value: relay.privacyMode,
               onChanged: (v) => relay.setPrivacyMode(v),
-              activeThumbColor: AppColors.primary,
               title: Text('Private alerts', style: AppText.body),
               subtitle: Text(
                   'Send the app and title only — never the message text',
@@ -229,7 +232,6 @@ class _EnableCard extends StatelessWidget {
             SwitchListTile(
               value: relay.suppressWhenScreenOn,
               onChanged: (v) => relay.setSuppressWhenScreenOn(v),
-              activeThumbColor: AppColors.primary,
               title: Text('Skip while using your phone', style: AppText.body),
               subtitle: Text(
                   "Don't buzz your wrist when the screen is already on",

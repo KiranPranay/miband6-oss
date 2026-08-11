@@ -16,6 +16,7 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
+import '../widgets/tab_header.dart';
 
 /// The Sleep screen — coaches rather than just reports: a sleep score with
 /// goal + night-over-night comparison, insights, a readable hypnogram timeline,
@@ -150,29 +151,13 @@ class _SleepTabState extends State<SleepTab> {
 
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xs),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Sleep', style: AppText.h1),
-                  const SizedBox(height: 2),
-                  Text(
-                    selected != null
-                        ? (selected.isNap
-                            ? 'Nap'
-                            : _nightLabel(selected.date))
-                        : 'Sleep tracking',
-                    style: AppText.label.copyWith(color: AppColors.inkMuted),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        TabHeaderSliver(
+          title: 'Sleep',
+          subtitle: selected != null
+              ? (selected.isNap ? 'Nap' : _nightLabel(selected.date))
+              : 'Sleep tracking',
+          subtitleIcon: Icons.bedtime_rounded,
+          subtitleIconColor: AppColors.sleep,
         ),
         if (selected == null || analysis == null)
           _emptyState()
@@ -189,8 +174,7 @@ class _SleepTabState extends State<SleepTab> {
                 const _AiAnalysisCard(),
                 const SizedBox(height: AppSpacing.lg),
                 _TimelineCard(day: selected),
-                const SizedBox(height: AppSpacing.xl),
-                const SectionHeader('Sleep stages'),
+                                const SectionHeader('Sleep stages'),
                 const _StageCaveat(),
                 if (!analysis.hasPersonalBaseline) ...[
                   const SizedBox(height: AppSpacing.sm),
@@ -198,27 +182,22 @@ class _SleepTabState extends State<SleepTab> {
                 ],
                 const SizedBox(height: AppSpacing.md),
                 _StageList(a: analysis),
-                const SizedBox(height: AppSpacing.xl),
-                const SectionHeader('Metrics'),
+                                const SectionHeader('Metrics'),
                 _MetricsGrid(a: analysis),
                 const SizedBox(height: AppSpacing.lg),
                 _RecommendationsCard(recs: analysis.recommendations),
-                const SizedBox(height: AppSpacing.xl),
-                const SectionHeader('Sleep sounds'),
+                                const SectionHeader('Sleep sounds'),
                 const _SnoringSection(),
-                const SizedBox(height: AppSpacing.xl),
-                const SectionHeader('Sleep regularity'),
+                                const SectionHeader('Sleep regularity'),
                 _RegularityCard(
                     result: SleepRegularity.compute(store.samples,
                         hr: store.hrReadings)),
-                const SizedBox(height: AppSpacing.xl),
-                const SectionHeader('This week'),
+                                const SectionHeader('This week'),
                 _WeeklySummary(a: analysis, nights: _perNight(days)),
                 const SizedBox(height: AppSpacing.sm),
                 _WeekChart(nights: _perNight(days)),
                 if (recent.length > 1) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  const SectionHeader('Sleep log'),
+                                    const SectionHeader('Sleep log'),
                   _SessionsByDay(
                     sessions: recent,
                     selectedStart: selected.startTime,
@@ -230,7 +209,7 @@ class _SleepTabState extends State<SleepTab> {
               ]),
             ),
           ),
-        const SliverToBoxAdapter(child: SizedBox(height: 96)),
+        const SliverNavClearance(),
       ],
     );
   }

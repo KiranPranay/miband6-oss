@@ -88,13 +88,14 @@ class DailySummary {
   /// instead of silently inventing the missing piece.
   final List<String> missing;
 
-  /// Personalized, data-driven briefing lines (e.g. "You slept 8h 21m",
-  /// "4,562 steps to your goal"). "vs average" phrasing only appears under the
-  /// baseline gate.
-  final List<String> briefing;
-
   /// The most important insights aggregated from the three engines (+ SpO2),
-  /// attention items first, capped to a glanceable few.
+  /// attention items first, at most one per domain.
+  ///
+  /// There used to be a second list here — `briefing`, rendered as its own card
+  /// directly above these — holding sleep duration, steps-to-goal and resting
+  /// HR. All three already appear on the same screen (in the score card, and
+  /// again as tappable rows under "Your day"), so it was a card of pure
+  /// restatement and has been dropped along with its widget.
   final List<TodayInsight> insights;
 
   /// Summary cards, ordered by [TodayCard.salience] so what matters most today
@@ -107,7 +108,6 @@ class DailySummary {
     required this.components,
     required this.basis,
     required this.missing,
-    required this.briefing,
     required this.insights,
     required this.cards,
   });
@@ -291,27 +291,6 @@ class DailySummary {
       band = bandOf(healthScore);
     }
 
-    // ── Briefing lines (data-driven; "vs average" only under the gate) ────────
-    final briefing = <String>[];
-    if (sleep != null) {
-      var line = 'You slept ${_dur(sleep.durationMin)}';
-      if (sleep.hasPersonalBaseline &&
-          sleep.vsAvgMin != null &&
-          sleep.vsAvgMin != 0) {
-        final v = sleep.vsAvgMin!;
-        line += ' · ${_dur(v.abs())} ${v > 0 ? 'above' : 'below'} your average';
-      }
-      briefing.add(line);
-    }
-    if (activity.status == ActivityStatus.goalMet) {
-      briefing.add('Step goal reached — ${_grp(activity.todaySteps)} steps');
-    } else if (activity.stepsToGo > 0) {
-      briefing.add('${_grp(activity.stepsToGo)} steps to your goal');
-    }
-    if (heart.restingHr != null) {
-      briefing.add('Resting HR ${heart.restingHr} · ${heart.restingLabel}');
-    }
-
     // ── Aggregated insights (attention first, glanceable few) ─────────────────
     final pool = <TodayInsight>[
       if (sleep != null)
@@ -331,10 +310,22 @@ class DailySummary {
               false, 'Blood oxygen $spo2% — below typical', TodayDomain.spo2));
     }
     // Attention (needs-attention) items rise above positives; order otherwise
-    // preserved. Cap to a glanceable few.
+    // preserved.
+    //
+    // At most one line per domain. The three engines each contribute their own
+    // insights, and on a short night sleep alone supplied three of the four
+    // slots — "slept 4h26m under your 8h goal", "1h29m less than the night
+    // before", "restless night · 79% efficiency" — which is the same fact told
+    // three ways, and left activity and heart with nothing. One line per domain
+    // makes the overview *cover* the day instead of dwelling on one part of it;
+    // the detail tabs still list everything.
     final attention = pool.where((i) => !i.good).toList();
     final positive = pool.where((i) => i.good).toList();
-    final insights = [...attention, ...positive].take(4).toList();
+    final seenDomains = <TodayDomain>{};
+    final insights = [...attention, ...positive]
+        .where((i) => seenDomains.add(i.domain))
+        .take(4)
+        .toList();
 
     // ── Summary cards, ordered by salience (dynamic priority) ─────────────────
     final spo2Label = spo2 == null
@@ -421,7 +412,6 @@ class DailySummary {
       components: components,
       basis: components.map((c) => c.label).toList(),
       missing: missing,
-      briefing: briefing,
       insights: insights,
       cards: orderedCards,
     );

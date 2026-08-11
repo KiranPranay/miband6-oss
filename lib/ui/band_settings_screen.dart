@@ -341,7 +341,6 @@ class _SwitchTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SwitchListTile(
         value: value,
-        activeThumbColor: AppColors.primary,
         title: Text(title, style: AppText.body),
         subtitle: subtitle == null
             ? null

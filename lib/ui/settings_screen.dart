@@ -10,6 +10,7 @@ import 'debug_console.dart';
 import 'notifications_screen.dart';
 import 'theme/tokens.dart';
 import 'theme/app_theme.dart';
+import 'widgets/section_header.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -31,12 +32,11 @@ class SettingsScreen extends StatelessWidget {
         iconTheme: IconThemeData(color: AppColors.ink),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        padding: EdgeInsets.fromLTRB(
+            16, 8, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
           // ── Band Status Card ─────────────────────────────────────────
           _BandStatusCard(bleManager: bleManager),
-
-          const SizedBox(height: 20),
 
           // ── Device ───────────────────────────────────────────────────
           _SectionHeader(title: 'Device'),
@@ -61,8 +61,6 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => bleManager.disconnect(),
             ),
 
-          const SizedBox(height: 8),
-
           // ── Band behaviour ───────────────────────────────────────────
           _SectionHeader(title: 'Band'),
           _SettingsTile(
@@ -75,8 +73,6 @@ class SettingsScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const BandSettingsScreen()),
             ),
           ),
-
-          const SizedBox(height: 8),
 
           // ── Notifications ────────────────────────────────────────────
           _SectionHeader(title: 'Alerts'),
@@ -91,8 +87,6 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 8),
-
           // ── Auth ──────────────────────────────────────────────────────
           _SectionHeader(title: 'Authentication'),
           _SettingsTile(
@@ -106,8 +100,6 @@ class SettingsScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const AuthKeyScreen()),
             ),
           ),
-
-          const SizedBox(height: 8),
 
           // ── Developer ────────────────────────────────────────────────
           _SectionHeader(title: 'Developer'),
@@ -401,25 +393,15 @@ class _BatteryWidget extends StatelessWidget {
 // Shared widgets
 // ──────────────────────────────────────────────────────────────────────────────
 
+/// Settings used to draw its own headers — 11 px uppercase indigo with wide
+/// tracking — while every tab used [SectionHeader]. Same job, two unrelated
+/// looks, in one app. It now delegates, so there is one section style to change.
 class _SectionHeader extends StatelessWidget {
   final String title;
   const _SectionHeader({required this.title});
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: AppColors.primary.withValues(alpha: 0.85),
-          letterSpacing: 1.4,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SectionHeader(title);
 }
 
 class _SettingsTile extends StatelessWidget {

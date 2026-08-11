@@ -13,6 +13,7 @@ import '../widgets/app_card.dart';
 import '../widgets/chart_card.dart';
 import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
+import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 
 /// The Heart screen — a heart-health view, not a bare sensor dashboard: a hero
@@ -107,8 +108,7 @@ class _HeartTabState extends State<HeartTab> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 _InsightsCard(insights: heart.insights),
-                const SizedBox(height: AppSpacing.lg),
-                SectionHeader(
+                                SectionHeader(
                   'Trend',
                   trailing: SegmentedToggle(
                     options: ranges,
@@ -138,21 +138,18 @@ class _HeartTabState extends State<HeartTab> {
                   _HighestCard(event: heart.highest!),
                 ],
                 if (_range == 1) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  const SectionHeader('This week'),
+                                    const SectionHeader('This week'),
                   _WeekSummaryCard(heart: heart),
                 ],
-                const SizedBox(height: AppSpacing.lg),
-                const SectionHeader('Recommendations'),
+                                const SectionHeader('Recommendations'),
                 _RecommendationsCard(items: heart.recommendations),
-                const SizedBox(height: AppSpacing.lg),
-                const SectionHeader('More heart metrics'),
+                                const SectionHeader('More heart metrics'),
                 const _MoreMetricsCard(),
               ],
             ),
           ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 96)),
+        const SliverNavClearance(),
       ],
     );
   }
@@ -163,42 +160,13 @@ class _HeartTabState extends State<HeartTab> {
     final bpm = live ??
         (store.hrReadings.isEmpty ? null : store.hrReadings.last.value);
     final isLive = live != null;
-    return SliverAppBar(
-      pinned: true,
-      expandedHeight: 150,
-      backgroundColor: AppColors.scaffold,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      automaticallyImplyLeading: false,
-      flexibleSpace: FlexibleSpaceBar(
-        background: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, AppSpacing.lg),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                Text('Heart', style: AppText.h1),
-                const SizedBox(height: AppSpacing.xs),
-                Row(
-                  children: [
-                    Icon(Icons.favorite_rounded,
-                        size: 14, color: AppColors.heart),
-                    const SizedBox(width: AppSpacing.xs),
-                    Text(
-                        bpm == null
-                            ? '-- BPM'
-                            : (isLive ? '$bpm BPM now' : '$bpm BPM last'),
-                        style: AppText.label),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return TabHeaderSliver(
+      title: 'Heart',
+      subtitle: bpm == null
+          ? '-- BPM'
+          : (isLive ? '$bpm BPM now' : '$bpm BPM last'),
+      subtitleIcon: Icons.favorite_rounded,
+      subtitleIconColor: AppColors.heart,
     );
   }
 }
@@ -560,10 +528,37 @@ class _HeartRateChart extends StatelessWidget {
       );
     }
 
-    final spots = <FlSpot>[
-      for (var i = 0; i < readings.length; i++)
-        FlSpot(i.toDouble(), readings[i].value.toDouble()),
-    ];
+    // x is *time*, in minutes from the first reading — not the reading's index.
+    //
+    // Index-based x silently distorts the axis whenever sampling is uneven,
+    // which it always is here: a few minutes of live monitoring produce one
+    // reading per second while the rest of the day produces one every few
+    // minutes. On a real day that put 00:00–14:55 in the first third of the
+    // chart and 14:55–23:43 in the last third, so a flat stretch and a busy one
+    // looked equally long. Plotting against the clock makes horizontal distance
+    // mean elapsed time, which is the only reading of a trend line anyone
+    // actually makes.
+    final t0 = readings.first.timestamp;
+    double x(DateTime t) => t.difference(t0).inSeconds / 60.0;
+
+    // Don't draw a line across a stretch with no data — an interpolated segment
+    // is indistinguishable from a measured one. Break the series instead, so a
+    // gap looks like a gap. The threshold sits above the band's own periodic
+    // sampling interval, so normal all-day monitoring stays one continuous line.
+    final gapMinutes = week ? 6 * 60.0 : 20.0;
+    final segments = <List<FlSpot>>[];
+    var current = <FlSpot>[];
+    for (var i = 0; i < readings.length; i++) {
+      if (i > 0 &&
+          readings[i].timestamp.difference(readings[i - 1].timestamp).inMinutes >
+              gapMinutes) {
+        if (current.isNotEmpty) segments.add(current);
+        current = <FlSpot>[];
+      }
+      current.add(
+          FlSpot(x(readings[i].timestamp), readings[i].value.toDouble()));
+    }
+    if (current.isNotEmpty) segments.add(current);
 
     final values = readings.map((r) => r.value).toList();
     final rawMin = values.reduce((a, b) => a < b ? a : b).toDouble();
@@ -573,8 +568,9 @@ class _HeartRateChart extends StatelessWidget {
     var maxV = rawMax + 8;
     if (maxV - minV < 20) maxV = minV + 20;
     final yInterval = ((maxV - minV) / 3).clamp(1, double.infinity).toDouble();
-    final lastIndex = (readings.length - 1).toDouble();
-    final labelStep = readings.length <= 1 ? 1.0 : lastIndex / 3;
+    final lastX = x(readings.last.timestamp);
+    final maxX = lastX <= 0 ? 1.0 : lastX;
+    final labelStep = maxX / 3;
 
     // Labelled HR-zone bands, each clipped to the visible y-range so only the
     // zones the data actually touches are tinted.
@@ -608,7 +604,7 @@ class _HeartRateChart extends StatelessWidget {
     return LineChart(
       LineChartData(
         minX: 0,
-        maxX: lastIndex == 0 ? 1 : lastIndex,
+        maxX: maxX,
         minY: minV,
         maxY: maxV,
         gridData: FlGridData(
@@ -637,10 +633,23 @@ class _HeartRateChart extends StatelessWidget {
               showTitles: true,
               reservedSize: 30,
               interval: yInterval,
-              getTitlesWidget: (value, meta) => Text(
-                value.round().toString(),
-                style: AppText.caption.copyWith(color: AppColors.inkFaint),
-              ),
+              getTitlesWidget: (value, meta) {
+                // fl_chart emits a title at the axis minimum as well as at each
+                // interval step. When the two land within a line-height of each
+                // other they overprint — the live chart was showing "52" and
+                // "50" stacked on top of one another, unreadable. Drop a label
+                // that is too close to the axis edge to stand alone.
+                final tooCloseToEdge =
+                    (value - meta.min).abs() < yInterval * 0.5 ||
+                        (meta.max - value).abs() < yInterval * 0.5;
+                if (tooCloseToEdge && value != meta.min) {
+                  return const SizedBox.shrink();
+                }
+                return Text(
+                  value.round().toString(),
+                  style: AppText.caption.copyWith(color: AppColors.inkFaint),
+                );
+              },
             ),
           ),
           bottomTitles: AxisTitles(
@@ -649,11 +658,9 @@ class _HeartRateChart extends StatelessWidget {
               reservedSize: 22,
               interval: labelStep <= 0 ? 1 : labelStep,
               getTitlesWidget: (value, meta) {
-                final i = value.round();
-                if (i < 0 || i >= readings.length) {
-                  return const SizedBox.shrink();
-                }
-                final t = readings[i].timestamp;
+                // x is minutes from the first reading, so a label is just that
+                // offset added back onto the first timestamp.
+                final t = t0.add(Duration(seconds: (value * 60).round()));
                 final text = week
                     ? '${t.day}/${t.month}'
                     : '${t.hour.toString().padLeft(2, '0')}:'
@@ -680,26 +687,38 @@ class _HeartRateChart extends StatelessWidget {
                 .toList(),
           ),
         ),
+        // One bar per measured stretch, so periods with no readings are drawn
+        // as breaks rather than bridged with an invented straight line.
         lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            preventCurveOverShooting: true,
-            color: AppColors.heart,
-            barWidth: 3,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  AppColors.heart.withValues(alpha: 0.18),
-                  AppColors.heart.withValues(alpha: 0.0),
-                ],
+          for (final segment in segments)
+            LineChartBarData(
+              spots: segment,
+              isCurved: true,
+              preventCurveOverShooting: true,
+              color: AppColors.heart,
+              barWidth: 3,
+              dotData: FlDotData(
+                // A lone reading has no line to draw, so show the point itself
+                // — otherwise an isolated measurement vanishes from the chart.
+                show: segment.length == 1,
+                getDotPainter: (spot, _, __, ___) => FlDotCirclePainter(
+                    radius: 3,
+                    color: AppColors.heart,
+                    strokeWidth: 0,
+                    strokeColor: AppColors.heart),
+              ),
+              belowBarData: BarAreaData(
+                show: true,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.heart.withValues(alpha: 0.18),
+                    AppColors.heart.withValues(alpha: 0.0),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

@@ -59,12 +59,24 @@ class AppTheme {
       ),
       dividerColor: p.divider,
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((s) => Colors.white),
+        // The thumb has to contrast with the track it sits on, and in dark mode
+        // the "on" track is a light indigo — a white thumb on it left the switch
+        // looking like a solid featureless pill, so an enabled toggle was harder
+        // to read than a disabled one. Use the scheme's on-primary when
+        // selected, which is dark in dark mode and white in light mode.
+        thumbColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected)
+                ? (p.brightness == Brightness.dark
+                    ? const Color(0xFF10121A)
+                    : Colors.white)
+                : Colors.white),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
               ? p.primary
               : p.inkFaint.withValues(alpha: 0.4),
         ),
+        trackOutlineColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected) ? p.primary : p.inkFaint),
       ),
       iconTheme: IconThemeData(color: p.inkMuted),
       // 48dp minimum touch targets everywhere (WCAG / Material target size).
@@ -117,6 +129,18 @@ class AppText {
         fontWeight: FontWeight.w800,
         color: AppColors.ink,
         letterSpacing: -0.4,
+      );
+
+  /// Section header inside a screen — deliberately quieter than [h1].
+  ///
+  /// [h1] names the *screen*; a section names a group within it, so it has to
+  /// read as one level down. Both used to be h1 (24 px / w800), which left the
+  /// page with several equally loud titles and no hierarchy to follow.
+  static TextStyle get sectionTitle => GoogleFonts.manrope(
+        fontSize: 17,
+        fontWeight: FontWeight.w700,
+        color: AppColors.ink,
+        letterSpacing: -0.1,
       );
 
   static TextStyle get title => GoogleFonts.manrope(
