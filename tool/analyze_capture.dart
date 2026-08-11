@@ -116,6 +116,65 @@ void main(List<String> args) {
   check('REM never reported', remLeak == 0,
       '$remLeak night(s) reported REM (firmware cannot measure it)');
 
+  // ── Wear diagnostic ───────────────────────────────────────────────────────
+  //
+  // Answers "did the band record a short night, or did it stop measuring?"
+  // Not-worn is kind low-nibble 3/6, which has ~0% heart-rate coverage. If a
+  // night is short AND full of not-worn minutes, the band lost skin contact —
+  // that is a fit problem, not an algorithm problem.
+  stdout.writeln('\n=== OVERNIGHT WEAR DIAGNOSTIC (per sleep-day, 20:00-12:00) ===');
+  final byNight = <DateTime, List<ActivitySample>>{};
+  for (final s in samples) {
+    final h = s.timestamp.hour;
+    if (h < 20 && h >= 12) continue; // only the night window
+    final key = SleepAnalyzer.sleepDayFor(s.timestamp);
+    (byNight[key] ??= []).add(s);
+  }
+  final nightKeys = byNight.keys.toList()..sort();
+  for (final k in nightKeys.length <= 8
+      ? nightKeys
+      : nightKeys.sublist(nightKeys.length - 8)) {
+    final g = byNight[k]!;
+    // Collapse to minutes so sub-minute repeats do not skew the shares.
+    final minutes = <int, ActivitySample>{};
+    for (final s in g) {
+      minutes[s.timestamp.millisecondsSinceEpoch ~/ 60000] ??= s;
+    }
+    final all = minutes.values.toList();
+    final notWorn = all.where(SleepAnalyzer.isNotWorn).length;
+    final withHr = all.where((s) => SleepAnalyzer.isValidHr(s.heartRate)).length;
+    final asleepFlag = all
+        .where((s) =>
+            SleepAnalyzer.kindFlags(s.category) == SleepAnalyzer.sleepFlagNibble)
+        .length;
+    final detected = days.firstWhere(
+      (d) => d.date == k && !d.isNap,
+      orElse: () => SleepDay(
+        date: k,
+        intervals: const [],
+        totalLightMinutes: 0,
+        totalDeepMinutes: 0,
+        totalRemMinutes: 0,
+        totalAwakeMinutes: 0,
+        totalNapMinutes: 0,
+      ),
+    );
+    String pct(int n) => all.isEmpty
+        ? '  -'
+        : (100.0 * n / all.length).toStringAsFixed(0).padLeft(3);
+    stdout.writeln(
+      '${k.toIso8601String().substring(0, 10)}  '
+      'recorded=${all.length.toString().padLeft(4)}m  '
+      'notWorn=${pct(notWorn)}%  hrCoverage=${pct(withHr)}%  '
+      'bandSleepFlag=${pct(asleepFlag)}%  '
+      '-> reported ${detected.totalSleepMinutes}m',
+    );
+  }
+  stdout.writeln('  A short night with HIGH notWorn / LOW hrCoverage = the band '
+      'stopped measuring (fit).');
+  stdout.writeln('  A short night with LOW notWorn / HIGH hrCoverage but little '
+      'bandSleepFlag = the band was worn and awake.');
+
   final sri = SleepRegularity.compute(samples, hr: hr);
   stdout.writeln('\n=== Sleep Regularity Index ===');
   if (sri == null) {

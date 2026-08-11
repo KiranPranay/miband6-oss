@@ -48,6 +48,15 @@ class HrZone {
 class HeartAnalysis {
   final int? currentBpm;
   final HrStatus? currentStatus;
+
+  /// The most recent heart rate the band actually recorded, and when.
+  ///
+  /// Distinct from [currentBpm], which is the *live* stream and is null
+  /// whenever realtime monitoring is off. The band still measures periodically
+  /// on its own, so "no reading" was misleading: there was a reading, just not
+  /// a live one. The UI falls back to this with its age shown.
+  final int? lastRecordedBpm;
+  final DateTime? lastRecordedAt;
   final int? restingHr;
   final String restingLabel;
   final HrTrend trend;
@@ -74,6 +83,8 @@ class HeartAnalysis {
   const HeartAnalysis._({
     required this.currentBpm,
     required this.currentStatus,
+    required this.lastRecordedBpm,
+    required this.lastRecordedAt,
     required this.restingHr,
     required this.restingLabel,
     required this.trend,
@@ -247,6 +258,8 @@ class HeartAnalysis {
       currentStatus: (currentBpm != null && currentBpm > 0)
           ? statusOf(currentBpm)
           : null,
+      lastRecordedBpm: all.isEmpty ? null : all.last.value,
+      lastRecordedAt: all.isEmpty ? null : all.last.timestamp,
       restingHr: resting,
       restingLabel: restingLabel,
       trend: trend,
@@ -280,6 +293,8 @@ class HeartAnalysis {
     return HeartAnalysis._(
       currentBpm: bpm,
       currentStatus: (bpm != null && bpm > 0) ? statusOf(bpm) : null,
+      lastRecordedBpm: lastRecordedBpm,
+      lastRecordedAt: lastRecordedAt,
       restingHr: restingHr,
       restingLabel: restingLabel,
       trend: trend,

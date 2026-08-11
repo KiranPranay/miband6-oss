@@ -158,7 +158,11 @@ class _HeartTabState extends State<HeartTab> {
   }
 
   Widget _buildAppBar(BLEManager ble) {
-    final bpm = ble.heartRate;
+    final live = ble.heartRate;
+    final store = ble.activityStore;
+    final bpm = live ??
+        (store.hrReadings.isEmpty ? null : store.hrReadings.last.value);
+    final isLive = live != null;
     return SliverAppBar(
       pinned: true,
       expandedHeight: 150,
@@ -183,7 +187,11 @@ class _HeartTabState extends State<HeartTab> {
                     Icon(Icons.favorite_rounded,
                         size: 14, color: AppColors.heart),
                     const SizedBox(width: AppSpacing.xs),
-                    Text('${bpm ?? '--'} BPM now', style: AppText.label),
+                    Text(
+                        bpm == null
+                            ? '-- BPM'
+                            : (isLive ? '$bpm BPM now' : '$bpm BPM last'),
+                        style: AppText.label),
                   ],
                 ),
               ],
@@ -252,10 +260,27 @@ class _HeartHero extends StatelessWidget {
   const _HeartHero(
       {required this.heart, required this.measuring, required this.onToggle});
 
+  /// "18 min ago" / "2 h ago" for the last recorded reading.
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    if (d.inHours < 24) return '${d.inHours} h ago';
+    return '${d.inDays} d ago';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cur = heart.currentBpm;
-    final status = heart.currentStatus;
+    // Fall back to the band's own most recent measurement when the live stream
+    // is off. Showing "--" was misleading: the band measures periodically on its
+    // own schedule, so there IS a reading, it just is not live.
+    final live = heart.currentBpm;
+    final isLive = live != null && live > 0;
+    final cur = isLive ? live : heart.lastRecordedBpm;
+    final status = isLive
+        ? heart.currentStatus
+        : (cur != null && cur > 0 ? HeartAnalysis.statusOf(cur) : null);
+    final recordedAt = heart.lastRecordedAt;
     final tc = _trendChip(heart.trend);
 
     return AppCard(
@@ -274,7 +299,8 @@ class _HeartHero extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Text('Current', style: AppText.label),
+                        Text(isLive ? 'Current' : 'Last recorded',
+                            style: AppText.label),
                         if (measuring) ...[
                           const SizedBox(width: AppSpacing.sm),
                           _LiveBadge(),
@@ -301,6 +327,12 @@ class _HeartHero extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (!isLive && cur != null && recordedAt != null) ...[
+                      const SizedBox(height: 2),
+                      Text('measured by your band · ${_ago(recordedAt)}',
+                          style: AppText.caption
+                              .copyWith(color: AppColors.inkMuted)),
+                    ],
                     const SizedBox(height: AppSpacing.sm),
                     Row(
                       mainAxisSize: MainAxisSize.min,

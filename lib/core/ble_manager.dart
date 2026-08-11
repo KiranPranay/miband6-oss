@@ -465,6 +465,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _stepsSubscription?.cancel();
     _hrSubscription?.cancel();
     _hrKeepAliveTimer?.cancel();
+    _stopPeriodicSync();
+    _stepsPollTimer?.cancel();
     _setRealtimeHrActive(false);
     _disposeChunked();
     // NOTE: _metrics is intentionally NOT reset — we keep the last known values
@@ -845,8 +847,65 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
 
     await Future.delayed(const Duration(seconds: 2));
 
-    // Step 4: Initial fetch
+    // Step 4: Initial fetch, then keep syncing.
     _fetchActivityData();
+    _startPeriodicSync();
+  }
+
+  // ── Periodic sync ─────────────────────────────────────────────────────────
+
+  Timer? _syncTimer;
+
+  /// How often to pull new data off the band while connected.
+  ///
+  /// The band records heart rate, stress and activity into its own memory; none
+  /// of it reaches the app until we fetch. Ten minutes keeps the screens close
+  /// to live without hammering the link — a fetch is a multi-second transfer.
+  static const Duration periodicSyncInterval = Duration(minutes: 10);
+
+  /// True while a sync is running, so the UI can show it and callers can avoid
+  /// stacking fetches.
+  bool get isSyncing => _isFetchingActivity;
+
+  /// Starts (or restarts) the periodic sync.
+  ///
+  /// **This is the fix for "the data only updates when I toggle something".**
+  /// `_fetchActivityData` used to be called from exactly one place — right after
+  /// authentication — so band-recorded data (periodic heart rate, all-day
+  /// stress, activity history) only ever arrived on a *fresh connection*.
+  /// Turning live heart-rate monitoring on and off happened to force a
+  /// reconnect, which is why data appeared to depend on that toggle rather than
+  /// on time passing.
+  void _startPeriodicSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(periodicSyncInterval, (_) {
+      if (!canConfigure) return; // not connected/authenticated
+      if (_isFetchingActivity) return; // one at a time
+      _logger.i('Sync: periodic refresh');
+      _fetchActivityData();
+    });
+  }
+
+  void _stopPeriodicSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
+
+  /// Pull new data from the band now (pull-to-refresh, or a Sync button).
+  ///
+  /// Safe to call at any time: it no-ops when the band is not ready and when a
+  /// fetch is already running.
+  Future<void> syncNow() async {
+    if (!canConfigure) {
+      _logger.i('Sync: skipped — band not connected/authenticated');
+      return;
+    }
+    if (_isFetchingActivity) {
+      _logger.d('Sync: already in progress');
+      return;
+    }
+    _logger.i('Sync: manual refresh requested');
+    await _fetchActivityData();
   }
 
   Future<void> _syncTime() async {
@@ -894,6 +953,37 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     } catch (e) {
       _logger.e("TimeSync failed: $e");
     }
+  }
+
+  // ── Steps polling ─────────────────────────────────────────────────────────
+
+  Timer? _stepsPollTimer;
+
+  /// How often to re-read the live step counter.
+  ///
+  /// The band only *notifies* fee0/0x0007 when the count changes, so a single
+  /// dropped notification leaves the displayed step count frozen until the next
+  /// change — or until the app reconnects. That is what "steps are not syncing"
+  /// looks like from the outside: the number sticks while the band's own screen
+  /// climbs. Re-reading on a timer makes a missed notification self-heal within
+  /// one interval instead of persisting for hours.
+  static const Duration stepsPollInterval = Duration(minutes: 2);
+
+  void _startStepsPolling() {
+    _stepsPollTimer?.cancel();
+    _stepsPollTimer = Timer.periodic(stepsPollInterval, (_) async {
+      final ch = _stepsChar;
+      if (ch == null || !isConnected || !ch.properties.read) return;
+      try {
+        final raw = await ch.read();
+        // Logged at info level: this is the value to compare against the band's
+        // own display when a step count is disputed.
+        _logger.i('Steps poll: raw = ${_hexStr(raw)}');
+        _applyStepsPacket(raw);
+      } catch (e) {
+        _logger.d('Steps poll failed: $e');
+      }
+    });
   }
 
   Future<void> _fetchActivityData() async {
@@ -1018,6 +1108,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         _logger.d("Steps notify raw = ${_hexStr(data)}");
         _applyStepsPacket(data);
       });
+      _startStepsPolling();
     } catch (e) {
       _logger.e("Steps subscription error: $e");
     }
@@ -1525,6 +1616,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _authTimeoutTimer?.cancel();
     _reconnectTimer?.cancel();
     _hrKeepAliveTimer?.cancel();
+    _syncTimer?.cancel();
+    _stepsPollTimer?.cancel();
     connectionPhaseListenable.dispose();
     _connSubscription?.cancel();
     _charSubscription?.cancel();

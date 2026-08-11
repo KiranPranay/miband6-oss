@@ -37,12 +37,19 @@ class _TodayTabState extends State<TodayTab> {
   static const int _stepsGoal = 10000;
 
   Future<void> _onRefresh(BLEManager ble) async {
+    // Pull-to-refresh must actually pull: the band records heart rate, stress
+    // and activity into its own memory and none of it reaches the app until we
+    // fetch. Previously this only triggered a one-shot HR measurement, so the
+    // screens stayed stale until the next reconnect.
     try {
-      await ble.measureHeartRateOnce();
+      await ble.syncNow();
     } catch (_) {
       // Band may be disconnected — refresh should still complete gracefully.
     }
-    await Future.delayed(const Duration(milliseconds: 600));
+    try {
+      await ble.measureHeartRateOnce();
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 400));
   }
 
   String _greeting(int hour) {

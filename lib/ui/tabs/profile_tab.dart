@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/ble_manager.dart';
 
+import '../stress_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
@@ -100,20 +101,32 @@ class ProfileTab extends StatelessWidget {
                   onTap: () => _push(context, const SnoreTrackingScreen()),
                 ),
                 const SizedBox(height: AppSpacing.sm),
+                // Stress is implemented and measured by the band itself
+                // (fetch types 0x13/0x12, findings-20). This row still opened a
+                // "coming soon" screen long after the feature shipped.
                 _FeatureRow(
                   icon: Icons.spa_rounded,
-                  color: AppColors.spo2,
+                  color: AppColors.stress,
                   title: 'Stress',
-                  onTap: () => _push(
-                    context,
-                    ComingSoonScreen(
-                      title: 'Stress',
-                      description:
-                          'Continuous stress tracking is coming soon.',
-                      icon: Icons.spa_rounded,
-                      gradient: [AppColors.spo2, AppColors.primary],
-                    ),
-                  ),
+                  onTap: () => _push(context, const StressScreen()),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                // Explicit sync, because band-recorded data (periodic heart
+                // rate, all-day stress, activity) only reaches the app when we
+                // fetch it. This now also runs automatically every 10 minutes.
+                _FeatureRow(
+                  icon: Icons.sync_rounded,
+                  color: AppColors.activity,
+                  title: 'Sync now',
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await ble.syncNow();
+                    messenger.showSnackBar(SnackBar(
+                      content: Text(ble.isConnected
+                          ? 'Synced with your band'
+                          : 'Band not connected'),
+                    ));
+                  },
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _FeatureRow(
