@@ -25,6 +25,13 @@ class ActivityFetcher {
   Completer<List<int>>? _fetchCompleter;
   Timer? _fetchTimeout;
 
+  /// Last sequence counter seen on `0x0005`, for gap detection.
+  int? _lastPacketCounter;
+
+  /// Cleared when a transfer loses a packet or stalls; a false value makes
+  /// [_completeFetch] return nothing rather than a buffer with a hole in it.
+  bool _streamValid = true;
+
   ActivityFetcher(this._logger, this._device);
 
   /// Read-only view of the most recently accumulated raw fetch payload.
@@ -88,7 +95,22 @@ class ActivityFetcher {
     if (_activityControl == null) return [];
 
     _dataBuffer.clear();
-    _fetchStartTime = since;
+    // Truncate to the minute. `_buildFetchCommand` transmits year…minute and
+    // nothing finer, so the seconds in `since` are never sent to the band —
+    // they are invented here, and then stamped onto every sample as
+    // `start + N minutes`.
+    //
+    // Because the store de-duplicates on the exact epoch-millisecond, two
+    // fetches whose `since` differed by a few seconds stored two copies of every
+    // minute. The capture has 117 distinct sub-minute offsets and 69 419 samples
+    // covering 30 447 real minutes — 56% redundancy, up to 32 copies of a single
+    // minute. That the payloads are byte-identical across all 9 171 duplicated
+    // minutes is what proves the minute index was right all along and only the
+    // fraction was spurious.
+    _fetchStartTime =
+        DateTime(since.year, since.month, since.day, since.hour, since.minute);
+    _lastPacketCounter = null;
+    _streamValid = true;
     _fetchCompleter = Completer<List<int>>();
 
     _logger.i('ActivityFetcher: requesting data type 0x${type.toRadixString(16)} since $since');
@@ -385,18 +407,44 @@ class ActivityFetcher {
 
   void _onDataReceived(List<int> data) {
     if (data.isEmpty) return;
+    // Ignore packets arriving outside a transfer. The subscription outlives any
+    // one fetch, so a late packet from a previous transfer would otherwise be
+    // appended to the next one's buffer.
+    if (_fetchCompleter == null || _fetchCompleter!.isCompleted) return;
+
     _fetchTimeout?.cancel();
     _fetchTimeout = Timer(const Duration(seconds: 15), () {
       if (_fetchCompleter != null && !_fetchCompleter!.isCompleted) {
-        _logger.e('ActivityFetcher: data stream stalled');
+        // A stall is a FAILURE, not a completion. Finishing here used to hand
+        // back whatever had arrived so far, and a truncated 8-byte-grid buffer
+        // is not "some of the data" — every sample after the cut is stamped
+        // with the wrong minute. A wrong timeline is worse than no data.
+        _logger.e('ActivityFetcher: data stream stalled — discarding '
+            '${_dataBuffer.length} bytes received so far');
+        _streamValid = false;
         _completeFetch();
       }
     });
 
+    // Byte 0 is a sequence counter that wraps at 256. A gap means a dropped
+    // packet, and on an 8-byte record grid one dropped packet shifts every
+    // remaining sample's timestamp. Gadgetbridge treats this as fatal
+    // (`AbstractFetchOperation.java:130-137`); so do we, but we keep draining
+    // the stream so the band finishes cleanly rather than being left mid-transfer.
+    final counter = data[0];
+    if (_lastPacketCounter != null &&
+        counter != ((_lastPacketCounter! + 1) & 0xFF)) {
+      if (_streamValid) {
+        _logger.e('ActivityFetcher: packet counter jumped '
+            '$_lastPacketCounter → $counter — discarding this transfer');
+      }
+      _streamValid = false;
+    }
+    _lastPacketCounter = counter;
+
     final payload = data.sublist(1);
     _dataBuffer.addAll(payload);
-    _logger
-        .d('ActivityFetcher DATA: ${data.length} bytes (counter: ${data[0]})');
+    _logger.d('ActivityFetcher DATA: ${data.length} bytes (counter: $counter)');
     // NOTE: No per-chunk ACK is sent here.
     // The band streams all data continuously after the single [0x02] trigger.
     // Sending [0x02] per packet would confuse the protocol and restart the transfer.
@@ -404,6 +452,14 @@ class ActivityFetcher {
 
   void _completeFetch() {
     _fetchTimeout?.cancel();
+    if (!_streamValid) {
+      _logger.e('ActivityFetcher: transfer incomplete — returning no data '
+          'rather than a buffer with a hole in it');
+      if (_fetchCompleter != null && !_fetchCompleter!.isCompleted) {
+        _fetchCompleter!.complete(const []);
+      }
+      return;
+    }
     _logger.i('ActivityFetcher: fetch complete, buffer size: ${_dataBuffer.length}');
     if (_fetchCompleter != null && !_fetchCompleter!.isCompleted) {
       _fetchCompleter!.complete(List.from(_dataBuffer));

@@ -168,8 +168,36 @@ class ActivityStore {
     // schema whose every row was fabricated.
     await purgeUnverifiedStress();
 
+    _dedupeSamplesByMinute();
+
     _rebuildKeyIndexes();
     _bump();
+  }
+
+  /// Collapses activity samples that describe the same minute.
+  ///
+  /// Until the fetch start was truncated to the minute, each fetch invented its
+  /// own sub-second offset and the store's exact-millisecond key treated those
+  /// as distinct samples. The captured store held 69 419 samples covering
+  /// 30 447 real minutes — 56% redundancy, 117 distinct offsets, up to 32 copies
+  /// of one minute.
+  ///
+  /// It is lossless: across all 9 171 duplicated minutes the payloads are
+  /// byte-identical, with zero conflicts, so keeping the first is not a choice
+  /// between rival versions. It matters beyond disk space because the deep-sleep
+  /// staging windows are indexed by position rather than by time — duplicated
+  /// minutes silently narrow them.
+  void _dedupeSamplesByMinute() {
+    if (_samples.isEmpty) return;
+    final seen = <int>{};
+    final out = <ActivitySample>[];
+    for (final s in _samples) {
+      final minute = s.timestamp.millisecondsSinceEpoch ~/ 60000;
+      if (seen.add(minute)) out.add(s);
+    }
+    if (out.length != _samples.length) {
+      _samples = out;
+    }
   }
 
   /// Rebuilds the de-duplication indexes from the loaded lists. Called once

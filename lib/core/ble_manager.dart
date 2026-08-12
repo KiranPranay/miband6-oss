@@ -1017,7 +1017,10 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       // Choose the fetch window: backfill a week until we have a few days of
       // history stored, then fetch incrementally (with a 6 h overlap so gaps
       // around the boundary are re-pulled). Samples are de-duplicated by
-      // timestamp in the store, so overlap is harmless.
+      // timestamp in the store, so overlap is harmless — but only because
+      // `fetchRawData` truncates its start to the minute. It did not, and the
+      // invented seconds made every overlapping fetch store a second copy of
+      // each minute.
       // The watermark is "how far we have synced", so it can never sensibly sit
       // behind the newest sample we already hold. It can end up there — a stale
       // value persisted before the monotonic setter landed, or a store restored
