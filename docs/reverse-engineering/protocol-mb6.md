@@ -133,10 +133,13 @@ Source: **GB** `operations/fetch/AbstractFetchOperation.java`,
 (**GB** `MiBand6Support.java:75`). **NOTIFY CONFIRMED** (`x5/e.java` N2/onNotify,
 `helper/b.java` r()/s(); findings-02 §3).
 
-**Data-type byte (2nd byte of start cmd):** `01`=activity (steps+HR+intensity+sleep,
-8-byte stream), `05`=HR/manual-HR history, `0D`=sleep, `12`=stress, `13`=stress
-all-day, **`25`=SpO2**, `26`=SpO2 variant, `07`=raw log. ⚠️ `0x12` is **stress**
-(not SpO2) and `0x0D` is **sleep** (not HR) — both were wrong in the old code.
+**Data-type byte (2nd byte of start cmd)**, from `HuamiFetchDataType.java:20-36`:
+`01`=activity (steps+HR+intensity+sleep, 8-byte stream), `02`=MANUAL_HEART_RATE,
+`05`=SPORTS_SUMMARIES, `07`=DEBUG_LOGS, `0D`=PAI, `12`=stress manual,
+`13`=stress all-day, **`25`=SpO2**, `26`=SpO2 variant, `48`=SLEEP_SESSION.
+⚠️ An earlier version of this table said `05`=HR history and `0D`=sleep; both
+contradicted the GB enum it cited (findings-23 §D11). ⚠️ `0x12` is **stress**,
+not SpO2 — that was wrong in the old code.
 
 **MB6 8-byte sample layout:** `[0]`category/kind, `[1]`intensity, `[2]`steps
 (single byte 0-255), `[3]`**heart rate** (0/255 ⇒ no reading), `[4]`unknown1,
@@ -209,10 +212,20 @@ to MB6.**
 | 3 | TYPE_NONWEAR | **not worn** |
 | 4 | TYPE_RIDE_BIKE | cycling |
 | 6 | TYPE_CHARGING | **not worn** |
-| 9 | TYPE_LIGHT_SLEEP | **light sleep** |
+| 9 | TYPE_LIGHT_SLEEP | light sleep — ⚠️ **only inside the `0xF` flag**, see below |
 | 10 | TYPE_IGNORE | *carry forward previous valid kind* |
-| 11 | TYPE_DEEP_SLEEP | **deep sleep** |
+| 11 | TYPE_DEEP_SLEEP | ⚠️ **not deep sleep** — sleep onset; see findings-21 §9.1 |
 | 12 | TYPE_WAKE_UP | activity (**not** a sleep kind) |
+
+> **⚠️ Kinds 9 and 11 do not mean sleep on their own** (findings-23 §1).
+> 207 of 823 kind-9/11 samples in a 69 419-sample capture — a quarter — carry a
+> non-`0xF` high nibble; their median HR is 73 against 65 for `0xF0`, half have
+> intensity ≥ 20, and 62 fall between 08:00 and 10:00. That is waking movement.
+> Three such samples were enough to stitch one night across two 70-minute wake
+> gaps and inflate its "time in bed" by 2h 12m. The analyzer now takes the
+> `0xF` high nibble as the *only* sleep signal, and reads depth from heart rate
+> alone. findings-21 §9.1 had already retired kind 11 as "deep"; this extends
+> that to kind 9.
 
 Rules GB applies (`MiBand2SampleProvider.postprocess`):
 - mask `rawKind & 0x0F` (unless the value is `-1`); the high nibble carries
@@ -490,7 +503,24 @@ Mi Band 6 **computes stress on-device**, entirely on the legacy path. Both types
 ride the ordinary activity-fetch channel (write `fee0/0x0004`, notify
 `fee0/0x0005`).
 
-| Type | Meaning | Payload |
+> ### ⚠️ HARDWARE DISAGREES — the table below has never been observed on the wire
+>
+> Every buffer this app has received for `0x13` and `0x12` decodes as the
+> **8-byte-per-minute activity stream**, not as stress (findings-23). Parsed at
+> one byte per minute the clock ran eight times fast, so 63% of the stored
+> readings were dated *after* the moment they were fetched; the manual records
+> were smeared across 1970-2105, and one hand-decodes to `00 7c 00 00 40`, i.e.
+> its "stress score of 64" is that minute's heart-rate byte.
+>
+> **Unresolved:** whether the band serves activity for these types, or whether
+> our own `0x01` transfer leaks into the stress buffer. **Probe P1** in
+> `pending-hardware-verification.md` distinguishes them.
+>
+> Ingest is gated behind `BLEManager.kStressFetchVerified` (false) and the app
+> falls back to a labelled heart-rate estimate. The layouts below stay
+> documented — they remain the correct target if P1 succeeds.
+
+| Type | Meaning | Payload (per GB — **unconfirmed on this band**) |
 |---|---|---|
 | `0x13` | all-day / automatic | bare stream, **1 byte per minute**, 0-100, `0xFF` = no measurement |
 | `0x12` | manual / spot | **5-byte records**: `uint32 LE` epoch-seconds + `uint8` score |

@@ -296,3 +296,73 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
       the single source. Likely explanation is that the summed samples miss
       whatever the fetch has not yet delivered — compare the two immediately
       before and immediately after a manual `syncNow()`.
+
+---
+
+## P9 — Stress: is the band answering, or are we reading our own buffer? (findings-23)
+
+Everything here gates `BLEManager.kStressFetchVerified`, currently **false**.
+Until P9.1 passes, the Stress screen shows a labelled heart-rate estimate and
+stores nothing from the band.
+
+- [ ] **P9.1 Does `0x13` return stress or activity?** *(gates all stress ingest)*
+      On a **fresh connection**, issue `0x13` **alone**, with no preceding `0x01`,
+      `since = now - 2 h`. Hex-dump the whole `10 01 01 <len32> <echoed start>`
+      frame and the first 64 stream bytes. Then issue `0x01`, `0x13`, `0x12`
+      back-to-back with an identical `since` and compare each declared `len32`.
+      - `len(0x13) == len(0x01) == 8 × minutes`, first 8 bytes activity-shaped
+        ⇒ the band serves activity for `0x13`; native stress does not exist on
+        this firmware and the feature should be removed, not fixed.
+      - `len(0x13) ≈ minutes` and `len(0x12) ≡ 0 (mod 5)` ⇒ the fault was
+        entirely client-side (a buffer leak) and the parsers are correct.
+      - Variants: repeat with stress monitoring **off** (`FE 06 00 00`) to tell
+        an unconditional echo from a no-data fallback; issue a bogus type
+        (`0x7F`) to see whether unknown types generically fall back to activity.
+- [ ] **P9.2 Is the `0x12` layout real at all?** Take a spot stress reading on
+      the band's own Stress widget, note the wall-clock minute, then fetch
+      `0x12` with `since` 15 min earlier. A firmware implementing it must return
+      a small buffer, `length ≡ 0 (mod 5)`, whose first `uint32 LE` decodes to
+      that minute. Cross-check the all-day curve against Zepp Life for the same
+      window.
+- [ ] **P9.3 Does the band echo a start timestamp, and does it ever differ?**
+      Log the full `10 01 01` frame and decode bytes[7..14] with GB's
+      `rawBytesToCalendar` layout; compare against the requested `since`,
+      including for a request older than the band's ring buffer.
+      **Do not** switch the parse origin on the strength of theory — all 985
+      overlapping activity round-pairs in the capture align at lag 0, so this is
+      protocol-fidelity hardening, not a fix.
+- [ ] **P9.4 Does the bare cleanup ACK destroy retained data?**
+      `activity_fetcher.dart` sends a bare `0x03` inside `init()`, i.e. on every
+      10-minute sync with no transfer in flight, while `protocol-mb6.md` §5
+      documents `0x03` only as the post-transfer "delivered, you may drop it"
+      ack. (1) Start a fetch and kill it mid-stream so no ack is sent.
+      (2) Reconnect and send **only** `03`, wait 2 s. (3) Request the same range
+      and read `10 01 01 <len32>`. `len32 == 0` ⇒ it destroys retained data and
+      must go; unchanged ⇒ inert, keep it. **Leave it in place until this runs**
+      — removing it unprobed risks reintroducing the stuck state it was added
+      for.
+
+## P10 — Sleep (findings-23)
+
+- [ ] **P10.1 Are `0xFB` and non-`0xF` kind 9/11 ever really sleep?**
+      Keep a written diary (lights-out, final awakening) for 3 nights and check
+      every such minute against it. Prediction: they cluster at session
+      transitions and post-wake re-donning, never inside diary-confirmed sleep.
+      Whole-capture `0xFB`: n=33, median HR **85** — the highest of any
+      `0xF`-flagged kind, against 65 for `0xF0`. The non-`0xF` cases are already
+      excluded; `0xFB` is deliberately left in, because excluding it is unproven
+      and it costs one minute on the night that prompted this.
+- [ ] **P10.2 Re-derive the deep-sleep calibration on deduplicated data.**
+      The table in `sleep_analyzer.dart` was fitted on captures that carried 56%
+      duplicate samples, and its windows are indexed by position rather than by
+      time. Median deep share moves 13.7% → 13.2% after dedup, but individual
+      nights shift much more (06-27: 33 → 10 min). Re-fit before trusting it.
+
+## P11 — Free upside, no risk
+
+- [ ] **P11.1 What is activity byte[4]?** `ActivitySample` currently discards it.
+      It reads 5 at rest (76.3%), then 7/13/15/21/23 — and in a byte-identity
+      comparison it is 15/23/13/21 exactly on the walking minutes (steps 84, 83,
+      36, 99) and 7 on a zero-step minute. Store it, walk a known distance, and
+      check whether the running sum tracks calories or distance on the band's
+      own screen and on `fee0/0x0007`. Display nothing until it does.
