@@ -157,6 +157,11 @@ class ActivityFetcher {
   /// simply has nothing to return.
   Future<List<StressReading>> fetchStressAuto(DateTime since) async {
     final raw = await fetchRawData(typeStressAuto, since);
+    if (looksLikeActivityStream(raw)) {
+      _logger.e('Stress fetch 0x13 returned an ACTIVITY-shaped record stream '
+          '(${raw.length} bytes) — discarding. See findings-23.');
+      return const [];
+    }
     return parseStressAuto(raw, _fetchStartTime ?? since);
   }
 
@@ -164,7 +169,46 @@ class ActivityFetcher {
   /// No version byte.
   Future<List<StressReading>> fetchStressManual(DateTime since) async {
     final raw = await fetchRawData(typeStressManual, since);
-    return parseStressManual(raw);
+    if (looksLikeActivityStream(raw)) {
+      _logger.e('Stress fetch 0x12 returned an ACTIVITY-shaped record stream '
+          '(${raw.length} bytes) — discarding. See findings-23.');
+      return const [];
+    }
+    return parseStressManual(raw, now: DateTime.now(), fetchStart: since);
+  }
+
+  /// True when [raw] is an 8-byte-per-minute activity record stream rather than
+  /// stress data.
+  ///
+  /// This guard exists because the band does not, in practice, return what
+  /// `protocol-mb6.md` §10 says it should. Every stress reading the app has ever
+  /// stored — 26 863 of them — decodes as activity bytes: parsed one byte per
+  /// minute, an 8-byte-per-minute payload makes the clock run eight times fast,
+  /// which is why 63% of them were dated *after* the moment they were fetched,
+  /// the newest six days in the future. One manual record hand-decodes as
+  /// `00 7c 00 00 40`, so its "stress score of 64" is literally that minute's
+  /// heart-rate byte.
+  ///
+  /// Whether the band is serving activity for type 0x13/0x12, or whether our
+  /// own 0x01 transfer is leaking into the stress buffer, is NOT yet settled —
+  /// `_completeFetch` resolves on a stall without sending stop and shares one
+  /// `_dataBuffer` across fetch types, so a client-side leak predicts the same
+  /// shape. Probe P1 in `pending-hardware-verification.md` distinguishes them.
+  /// Either way the bytes are not stress and must not be stored.
+  ///
+  /// The test is the two invariants that hold across all 69 419 captured
+  /// samples without exception: byte 6 (deepSleep) always has bit 7 set, and
+  /// byte 7 (remSleep) is always zero. A threshold on `deepSleep == 0x80` was
+  /// considered and rejected — it holds for only 83.5% of samples overall and
+  /// 62% overnight, so it would miss precisely the sleep-heavy buffers.
+  @visibleForTesting
+  static bool looksLikeActivityStream(List<int> raw) {
+    if (raw.length < 64 || raw.length % 8 != 0) return false;
+    for (var i = 0; i + 8 <= raw.length; i += 8) {
+      if ((raw[i + 6] & 0x80) == 0) return false;
+      if (raw[i + 7] != 0) return false;
+    }
+    return true;
   }
 
   /// Parses the all-day stress stream. Pure + unit-tested.
@@ -186,9 +230,34 @@ class ActivityFetcher {
   }
 
   /// Parses manual stress records. Pure + unit-tested.
+  ///
+  /// Rejects the payload **whole** rather than per record. A record layout that
+  /// is wrong is wrong for every record in the buffer, and the handful that
+  /// happen to decode into a plausible range are the most dangerous of all —
+  /// they are what turns "obviously broken" into a number someone believes.
+  /// Gadgetbridge takes the same line (`FetchStressManualOperation.java:65-68`
+  /// discards a buffer whose length is not a multiple of 5).
+  ///
+  /// Both guards fire on real data: the app had stored 2 473 "manual" readings
+  /// dated between 1970 and 2105 — a near-uniform smear across the whole uint32
+  /// range, which is what reading arbitrary bytes as an epoch looks like.
   @visibleForTesting
-  static List<StressReading> parseStressManual(List<int> raw) {
+  static List<StressReading> parseStressManual(
+    List<int> raw, {
+    required DateTime now,
+    DateTime? fetchStart,
+  }) {
     const recordSize = 5;
+    if (raw.isEmpty) return const [];
+    if (raw.length % recordSize != 0) {
+      return const [];
+    }
+    // A manual reading cannot predate the window we asked for, and cannot be in
+    // the future. One implausible instant condemns the buffer.
+    final earliest = (fetchStart ?? now.subtract(const Duration(days: 7)))
+        .subtract(const Duration(days: 7));
+    final latest = now.add(const Duration(hours: 1));
+
     final out = <StressReading>[];
     for (var i = 0; i + recordSize <= raw.length; i += recordSize) {
       final seconds = raw[i] |
@@ -196,10 +265,12 @@ class ActivityFetcher {
           (raw[i + 2] << 16) |
           (raw[i + 3] << 24);
       final value = raw[i + 4] & 0xFF;
-      if (seconds <= 0 || value > 100) continue;
+      if (seconds <= 0 || value > 100) return const [];
+      final ts =
+          DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: false);
+      if (ts.isBefore(earliest) || ts.isAfter(latest)) return const [];
       out.add(StressReading(
-        timestamp:
-            DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: false),
+        timestamp: ts,
         value: value,
         manual: true,
       ));

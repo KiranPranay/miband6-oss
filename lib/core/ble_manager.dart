@@ -863,6 +863,15 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// to live without hammering the link — a fetch is a multi-second transfer.
   static const Duration periodicSyncInterval = Duration(minutes: 10);
 
+  /// Whether the band's own stress stream is trusted enough to store.
+  ///
+  /// False until probe P1 settles what fetch types 0x13/0x12 actually return on
+  /// this firmware. Everything the app stored under the previous assumption —
+  /// 26 863 readings — decoded as activity bytes rather than stress
+  /// (findings-23). Flipping this to true is the whole of Phase 3: the parsers,
+  /// the store, the watermarks and the analysis are all in place behind it.
+  static const bool kStressFetchVerified = false;
+
   /// True while a sync is running, so the UI can show it and callers can avoid
   /// stacking fetches.
   bool get isSyncing => _isFetchingActivity;
@@ -1009,6 +1018,18 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       // history stored, then fetch incrementally (with a 6 h overlap so gaps
       // around the boundary are re-pulled). Samples are de-duplicated by
       // timestamp in the store, so overlap is harmless.
+      // The watermark is "how far we have synced", so it can never sensibly sit
+      // behind the newest sample we already hold. It can end up there — a stale
+      // value persisted before the monotonic setter landed, or a store restored
+      // from backup — and then the app asks for a window it has already got,
+      // gets the same batch back, fails to advance, and re-fetches it forever.
+      // Observed tonight: watermark 08-08 23:26 with samples stored through
+      // 08-12 20:56, re-pulling the same 361 samples every ten minutes.
+      final newestStored = activityStore.samples.isNotEmpty
+          ? activityStore.samples.last.timestamp
+          : null;
+      if (newestStored != null) activityStore.updateActivitySync(newestStored);
+
       final lastSync = activityStore.lastActivitySync;
       final now = DateTime.now();
       final earliest = activityStore.samples.isNotEmpty
@@ -1056,14 +1077,24 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         _logger.i('Activity fetch: no new samples');
       }
 
-      // Stress measured by the band itself (findings-20). Requires all-day
-      // stress monitoring to be on (Band settings → Measurement); with it off
-      // the band simply has nothing to return, which is not an error.
+      // Stress measured by the band itself (findings-20 documented the fetch
+      // types; findings-23 established that what comes back is not stress).
+      //
+      // The fetch still runs, and what it returns is still logged, because that
+      // log is the diagnostic probe P1 needs. Nothing is stored while
+      // [kStressFetchVerified] is false — every reading the app ever kept from
+      // this path decoded as activity bytes, and a plausible-looking wrong
+      // number is worse than no number at all. The Stress screen falls back to
+      // the heart-rate estimate and says so.
       _logger.i('Fetching stress history since $since');
       final stressAuto = await _activityFetcher!.fetchStressAuto(since);
       final stressManual = await _activityFetcher!.fetchStressManual(since);
       final stress = [...stressAuto, ...stressManual];
-      if (stress.isNotEmpty) {
+      if (!kStressFetchVerified) {
+        _logger.i('Stress fetch: ${stressAuto.length} all-day + '
+            '${stressManual.length} manual parsed, NOT STORED — the band\'s '
+            'stress stream is unverified on this firmware (findings-23, probe P1)');
+      } else if (stress.isNotEmpty) {
         activityStore.addStressReadings(stress);
         _logger.i('Stress fetch: ${stressAuto.length} all-day + '
             '${stressManual.length} manual readings');

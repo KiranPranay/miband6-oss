@@ -164,6 +164,10 @@ class ActivityStore {
       }
     } catch (_) {}
 
+    // Before anything reads the stress list: discard a store written under the
+    // schema whose every row was fabricated.
+    await purgeUnverifiedStress();
+
     _rebuildKeyIndexes();
     _bump();
   }
@@ -317,10 +321,53 @@ class ActivityStore {
     }
   }
 
+  /// Stores stress readings, rejecting any that claim to be from the future.
+  ///
+  /// A measurement cannot postdate the moment it was fetched. The app had 15 000
+  /// of them — the auto-stress parser advanced its clock one minute per byte
+  /// over an eight-byte-per-minute payload, so the timeline ran eight times fast
+  /// and the newest "reading" was dated six days ahead. A stored future
+  /// timestamp is worse than a dropped one: it wins every "most recent reading"
+  /// query forever.
   void addStressReadings(List<StressReading> readings) {
-    if (_mergeSorted(_stressReadings, _stressKeys, readings, (r) => r.timestamp)) {
+    final limit = DateTime.now().add(const Duration(minutes: 2));
+    final sane = readings.where((r) => !r.timestamp.isAfter(limit)).toList();
+    if (_mergeSorted(_stressReadings, _stressKeys, sane, (r) => r.timestamp)) {
       _bump();
     }
+  }
+
+  /// Version marker for the stress store's on-disk schema.
+  static const int stressSchemaVersion = 2;
+  static const _stressSchemaFile = 'stress_schema.txt';
+
+  /// Drops a stress store written before the readings were known to be
+  /// fabricated.
+  ///
+  /// Everything version 1 ever wrote was mis-parsed activity data (findings-23),
+  /// so there is nothing in it worth keeping and no way to tell the good rows
+  /// from the bad — there are no good rows. The file is *renamed* rather than
+  /// deleted: those bytes are a decoded copy of real activity data, and probe P1
+  /// may want them to settle whether the band or this client produced them.
+  Future<void> purgeUnverifiedStress() async {
+    try {
+      final marker = await _getFile(_stressSchemaFile);
+      final current = await marker.exists()
+          ? int.tryParse((await marker.readAsString()).trim()) ?? 0
+          : 0;
+      if (current >= stressSchemaVersion) return;
+
+      final f = await _getFile(_stressFile);
+      if (await f.exists()) {
+        final dir = f.parent.path;
+        await f.rename('$dir/stress_data.v$current-unverified.json');
+      }
+      final hadRows = _stressReadings.isNotEmpty;
+      _stressReadings = [];
+      _stressKeys.clear();
+      await marker.writeAsString(stressSchemaVersion.toString());
+      if (hadRows) _bump();
+    } catch (_) {}
   }
 
   // ── Queries ─────────────────────────────────────────────────────────────
@@ -592,12 +639,24 @@ class ActivityStore {
   /// Purge data older than N days to keep storage bounded.
   void purgeOlderThan(int days) {
     final cutoff = DateTime.now().subtract(Duration(days: days));
-    final before = _samples.length + _spo2Readings.length + _hrReadings.length;
+    // Stress has to be counted here as well as purged. It was purged but not
+    // counted, so a stress-only purge skipped `_rebuildKeyIndexes()` — leaving
+    // the removed timestamps in `_stressKeys` forever, which made every later
+    // re-fetch of those minutes a silent no-op, and never bumped the revision
+    // so the UI had no idea anything had changed.
+    final before = _samples.length +
+        _spo2Readings.length +
+        _hrReadings.length +
+        _stressReadings.length;
     _samples.removeWhere((s) => s.timestamp.isBefore(cutoff));
     _spo2Readings.removeWhere((r) => r.timestamp.isBefore(cutoff));
     _hrReadings.removeWhere((r) => r.timestamp.isBefore(cutoff));
     _stressReadings.removeWhere((r) => r.timestamp.isBefore(cutoff));
-    if (_samples.length + _spo2Readings.length + _hrReadings.length != before) {
+    final after = _samples.length +
+        _spo2Readings.length +
+        _hrReadings.length +
+        _stressReadings.length;
+    if (after != before) {
       _rebuildKeyIndexes();
       _bump();
     }

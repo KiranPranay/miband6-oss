@@ -152,6 +152,17 @@ void main() {
     });
   });
 
+  // These parsers describe the layout Gadgetbridge documents (protocol-mb6.md
+  // §10). The band has never actually been observed sending it — every buffer
+  // captured so far is an 8-byte-per-minute activity stream, and the readings
+  // it produced were nonsense (63% dated in the future, manual records smeared
+  // across 1970-2105). See findings-23 and probe P1.
+  //
+  // So the round-trip tests below are kept as a specification of the target,
+  // NOT as evidence the band behaves this way — they encode with the same
+  // layout they decode, so they would pass whatever the hardware did. The
+  // load-bearing tests are the negative ones: they use real captured shapes and
+  // assert that nothing is stored.
   group('band stress parsing', () {
     test('all-day stream is one byte per minute', () {
       final start = DateTime(2026, 8, 8, 10);
@@ -192,16 +203,74 @@ void main() {
         (ts >> 24) & 0xFF,
         42,
       ];
-      final readings = ActivityFetcher.parseStressManual(raw);
+      final readings = ActivityFetcher.parseStressManual(raw,
+          now: DateTime(2026, 8, 8, 11));
       expect(readings.length, 1);
       expect(readings.single.value, 42);
       expect(readings.single.manual, isTrue);
       expect(readings.single.timestamp.millisecondsSinceEpoch ~/ 1000, ts);
     });
 
-    test('a trailing partial record is ignored', () {
-      final readings = ActivityFetcher.parseStressManual([1, 2, 3]);
+    test('a payload that is not a whole number of records is rejected', () {
+      final readings = ActivityFetcher.parseStressManual([1, 2, 3],
+          now: DateTime(2026, 8, 8, 11));
       expect(readings, isEmpty);
+    });
+
+    // ── The negative tests: real captured shapes must yield nothing ──────
+
+    test('an 8-byte activity payload is rejected wholesale, not sampled', () {
+      // 40 bytes is a whole number of BOTH 5-byte and 8-byte records, so the
+      // length check alone cannot save us here — this is the case that
+      // manufactured "stress scores" out of heart-rate bytes.
+      final raw = <int>[];
+      for (var i = 0; i < 5; i++) {
+        raw.addAll([0xF0, 12, 0, 62 + i, 5, 60, 0x80 + i, 0]);
+      }
+      expect(raw.length % 5, 0, reason: 'the length guard must not be what fires');
+
+      final readings = ActivityFetcher.parseStressManual(raw,
+          now: DateTime(2026, 8, 12, 21));
+      expect(readings, isEmpty,
+          reason: 'decoded instants land far outside the fetch window');
+    });
+
+    test('one implausible instant condemns the whole buffer', () {
+      // Two records: the first decodes to a sane moment, the second to 2105.
+      final good = DateTime(2026, 8, 12, 20).millisecondsSinceEpoch ~/ 1000;
+      final raw = <int>[
+        good & 0xFF, (good >> 8) & 0xFF, (good >> 16) & 0xFF,
+        (good >> 24) & 0xFF, 44,
+        0xFF, 0xFF, 0xFF, 0xFF, 55,
+      ];
+      final readings = ActivityFetcher.parseStressManual(raw,
+          now: DateTime(2026, 8, 12, 21));
+      expect(readings, isEmpty,
+          reason: 'keeping the plausible half is how a lie gets stored');
+    });
+
+    test('an activity-shaped stream is recognised before any parsing', () {
+      final raw = <int>[];
+      for (var i = 0; i < 16; i++) {
+        raw.addAll([0xF0, 3, 0, 65, 5, 60, 0x80, 0]);
+      }
+      expect(ActivityFetcher.looksLikeActivityStream(raw), isTrue);
+    });
+
+    test('a plausible stress stream is not mistaken for activity', () {
+      // One byte per minute, values 0..100 — what 0x13 is supposed to send.
+      final raw = List<int>.generate(128, (i) => 30 + (i % 40));
+      expect(ActivityFetcher.looksLikeActivityStream(raw), isFalse);
+    });
+
+    test('the guard needs both invariants, not just the deepSleep bit', () {
+      // deepSleep bit 7 set on every record, but remSleep non-zero: not the
+      // activity shape, so it must not be swallowed by the guard.
+      final raw = <int>[];
+      for (var i = 0; i < 16; i++) {
+        raw.addAll([0xF0, 3, 0, 65, 5, 60, 0x80, 7]);
+      }
+      expect(ActivityFetcher.looksLikeActivityStream(raw), isFalse);
     });
   });
 
@@ -428,6 +497,161 @@ void main() {
       );
       expect(est.explanation, contains('this time of day'));
       expect(est.explanation.toLowerCase(), contains('not hrv'));
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Historical stress, derived from stored heart rate (findings-23 Phase 2)
+  // ───────────────────────────────────────────────────────────────────────
+
+  group('stress history', () {
+    /// [hours] consecutive hourly blocks of [perHour] readings at [bpm].
+    List<HeartRateReading> hrBlock(DateTime from, int hours, int bpm,
+        {int perHour = 12}) {
+      final out = <HeartRateReading>[];
+      for (var h = 0; h < hours; h++) {
+        for (var i = 0; i < perHour; i++) {
+          out.add(HeartRateReading(
+            timestamp: from.add(Duration(hours: h, minutes: i * 5)),
+            value: bpm,
+          ));
+        }
+      }
+      return out;
+    }
+
+    test('an empty store yields no history rather than zeros', () {
+      final h = StressAnalyzer.history(
+        hrReadings: const [],
+        bandReadings: const [],
+        now: DateTime(2026, 8, 12, 21),
+        bandStreamVerified: false,
+      );
+      expect(h.hours, isEmpty);
+      expect(h.days, isEmpty);
+      expect(h.hasPersonalBaseline, isFalse);
+    });
+
+    test('an hour with too few readings is absent, not scored zero', () {
+      final start = DateTime(2026, 8, 10, 9);
+      final hr = <HeartRateReading>[
+        ...hrBlock(start, 6, 70),
+        // A single stray reading three hours later.
+        HeartRateReading(timestamp: start.add(const Duration(hours: 9)), value: 70),
+      ];
+      final h = StressAnalyzer.history(
+        hrReadings: hr,
+        bandReadings: const [],
+        now: DateTime(2026, 8, 12, 21),
+        bandStreamVerified: false,
+      );
+      final lonely = h.hours.where((p) => p.time.hour == start.hour + 9);
+      expect(lonely, isEmpty,
+          reason: 'a gap in wear is not a calm hour');
+    });
+
+    test('a day with too few measured hours is omitted entirely', () {
+      final hr = hrBlock(DateTime(2026, 8, 10, 9), 3, 70);
+      final h = StressAnalyzer.history(
+        hrReadings: hr,
+        bandReadings: const [],
+        now: DateTime(2026, 8, 12, 21),
+        bandStreamVerified: false,
+      );
+      expect(h.days, isEmpty,
+          reason: 'three measured hours is not a day');
+    });
+
+    test('a higher heart rate scores higher than the same person at rest', () {
+      // Ten days with a realistic resting spread, one of them elevated. A
+      // perfectly flat history has no spread to position against and is
+      // correctly refused — hence the jitter here.
+      final rnd = Random(11);
+      final hr = <HeartRateReading>[];
+      for (var d = 0; d < 10; d++) {
+        final elevatedDay = d == 5;
+        for (final startHour in [12, 16]) {
+          for (var h = 0; h < 4; h++) {
+            for (var i = 0; i < 12; i++) {
+              hr.add(HeartRateReading(
+                timestamp: DateTime(2026, 8, 1 + d, startHour + h, i * 5),
+                value: (elevatedDay ? 95 : 60) + rnd.nextInt(11),
+              ));
+            }
+          }
+        }
+      }
+      final h = StressAnalyzer.history(
+        hrReadings: hr,
+        bandReadings: const [],
+        now: DateTime(2026, 8, 12, 21),
+        bandStreamVerified: false,
+      );
+      final elevated = h.days.firstWhere((d) => d.date.day == 6);
+      final calm = h.days.firstWhere((d) => d.date.day == 2);
+      expect(elevated.average, greaterThan(calm.average));
+      expect(elevated.average, greaterThan(80),
+          reason: 'a day near the top of the personal range should read high');
+    });
+
+    test('a perfectly flat heart rate produces no score at all', () {
+      // There is no personal range to position within, so the honest answer is
+      // nothing — not 0, and not 50.
+      final hr = <HeartRateReading>[];
+      for (var d = 0; d < 10; d++) {
+        hr.addAll(hrBlock(DateTime(2026, 8, 1 + d, 12), 8, 60));
+      }
+      final h = StressAnalyzer.history(
+        hrReadings: hr,
+        bandReadings: const [],
+        now: DateTime(2026, 8, 12, 21),
+        bandStreamVerified: false,
+      );
+      expect(h.hours, isEmpty);
+      expect(h.days, isEmpty);
+    });
+
+    test('the band stream is ignored while it is unverified', () {
+      final now = DateTime(2026, 8, 12, 21);
+      final h = StressAnalyzer.history(
+        hrReadings: hrBlock(DateTime(2026, 8, 12, 9), 8, 70),
+        bandReadings: [
+          StressReading(
+              timestamp: now.subtract(const Duration(minutes: 5)), value: 88),
+        ],
+        now: now,
+        bandStreamVerified: false,
+      );
+      expect(h.current.source, isNot(StressSource.band),
+          reason: 'an unverified stream must never be presented as measured');
+      expect(h.bandStreamUnverified, isTrue);
+    });
+
+    test('and is used once it is verified', () {
+      final now = DateTime(2026, 8, 12, 21);
+      final h = StressAnalyzer.history(
+        hrReadings: hrBlock(DateTime(2026, 8, 12, 9), 8, 70),
+        bandReadings: [
+          StressReading(
+              timestamp: now.subtract(const Duration(minutes: 5)), value: 88),
+        ],
+        now: now,
+        bandStreamVerified: true,
+      );
+      expect(h.current.source, StressSource.band);
+      expect(h.current.score, 88);
+      expect(h.bandStreamUnverified, isFalse);
+    });
+
+    test('band labels line up with the chart bands', () {
+      expect(StressAnalyzer.bandLabel(0), 'Relaxed');
+      expect(StressAnalyzer.bandLabel(39), 'Relaxed');
+      expect(StressAnalyzer.bandLabel(40), 'Mild');
+      expect(StressAnalyzer.bandLabel(59), 'Mild');
+      expect(StressAnalyzer.bandLabel(60), 'Moderate');
+      expect(StressAnalyzer.bandLabel(79), 'Moderate');
+      expect(StressAnalyzer.bandLabel(80), 'High');
+      expect(StressAnalyzer.bandLabel(100), 'High');
     });
   });
 }

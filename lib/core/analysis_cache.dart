@@ -2,6 +2,7 @@ import 'activity_analysis.dart';
 import 'activity_sample.dart';
 import 'heart_analysis.dart';
 import 'sleep_analysis.dart';
+import 'stress_analyzer.dart';
 import '../storage/activity_store.dart';
 
 /// Memoises the three analysis engines against the store's [ActivityStore.revision].
@@ -123,6 +124,44 @@ class AnalysisCache {
     return _sleep!;
   }
 
+  // ── Stress ───────────────────────────────────────────────────────────────
+  static int _stressRev = -1;
+  static int? _stressMinute;
+  static bool? _stressVerified;
+  static StressHistory? _stress;
+
+  /// Stress history for the current store contents.
+  ///
+  /// Keyed on the minute as well as the revision, like [activity]: the live
+  /// figure inside it is computed over windows relative to `now`, so it goes
+  /// stale on the clock rather than only on new data. The expensive part — a
+  /// pass over the whole heart-rate history to build per-bin percentiles and
+  /// hourly scores — is what this exists to avoid repeating on every rebuild.
+  static StressHistory stress(
+    ActivityStore store, {
+    required DateTime now,
+    required bool bandStreamVerified,
+    List<double> rrIntervalsMs = const [],
+  }) {
+    final minute = now.millisecondsSinceEpoch ~/ 60000;
+    if (_stress == null ||
+        _stressRev != store.revision ||
+        _stressMinute != minute ||
+        _stressVerified != bandStreamVerified) {
+      _stress = StressAnalyzer.history(
+        hrReadings: store.hrReadings,
+        bandReadings: store.stressReadings,
+        now: now,
+        bandStreamVerified: bandStreamVerified,
+        rrIntervalsMs: rrIntervalsMs,
+      );
+      _stressRev = store.revision;
+      _stressMinute = minute;
+      _stressVerified = bandStreamVerified;
+    }
+    return _stress!;
+  }
+
   /// Drops every cached result. Tests call this between cases so one test's
   /// memoised value can never leak into the next.
   static void invalidate() {
@@ -138,5 +177,9 @@ class AnalysisCache {
     _sleepRev = -1;
     _sleepKey = null;
     _sleep = null;
+    _stressRev = -1;
+    _stressMinute = null;
+    _stressVerified = null;
+    _stress = null;
   }
 }
