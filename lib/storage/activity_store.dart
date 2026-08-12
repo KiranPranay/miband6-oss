@@ -257,26 +257,52 @@ class ActivityStore {
     return added;
   }
 
+  /// Stores samples. Deliberately does NOT touch the sync watermark — that is
+  /// the sync layer's job, via [updateActivitySync].
+  ///
+  /// This used to stamp `_lastActivitySync = DateTime.now()` here whenever the
+  /// batch was non-empty, which is the wall-clock watermark bug commit 49dafb9
+  /// set out to remove; that commit only changed `ble_manager.dart` and left
+  /// this copy behind. It survived because `_fetchActivityData` happens to call
+  /// `addSamples` a few lines before it calls `updateActivitySync`, so the
+  /// correct value overwrote the wrong one — an accident of ordering, not a
+  /// design. Anything else that stored samples moved the watermark to "now" and
+  /// skipped whatever the band still held below it.
   void addSamples(List<ActivitySample> newSamples) {
     final added =
         _mergeSorted(_samples, _sampleKeys, newSamples, (s) => s.timestamp);
-
-    if (newSamples.isNotEmpty) {
-      _lastActivitySync = DateTime.now();
-    }
     if (added) _bump();
   }
 
+  /// Advances the activity watermark. Monotonic: a fetch that returns an older
+  /// batch than we already hold must not drag it backwards.
+  ///
+  /// Observed on 2026-08-12: a manual deep sync (a deliberate 7-day window)
+  /// returned a contiguous 08-05→08-08 batch, and its newest sample was written
+  /// straight over a watermark that stood at 08-11 — moving it back 3.9 days
+  /// while the store held 6 406 newer samples. The next incremental fetch then
+  /// asked for `08-08 minus 6 h` and re-downloaded days of data it already had.
+  ///
+  /// A deep backfill still reaches old data: `_fetchActivityData(deep: true)`
+  /// ignores the watermark entirely when choosing its window.
   void updateActivitySync(DateTime ts) {
-    _lastActivitySync = ts;
+    final cur = _lastActivitySync;
+    if (cur == null || ts.isAfter(cur)) _lastActivitySync = ts;
   }
 
+  /// Monotonic for the same reason as [updateActivitySync]. No fetch window is
+  /// derived from this one today, so this fixes no live bug — it keeps the
+  /// three watermarks behaving identically, so the next reader of one of them
+  /// does not inherit a different rule.
   void updateSpo2Sync(DateTime ts) {
-    _lastSpo2Sync = ts;
+    final cur = _lastSpo2Sync;
+    if (cur == null || ts.isAfter(cur)) _lastSpo2Sync = ts;
   }
 
+  /// See [updateSpo2Sync] — consistency, not a bug fix.
   void updateHrSync(DateTime ts) {
-    _lastHrSync = ts;
+    final cur = _lastHrSync;
+    if (cur == null || ts.isAfter(cur)) _lastHrSync = ts;
   }
 
   void addSpo2Readings(List<Spo2Reading> readings) {
