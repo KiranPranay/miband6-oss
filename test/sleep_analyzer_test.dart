@@ -376,4 +376,118 @@ void main() {
           isTrue);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // findings-23: the band's sleep flag is the ONLY sleep signal
+  // ─────────────────────────────────────────────────────────────────────────
+
+  group('only the 0xF flag means asleep', () {
+    // Low nibble 9 (light) and 11 (deep) used to count as sleep even when the
+    // high nibble said the band was not flagging sleep. In the capture a
+    // quarter of kind-9/11 samples are like that, with a higher median heart
+    // rate and real movement — waking activity, not sleep.
+    test('kind 9 outside the sleep flag is not asleep', () {
+      final night = [
+        ..._run(DateTime(2026, 8, 11, 1), 120),
+        _s(DateTime(2026, 8, 11, 3), category: 0x79, intensity: 39),
+        ..._run(DateTime(2026, 8, 11, 3, 1), 60),
+      ];
+      final days = SleepAnalyzer.detectSessions(night);
+      final asleep = days
+          .expand((d) => d.intervals)
+          .where((iv) => iv.stage != SleepStage.awake)
+          .fold<int>(0, (a, iv) => a + iv.durationMinutes);
+      expect(asleep, lessThan(185),
+          reason: 'the 0x79 minute must not be counted as sleep');
+    });
+
+    test('kind 11 outside the sleep flag does not bridge a long wake gap', () {
+      // Two real sleep blocks either side of a 69-minute gap, with a single
+      // 0x9B sample sitting in the middle of it. That lone sample is what
+      // stitched the night of 2026-08-11 into one 8h41m "session".
+      final samples = <ActivitySample>[
+        ..._run(DateTime(2026, 8, 11, 0), 60),
+        _s(DateTime(2026, 8, 11, 1, 30),
+            category: 0x9B, intensity: 117, heartRate: 92),
+        ..._run(DateTime(2026, 8, 11, 2, 10), 120),
+      ];
+      final days = SleepAnalyzer.detectSessions(samples);
+      expect(days, hasLength(greaterThanOrEqualTo(1)));
+      for (final d in days) {
+        final span = d.endTime!.difference(d.startTime!).inMinutes;
+        expect(span, lessThan(200),
+            reason: 'no session may span both blocks plus the 69-minute gap');
+      }
+    });
+  });
+
+  group('awakenings are counted at the reporting threshold', () {
+    test('one-minute wake blips do not each count as an awakening', () {
+      // Five isolated 1-minute wakes and two 6-minute ones. Only the long two
+      // are awakenings; all seven still count as wake time.
+      final samples = <ActivitySample>[];
+      var t = DateTime(2026, 8, 11, 1);
+      void sleep(int m) {
+        samples.addAll(_run(t, m));
+        t = t.add(Duration(minutes: m));
+      }
+
+      void wake(int m) {
+        for (var i = 0; i < m; i++) {
+          samples.add(_s(t, category: 0x70, intensity: 60, sleep: 0));
+          t = t.add(const Duration(minutes: 1));
+        }
+      }
+
+      sleep(30);
+      for (var i = 0; i < 5; i++) {
+        wake(1);
+        sleep(20);
+      }
+      wake(6);
+      sleep(30);
+      wake(6);
+      sleep(30);
+
+      final days = SleepAnalyzer.detectSessions(samples);
+      expect(days, hasLength(1));
+      final q = SleepQuality.of(days.first);
+      expect(q.wakeEpisodes, 2,
+          reason: 'only wakes >= ${SleepQuality.minAwakeningMinutes} min count');
+    });
+
+    test('short wakes still count towards wake time', () {
+      final samples = <ActivitySample>[
+        ..._run(DateTime(2026, 8, 11, 1), 60),
+        _s(DateTime(2026, 8, 11, 2), category: 0x70, intensity: 60, sleep: 0),
+        ..._run(DateTime(2026, 8, 11, 2, 1), 60),
+      ];
+      final days = SleepAnalyzer.detectSessions(samples);
+      final q = SleepQuality.of(days.first);
+      expect(q.wakeEpisodes, 0);
+      expect(q.efficiencyPercent, lessThan(100),
+          reason: 'the blip is not an awakening but it is still not sleep');
+    });
+  });
+
+  group('depth comes from heart rate, never from the kind byte', () {
+    test('with no heart rate, nothing is staged deep', () {
+      final samples = _run(DateTime(2026, 8, 11, 1), 240, category: 0xFB)
+          .map((s) => ActivitySample(
+                timestamp: s.timestamp,
+                category: s.category,
+                intensity: s.intensity,
+                steps: s.steps,
+                heartRate: 0,
+                sleep: s.sleep,
+                deepSleep: s.deepSleep,
+              ))
+          .toList();
+      final days = SleepAnalyzer.detectSessions(samples);
+      for (final d in days) {
+        expect(d.intervals.where((iv) => iv.stage == SleepStage.deep), isEmpty,
+            reason: 'kind 11 must not stage deep on its own');
+      }
+    });
+  });
 }

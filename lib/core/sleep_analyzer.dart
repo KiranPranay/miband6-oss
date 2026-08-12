@@ -191,12 +191,25 @@ class SleepAnalyzer {
     if (s.steps > 0) return false;
     // A band that is off the wrist is not asleep, however it is flagged.
     if (isNotWorn(s)) return false;
-    if (kindFlags(s.category) == sleepFlagNibble) return true;
-    // Corroborating legacy codes. These occur only *inside* flagged sleep on
-    // this firmware (628 light / 72 deep out of 60 404), so they add little,
-    // but they cost nothing and would matter on a firmware that emits them.
-    final k = maskedKind(s.category);
-    return k == kindLightSleep || k == kindDeepSleep;
+    // The band's own flag, and nothing else.
+    //
+    // There used to be a fallback here accepting low nibble 9 (light) or 11
+    // (deep) even when the high nibble said the band was NOT flagging sleep,
+    // justified by a comment claiming those codes "occur only inside flagged
+    // sleep on this firmware (628 light / 72 deep out of 60 404)". That is not
+    // true of the captured data: 207 of 823 kind-9/11 samples — a quarter —
+    // carry a non-0xF high nibble, their median HR is 73 against 65 for 0xF0,
+    // half of them have intensity ≥ 20, and 62 of them fall between 08:00 and
+    // 10:00. They are waking movement, not sleep. (findings-21 §9.1 had already
+    // retired kind 11 as "deep"; this extends the same verdict to kind 9.)
+    //
+    // The cost of keeping it was not marginal. Three such samples — 00:03
+    // c=0x9b at intensity 117, 07:03 and 07:19 c=0x79 — were the only thing
+    // holding the night of 2026-08-11 together across two wake gaps of 69 and
+    // 71 minutes, both well past `maxWakeGapMinutes`. That single stitch
+    // stretched "time in bed" from 6h29m to 8h41m and dropped the reported
+    // efficiency from 61% to 45%. See findings-23.
+    return kindFlags(s.category) == sleepFlagNibble;
   }
 
   /// Heart rate is only meaningful within Gadgetbridge's validity band.
@@ -438,15 +451,17 @@ class SleepAnalyzer {
         out.add(_Staged(s.timestamp, SleepStage.awake));
         continue;
       }
-      final k = maskedKind(s.category);
-      if (k == kindDeepSleep) {
-        out.add(_Staged(s.timestamp, SleepStage.deep));
-        continue;
-      }
-      if (k == kindLightSleep) {
-        out.add(_Staged(s.timestamp, SleepStage.light));
-        continue;
-      }
+      // Every asleep minute starts as light; depth is decided from the heart
+      // rate below, and only there.
+      //
+      // This used to stage `deep` straight from low nibble 11, on the same
+      // discredited reading of the kind byte that `_isAsleepSample` has just
+      // dropped — findings-21 measured `0xDB` as carrying the *highest* mean HR
+      // of any sleep kind, i.e. sleep onset, not depth. It looked harmless
+      // because `_refineWithHeartRate` resets every non-awake minute to light
+      // before deciding depth itself, but that function returns early whenever
+      // HR coverage is too thin to trust — and on exactly those nights the
+      // wrong staging survived into the result.
       out.add(_Staged(s.timestamp, SleepStage.light));
     }
 
@@ -886,8 +901,17 @@ class SleepQuality {
   /// Minutes from the start of the session to the first sustained sleep.
   final int latencyMinutes;
 
-  /// Number of distinct wake episodes inside the session.
+  /// Number of distinct awakenings inside the session lasting at least
+  /// [minAwakeningMinutes]. Shorter blips still count towards wake time; they
+  /// are not counted as separate awakenings.
   final int wakeEpisodes;
+
+  /// Shortest run of wake minutes reported as an awakening.
+  ///
+  /// Five minutes is the usual reporting convention in actigraphy, and it is
+  /// the length at which the classifier's own output starts agreeing with the
+  /// heart rate: below it, "awakenings" carry no HR rise at all.
+  static const int minAwakeningMinutes = 5;
 
   final int timeInBedMinutes;
 
@@ -918,7 +942,24 @@ class SleepQuality {
     }
 
     // Count only wake episodes *between* sleep — leading and trailing wake are
-    // latency and morning wake-up, not awakenings.
+    // latency and morning wake-up, not awakenings — and only those lasting at
+    // least [minAwakeningMinutes].
+    //
+    // Without the duration floor this counts the classifier flapping. On the
+    // night of 2026-08-11 it reported 35 awakenings, of which 18 were exactly
+    // one minute long and 20 were two minutes or less; at those 18 minutes the
+    // heart rate sat 1.25 bpm BELOW the surrounding median, and only 4 of 16
+    // rose by 5 bpm or more. A real arousal raises heart rate. The mechanism is
+    // arithmetic: `_weightedSumAwake` scores a minute against a threshold of
+    // 10 using its neighbours at 0.2 and 0.04, so one isolated minute of
+    // intensity 11 flips to wake on its own — around this night's 85th
+    // percentile of sleeping movement.
+    //
+    // The threshold itself is left alone deliberately: retuning it to make this
+    // number look better would be fitting the constant to a prior, and it is
+    // Chinoy's validated value. Per-minute wake still counts in full towards
+    // WASO and efficiency; only the *count* changes, to the ≥5-minute
+    // convention actigraphy studies report.
     var episodes = 0;
     var seenSleep = false;
     for (var i = 0; i < intervals.length; i++) {
@@ -928,6 +969,7 @@ class SleepQuality {
         continue;
       }
       if (!seenSleep) continue;
+      if (iv.durationMinutes < minAwakeningMinutes) continue;
       final laterSleep =
           intervals.skip(i + 1).any((x) => x.stage != SleepStage.awake);
       if (laterSleep) episodes++;
