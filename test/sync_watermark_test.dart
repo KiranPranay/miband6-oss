@@ -93,4 +93,56 @@ void main() {
       expect(store.lastSpo2Sync, DateTime(2026, 8, 12));
     });
   });
+  _minuteDedupeTests();
+}
+
+/// Activity samples are one per minute by definition, and the sub-second part
+/// of their timestamp is invented app-side (the fetch command transmits
+/// year..minute only). Two fetches whose start differed by a few seconds used
+/// to store two copies of every minute — 56% of the captured store was
+/// redundant that way, with up to 32 copies of a single minute.
+void _minuteDedupeTests() {
+  ActivitySample at(DateTime t) => ActivitySample(
+        timestamp: t,
+        category: 0xF0,
+        intensity: 0,
+        steps: 5,
+        heartRate: 60,
+        sleep: 0,
+        deepSleep: 128,
+        remSleep: 0,
+      );
+
+  group('activity samples de-duplicate by minute', () {
+    test('the same minute at a different sub-second offset is one sample', () {
+      final store = ActivityStore();
+      store.addSamples([at(DateTime(2026, 8, 13, 10, 30, 0, 172))]);
+      store.addSamples([at(DateTime(2026, 8, 13, 10, 30, 0, 0))]);
+      store.addSamples([at(DateTime(2026, 8, 13, 10, 30, 42, 504))]);
+
+      expect(store.samples, hasLength(1),
+          reason: 'the band records one sample per minute');
+    });
+
+    test('distinct minutes are all kept', () {
+      final store = ActivityStore();
+      store.addSamples([
+        for (var i = 0; i < 60; i++)
+          at(DateTime(2026, 8, 13, 10).add(Duration(minutes: i))),
+      ]);
+      expect(store.samples, hasLength(60));
+    });
+
+    test('heart rate keeps its sub-minute readings', () {
+      // Live streaming produces several readings a minute and they are real —
+      // collapsing them would discard genuine measurements.
+      final store = ActivityStore();
+      store.addHeartRateReadings([
+        HeartRateReading(timestamp: DateTime(2026, 8, 13, 10, 30, 0), value: 70),
+        HeartRateReading(timestamp: DateTime(2026, 8, 13, 10, 30, 20), value: 72),
+        HeartRateReading(timestamp: DateTime(2026, 8, 13, 10, 30, 40), value: 74),
+      ]);
+      expect(store.hrReadings, hasLength(3));
+    });
+  });
 }

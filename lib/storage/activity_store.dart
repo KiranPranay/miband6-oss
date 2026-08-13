@@ -203,9 +203,13 @@ class ActivityStore {
   /// Rebuilds the de-duplication indexes from the loaded lists. Called once
   /// after [load]; the incremental add paths keep them current after that.
   void _rebuildKeyIndexes() {
+    // Must match the resolution `addSamples` uses, or every reload would
+    // rebuild the index at a finer grain than the inserts check against and the
+    // de-duplication would quietly stop working.
     _sampleKeys
       ..clear()
-      ..addAll(_samples.map((s) => s.timestamp.millisecondsSinceEpoch));
+      ..addAll(_samples
+          .map((s) => s.timestamp.millisecondsSinceEpoch ~/ _minuteMs));
     _spo2Keys
       ..clear()
       ..addAll(_spo2Readings.map((r) => r.timestamp.millisecondsSinceEpoch));
@@ -269,15 +273,25 @@ class ActivityStore {
     List<T> list,
     Set<int> keys,
     Iterable<T> incoming,
-    DateTime Function(T) timestampOf,
-  ) {
+    DateTime Function(T) timestampOf, {
+    /// Resolution of the de-duplication key. Activity samples pass one minute:
+    /// the band records exactly one per minute and the sub-second part is
+    /// invented app-side, so two fetches whose start differed by a few seconds
+    /// would otherwise each store their own copy of every minute.
+    ///
+    /// It stays at millisecond resolution for heart rate, where sub-minute
+    /// readings are real — live streaming produces several a minute and
+    /// collapsing them would throw away genuine measurements.
+    int keyResolutionMs = 1,
+  }) {
     var added = false;
     var needsSort = false;
     for (final item in incoming) {
-      final key = timestampOf(item).millisecondsSinceEpoch;
+      final ms = timestampOf(item).millisecondsSinceEpoch;
+      final key = keyResolutionMs <= 1 ? ms : ms ~/ keyResolutionMs;
       if (!keys.add(key)) continue; // already stored
       if (list.isNotEmpty &&
-          timestampOf(list.last).millisecondsSinceEpoch > key) {
+          timestampOf(list.last).millisecondsSinceEpoch > ms) {
         needsSort = true;
       }
       list.add(item);
@@ -288,6 +302,9 @@ class ActivityStore {
     }
     return added;
   }
+
+  /// Minute resolution, for data the band records once per minute.
+  static const int _minuteMs = 60000;
 
   /// Stores samples. Deliberately does NOT touch the sync watermark — that is
   /// the sync layer's job, via [updateActivitySync].
@@ -301,8 +318,9 @@ class ActivityStore {
   /// design. Anything else that stored samples moved the watermark to "now" and
   /// skipped whatever the band still held below it.
   void addSamples(List<ActivitySample> newSamples) {
-    final added =
-        _mergeSorted(_samples, _sampleKeys, newSamples, (s) => s.timestamp);
+    final added = _mergeSorted(
+        _samples, _sampleKeys, newSamples, (s) => s.timestamp,
+        keyResolutionMs: _minuteMs);
     if (added) _bump();
   }
 

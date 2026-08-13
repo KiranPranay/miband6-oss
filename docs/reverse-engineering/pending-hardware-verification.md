@@ -353,10 +353,21 @@ stores nothing from the band.
       excluded; `0xFB` is deliberately left in, because excluding it is unproven
       and it costs one minute on the night that prompted this.
 - [ ] **P10.2 Re-derive the deep-sleep calibration on deduplicated data.**
-      The table in `sleep_analyzer.dart` was fitted on captures that carried 56%
-      duplicate samples, and its windows are indexed by position rather than by
-      time. Median deep share moves 13.7% → 13.2% after dedup, but individual
-      nights shift much more (06-27: 33 → 10 min). Re-fit before trusting it.
+      *(No longer a prediction — now observed.)* The table in
+      `sleep_analyzer.dart` was fitted on captures carrying 56% duplicate
+      samples, and its windows are indexed by position rather than by time, so
+      duplicated minutes silently narrowed them.
+      With de-duplication complete (2026-08-13, every day now exactly 1440
+      samples), the median deep share across 20 nights sits at **10.2%** against
+      a healthy-adult range of 13-23%, and one night reports 0% deep. Before
+      dedup it read 13.7%.
+      This is a *calibration* problem, not a staging bug — `_refineWithHeartRate`
+      is doing what it was tuned to do, on windows that are now the size they
+      were always supposed to be. Re-fit `_deepBaselineHalfWindow`,
+      `deepDipBpm` and `_minDeepRunMinutes` against the deduplicated capture
+      before trusting the deep figure. **Do not** tune it to hit 13-23% — that
+      would be fitting to a prior. Tune the window arithmetic to what the
+      original derivation intended, then report whatever it gives.
 
 ## P11 — Free upside, no risk
 
