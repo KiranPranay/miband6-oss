@@ -137,6 +137,11 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   DateTime? _lastSyncTime;
 
   ActivityFetcher? _activityFetcher;
+
+  /// The device [_activityFetcher] was built for, so a reconnection to a
+  /// different band rebuilds it rather than reusing subscriptions on
+  /// characteristics that no longer exist.
+  BluetoothDevice? _fetcherDevice;
   final ActivityStore activityStore = ActivityStore();
   late final AlertManager alertManager = AlertManager(_logger);
   late final BackgroundPermissions _backgroundPermissions =
@@ -461,6 +466,12 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     // The GATT database belongs to the connection — a reconnect must re-discover
     // rather than hand out stale characteristic handles.
     _cachedServices = null;
+    // Same reasoning for the fetcher: its notify subscriptions are bound to
+    // this connection's characteristics, so it has to be torn down here rather
+    // than carried into the next one.
+    _activityFetcher?.dispose();
+    _activityFetcher = null;
+    _fetcherDevice = null;
     _charSubscription?.cancel();
     _stepsSubscription?.cancel();
     _hrSubscription?.cancel();
@@ -863,6 +874,15 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// to live without hammering the link — a fetch is a multi-second transfer.
   static const Duration periodicSyncInterval = Duration(minutes: 10);
 
+  /// How many times one sync will re-request activity data.
+  ///
+  /// The band stops each transfer at a discontinuity in its ring buffer, so a
+  /// week of history with several gaps needs several rounds. The cap keeps a
+  /// pathological band (one that always returns a short run) from spinning —
+  /// whatever is left is picked up by the next sync, since the watermark has
+  /// advanced.
+  static const int maxFetchRounds = 12;
+
   /// Whether the band's own stress stream is trusted enough to store.
   ///
   /// False until probe P1 settles what fetch types 0x13/0x12 actually return on
@@ -1007,11 +1027,37 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _emitChange();
 
     try {
-      _activityFetcher = ActivityFetcher(_logger, _device!);
-      final ok = await _activityFetcher!.init();
-      if (!ok) {
-        _logger.e('Activity fetch: init failed');
-        return;
+      // One fetcher per connection, not one per fetch.
+      //
+      // `ActivityFetcher.init()` subscribes to `onValueReceived` on both the
+      // control and data characteristics. A fresh fetcher was built on every
+      // call and the previous one was never disposed, so each sync left another
+      // live listener on the same characteristics — and every one of them
+      // handles every notification.
+      //
+      // Two listeners means the metadata frame is processed twice, so `0x02`
+      // (begin transfer) is written twice, and the band answers `10 02 04` —
+      // error — instead of streaming. Nothing is fetched at all. Observed on
+      // 2026-08-13: the band offered 2 910 samples and the app stored none,
+      // with every `CTRL notified:` line in the log appearing in pairs.
+      //
+      // The leak has always been here, but it was harmless while
+      // `_fetchActivityData` ran once per connection. Adding the 10-minute
+      // periodic sync (commit 5fa3993) turned it into one extra listener every
+      // ten minutes, which is why step, sleep and HR history all stopped
+      // updating a few hours into a session.
+      if (_activityFetcher == null || !identical(_fetcherDevice, _device)) {
+        _activityFetcher?.dispose();
+        _activityFetcher = ActivityFetcher(_logger, _device!);
+        _fetcherDevice = _device;
+        final ok = await _activityFetcher!.init();
+        if (!ok) {
+          _logger.e('Activity fetch: init failed');
+          _activityFetcher?.dispose();
+          _activityFetcher = null;
+          _fetcherDevice = null;
+          return;
+        }
       }
 
       // Choose the fetch window: backfill a week until we have a few days of
@@ -1046,11 +1092,41 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
 
       // One activity fetch yields steps, sleep AND heart-rate history — HR is
       // embedded at byte 3 of each 8-byte sample (see protocol-mb6.md §5).
-      _logger.i('Fetching Activity/Sleep/HR Data since $since '
-          '(deepHistory=$haveDeepHistory)');
-      final samples = await _activityFetcher!.fetchActivityData(since);
-      if (samples.isNotEmpty) {
+      //
+      // Fetch repeatedly until the band runs out, not once.
+      //
+      // One request does NOT return everything from `since` to now. The band
+      // serves a contiguous run and stops at the first discontinuity in its
+      // ring buffer — a stretch where it was charging, off the wrist, or the
+      // log wrapped. Asking from 2026-08-06 returned 2 902 samples ending
+      // 08-08 23:26 and stopped, while a request from 08-13 03:40 returned 361
+      // ending 09:40 and stopped, on the same band, minutes apart.
+      //
+      // A single round therefore makes a gap permanent: the watermark advances
+      // only to the end of the run, the next sync asks `watermark - 6 h`, lands
+      // in the same run, gets the same batch, and the app can never climb past
+      // the hole. That is why steps, sleep and heart-rate history all froze at
+      // 09:40 while the band's own step counter kept climbing. Gadgetbridge
+      // re-issues the request from the last received timestamp for exactly this
+      // reason (`AbstractRepeatingFetchOperation`).
+      var cursor = since;
+      var totalSamples = 0;
+      var rounds = 0;
+      while (rounds < maxFetchRounds) {
+        rounds++;
+        _logger.i('Fetching Activity/Sleep/HR Data since $cursor '
+            '(deepHistory=$haveDeepHistory, round $rounds)');
+        final samples = await _activityFetcher!.fetchActivityData(cursor);
+        if (samples.isEmpty) {
+          _logger.i(rounds == 1
+              ? 'Activity fetch: no new samples'
+              : 'Activity fetch: band has nothing beyond $cursor');
+          break;
+        }
+
         activityStore.addSamples(samples);
+        totalSamples += samples.length;
+
         // Watermark = the newest sample we actually received, NOT wall-clock
         // now.
         //
@@ -1076,8 +1152,24 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
               .reduce((a, b) => a.isAfter(b) ? a : b));
           _logger.i('HR history: derived ${hrReadings.length} readings from activity');
         }
-      } else {
-        _logger.i('Activity fetch: no new samples');
+
+        // Caught up to the present — nothing more can exist.
+        if (newest.isAfter(DateTime.now().subtract(const Duration(minutes: 2)))) {
+          break;
+        }
+        // Step over the gap. Without the +1 minute the band would hand back the
+        // same run and the loop would spin.
+        final next = newest.add(const Duration(minutes: 1));
+        if (!next.isAfter(cursor)) {
+          _logger.e('Activity fetch: cursor failed to advance past $cursor '
+              '— stopping to avoid a loop');
+          break;
+        }
+        cursor = next;
+      }
+      if (rounds >= maxFetchRounds) {
+        _logger.i('Activity fetch: stopped at the $maxFetchRounds-round cap '
+            '(got $totalSamples samples) — the next sync continues from here');
       }
 
       // Stress measured by the band itself (findings-20 documented the fetch

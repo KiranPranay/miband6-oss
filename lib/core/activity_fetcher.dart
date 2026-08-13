@@ -72,6 +72,16 @@ class ActivityFetcher {
           'notify=${_activityData!.properties.notify}, '
           'indicate=${_activityData!.properties.indicate}');
 
+      // Drop any previous subscriptions before making new ones.
+      //
+      // Two listeners on the control characteristic means every frame is
+      // handled twice, so `0x02` (begin transfer) is written twice and the band
+      // answers `10 02 04` — error — instead of streaming. The caller owns the
+      // lifecycle and should dispose, but getting this wrong silently breaks
+      // *all* history sync, so `init()` refuses to stack listeners regardless.
+      _dataSub?.cancel();
+      _controlSub?.cancel();
+
       // Do NOT enable `_activityData` notify yet. Gadgetbridge enables it later!
       _dataSub = _activityData!.onValueReceived.listen(_onDataReceived);
 
@@ -552,10 +562,16 @@ class ActivityFetcher {
     return readings;
   }
 
+  /// Releases the notify subscriptions. Idempotent — the fields are cleared so
+  /// a second call, or a call followed by [init], cannot leave a stale listener
+  /// behind.
   void dispose() {
     _controlSub?.cancel();
+    _controlSub = null;
     _dataSub?.cancel();
+    _dataSub = null;
     _fetchTimeout?.cancel();
+    _fetchTimeout = null;
   }
 
   String _hexStr(List<int> data) =>
