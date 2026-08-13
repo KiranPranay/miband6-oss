@@ -288,7 +288,19 @@ overnight with the band on a charger — a desk band reads 0 BPM. Split any run:
 
 ## P8 — Step-count source (findings-22, "Still open")
 
-- [ ] **P8.1 Reconcile the two step counts.** On 2026-08-11 23:36 the band's own
+- [x] **P8.1 Reconcile the two step counts.** **RESOLVED 2026-08-13** — not a
+      display bug and no reconciliation needed. History sync had stopped
+      entirely: `_fetchActivityData` leaked a notify subscription per call, so
+      after the second sync every control frame was handled twice, `0x02` was
+      written twice, and the band answered `10 02 04` (error) instead of
+      streaming. On top of that a single fetch stops at the first gap in the
+      band's ring buffer, so even a working transfer could never climb past a
+      hole. The summed-sample count was simply frozen while the realtime
+      counter kept climbing. With the fetcher reused per connection and the
+      fetch repeating until the band runs dry, the two now agree to within the
+      last few minutes (4 211 vs 4 265). Original note kept below for context.
+
+- [ ] ~~**P8.1 Reconcile the two step counts.**~~ On 2026-08-11 23:36 the band's own
       `0x0007` characteristic read **5,269 steps** while the UI showed **3,959**
       for the same moment. Today/Activity both derive their figure by summing
       minute-level activity samples; the realtime characteristic is the band's
