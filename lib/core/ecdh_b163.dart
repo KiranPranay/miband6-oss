@@ -1,3 +1,16 @@
+// Derived from Gadgetbridge — `ECDH_B163.java`
+//   Copyright (C) 2022-2024 Andreas Shimokawa and the Gadgetbridge contributors
+//   https://codeberg.org/Freeyourgadget/Gadgetbridge
+//
+// Gadgetbridge's file is itself a port of tiny-ECDH-c (public domain,
+// Kokke, https://github.com/kokke/tiny-ECDH-c).
+//
+// This file is a translation of that work into Dart and is therefore a
+// derivative of it. Licensed under the GNU Affero General Public License
+// version 3 or later, the same terms as the original. See LICENSE.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:typed_data';
 
 /// Pure-Dart port of Gadgetbridge's `ECDH_B163` (itself a port of tiny-ECDH-c,

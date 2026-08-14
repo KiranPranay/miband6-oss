@@ -1,5 +1,14 @@
 part of 'ble_manager.dart';
 
+// The handshake sequence below follows Gadgetbridge's `InitOperation2021`
+//   Copyright (C) 2022-2024 Andreas Shimokawa and the Gadgetbridge contributors
+//   https://codeberg.org/Freeyourgadget/Gadgetbridge
+// This is an independent Dart implementation of the wire protocol rather than a
+// translation of their code, but it was written from their source and the debt
+// is acknowledged here. See NOTICE.md.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // ===========================================================================
 // Huami 2021 "sign-key" authentication (ECDH) over the chunked transport.
 //

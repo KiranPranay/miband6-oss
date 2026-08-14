@@ -1,0 +1,52 @@
+name: Protocol finding
+description: You worked out something about the band's wire protocol
+labels: [protocol]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Protocol claims in this project must cite a source before they reach the
+        hardware. See CONTRIBUTING.md.
+
+        **Do not paste decompiled proprietary code.** Cite it — file, class,
+        method — and describe what it does.
+
+  - type: textarea
+    id: claim
+    attributes:
+      label: The claim
+      description: What you believe the bytes mean.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        Captured bytes, a Gadgetbridge `Class.java:line`, or a decompiled
+        reference by name. Say which.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: probe
+    attributes:
+      label: How would we confirm it on hardware?
+      description: >
+        The concrete experiment, and what result would prove versus disprove it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: confidence
+    attributes:
+      label: Confidence
+      options:
+        - Confirmed on my own band
+        - Strongly supported by captured data
+        - Read from a reference, not yet tested
+        - Informed guess
+    validations:
+      required: true

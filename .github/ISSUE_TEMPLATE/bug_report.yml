@@ -1,0 +1,72 @@
+name: Bug report
+description: Something is wrong with the app or the data it shows
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste your auth key or your band's MAC address here.** They are
+        credentials. Redact them from any log you attach.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the Sleep tab
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: band
+    attributes:
+      label: Band model and firmware
+      placeholder: Mi Band 6, firmware 1.0.5.28
+    validations:
+      required: true
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: Pixel 9a, Android 15
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+      placeholder: v1.0.0, or the commit SHA you built
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        From Profile → Debug Console, or `adb logcat | grep flutter`.
+        For anything protocol-related the raw bytes are worth far more than a
+        description of them. Redact your key and MAC first.
+      render: text
+
+  - type: checkboxes
+    id: data-bug
+    attributes:
+      label: Is this a data-correctness issue?
+      description: >
+        If a number looks wrong, that is the highest-value kind of report here —
+        several were found exactly this way. If you can, run
+        `dart run tool/analyze_capture.dart` over your capture and attach the
+        output.
+      options:
+        - label: A displayed number looks wrong or impossible
+        - label: I have attached analyzer output or the underlying samples

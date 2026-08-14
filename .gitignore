@@ -44,12 +44,25 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# ── Reverse-engineering working set — NEVER COMMIT ──────────────────────────
+# Upstream checkout, decompiled proprietary apps and decompiler output. These
+# are read as references and cited in docs/; redistributing them would be a
+# licence violation. See NOTICE.md and CONTRIBUTING.md.
 gadgetbridge/
-
-# Reverse-engineering working artifacts (large; keep notes in docs/ instead)
 /tools/
-/ref_apks/decompiled/
-# Raw device logcat captures (findings quote the relevant lines inline)
+/ref_apks/
+*.apk
+*.apkm
+*.dex
+!build/app/outputs/flutter-apk/*.apk
+
+# Raw device logcat captures (findings quote the relevant lines inline, and raw
+# logs can contain your auth key and MAC address).
 /docs/reverse-engineering/logs/
-/ref_apks/notify/*.apkm
-/ref_apks/mifit/*.apk
+
+# Captures pulled off the phone — these are your own health data.
+/captures/
+activity_data.json
+hr_data.json
+stress_data.json
+spo2_data.json

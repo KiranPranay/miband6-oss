@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/KiranPranay/miband/security/advisories/new
+    about: Report privately — please do not open a public issue.
+  - name: What is not verified yet
+    url: https://github.com/KiranPranay/miband/blob/main/docs/reverse-engineering/pending-hardware-verification.md
+    about: Check the ledger before reporting an unverified feature as broken.

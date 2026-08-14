@@ -1,6 +1,12 @@
 name: band
-description: "A production-ready Mi Smart Band 6 application."
-publish_to: 'none' 
+description: >-
+  An independent, offline-first Android companion for the Xiaomi Mi Band 6,
+  built on a reverse-engineered protocol. No account, no cloud, no telemetry.
+repository: https://github.com/KiranPranay/miband
+issue_tracker: https://github.com/KiranPranay/miband/issues
+# AGPL-3.0-or-later: parts of lib/core/ are direct translations of Gadgetbridge
+# source, which is AGPL. See LICENSE and NOTICE.md.
+publish_to: 'none'
 
 version: 1.0.0+1
 

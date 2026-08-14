@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel an in-progress run when the branch is pushed again.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        # Informational: the codebase predates a formatting gate, so this
+        # reports without failing the build.
+        run: dart format --output=none --set-exit-if-changed . || true
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  offline-harness:
+    name: Analysis engines run outside Flutter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # The analysis engines are deliberately free of Flutter imports so they
+      # can be run against a real capture with plain `dart run`. If someone
+      # adds `package:flutter/…` to one of them this breaks, which is the
+      # point — it is how the offline validation harness stays usable.
+      - name: Sleep analyzer stays Flutter-free
+        run: |
+          if grep -rn "package:flutter/" \
+              lib/core/sleep_analyzer.dart \
+              lib/core/sleep_regularity.dart \
+              lib/core/activity_sample.dart; then
+            echo "::error::A Flutter import crept into a pure analysis engine —"
+            echo "::error::tool/analyze_capture.dart can no longer run offline."
+            exit 1
+          fi
+
+      - name: Harness compiles
+        run: dart analyze tool/analyze_capture.dart
+
+  build-apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug.apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  licence-hygiene:
+    name: Licence hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Decompiled proprietary code and vendored upstream checkouts must never
+      # be committed. They are gitignored; this catches a forced add.
+      - name: No decompiled or vendored sources committed
+        run: |
+          if git ls-files | grep -iE '^(gadgetbridge|ref_apks|tools)/|\.(apk|apkm|jar|dex)$'; then
+            echo "::error::Decompiled or vendored artefacts are tracked."
+            echo "::error::See CONTRIBUTING.md — cite them, never commit them."
+            exit 1
+          fi
+
+      # The two files translated from Gadgetbridge must keep their attribution.
+      - name: Ported files retain their AGPL attribution
+        run: |
+          for f in lib/core/ecdh_b163.dart lib/core/huami2021_chunked.dart; do
+            grep -q "AGPL-3.0-or-later" "$f" || {
+              echo "::error file=$f::Missing SPDX licence identifier."
+              exit 1
+            }
+            grep -q "Gadgetbridge" "$f" || {
+              echo "::error file=$f::Missing upstream attribution — see NOTICE.md."
+              exit 1
+            }
+          done

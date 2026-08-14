@@ -1,3 +1,14 @@
+// Derived from Gadgetbridge — `Huami2021ChunkedEncoder.java`,
+// `Huami2021ChunkedDecoder.java` and `CheckSums.java`
+//   Copyright (C) 2022-2024 Andreas Shimokawa and the Gadgetbridge contributors
+//   https://codeberg.org/Freeyourgadget/Gadgetbridge
+//
+// This file is a translation of that work into Dart and is therefore a
+// derivative of it. Licensed under the GNU Affero General Public License
+// version 3 or later, the same terms as the original. See LICENSE.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:typed_data';
 import 'encryption.dart';
 
