@@ -874,14 +874,29 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// to live without hammering the link — a fetch is a multi-second transfer.
   static const Duration periodicSyncInterval = Duration(minutes: 10);
 
-  /// How many times one sync will re-request activity data.
+  /// Hard backstop on rounds in one crawl. Not the real limit — [deepFetchBudget]
+  /// and [periodicFetchBudget] are — this only stops a runaway loop.
   ///
-  /// The band stops each transfer at a discontinuity in its ring buffer, so a
-  /// week of history with several gaps needs several rounds. The cap keeps a
-  /// pathological band (one that always returns a short run) from spinning —
-  /// whatever is left is picked up by the next sync, since the watermark has
-  /// advanced.
-  static const int maxFetchRounds = 12;
+  /// It used to be 12, which was the real limit and far too low: each round
+  /// advances only as far as the band's next gap, sometimes ten minutes, so a
+  /// sync could not even cross the re-fetch overlap. See the comment on
+  /// `since` in `_fetchActivityData`.
+  static const int maxFetchRounds = 600;
+
+  /// Wall-clock budget for a manual "Sync now".
+  ///
+  /// Kept short because someone is watching a spinner. It does not need to
+  /// finish a multi-day backfill in one press: the recent window is fetched
+  /// first, so the current day is already correct when this starts, and the
+  /// watermark advances so each subsequent sync resumes rather than restarts.
+  static const Duration deepFetchBudget = Duration(seconds: 90);
+
+  /// Wall-clock budget for the automatic 10-minute sync.
+  ///
+  /// Short, because it runs unattended and holds the radio. When caught up a
+  /// sync needs one or two rounds; when behind it chips away and resumes from
+  /// the advanced watermark next time.
+  static const Duration periodicFetchBudget = Duration(seconds: 45);
 
   /// Whether the band's own stress stream is trusted enough to store.
   ///
@@ -1086,9 +1101,32 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
           : now;
       final haveDeepHistory =
           earliest.isBefore(now.subtract(const Duration(days: 3)));
-      final since = (!deep && lastSync != null && haveDeepHistory)
-          ? lastSync.subtract(const Duration(hours: 6))
-          : now.subtract(const Duration(days: 7));
+      // Overlap is small on purpose.
+      //
+      // It used to be six hours, which deadlocked the sync completely. Each
+      // round of the loop below advances only as far as the band's next gap —
+      // often ten minutes — so with a twelve-round cap the fetch spent its
+      // whole budget re-crawling ground it already had and finished exactly
+      // where it started. Net progress per sync: zero. The user's data sat
+      // frozen for five days while every sync appeared to be doing work.
+      //
+      // Samples de-duplicate by minute, so overlap costs nothing but rounds,
+      // and rounds are the scarce resource. Ten minutes is enough to re-pull a
+      // boundary minute that arrived mid-write.
+      //
+      // A manual sync reaches back a day rather than a week. Going back seven
+      // days made sense when one fetch could not cross a gap and re-requesting
+      // was the only way to fill one; now the crawl below walks gaps by itself,
+      // so a week-long start just means re-walking a week of history the store
+      // already holds, at a couple of seconds a round.
+      final DateTime since;
+      if (lastSync != null && haveDeepHistory) {
+        since = deep
+            ? lastSync.subtract(const Duration(hours: 24))
+            : lastSync.subtract(const Duration(minutes: 10));
+      } else {
+        since = now.subtract(const Duration(days: 7));
+      }
 
       // One activity fetch yields steps, sleep AND heart-rate history — HR is
       // embedded at byte 3 of each 8-byte sample (see protocol-mb6.md §5).
@@ -1109,68 +1147,43 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       // 09:40 while the band's own step counter kept climbing. Gadgetbridge
       // re-issues the request from the last received timestamp for exactly this
       // reason (`AbstractRepeatingFetchOperation`).
-      var cursor = since;
-      var totalSamples = 0;
-      var rounds = 0;
-      while (rounds < maxFetchRounds) {
-        rounds++;
-        _logger.i('Fetching Activity/Sleep/HR Data since $cursor '
-            '(deepHistory=$haveDeepHistory, round $rounds)');
-        final samples = await _activityFetcher!.fetchActivityData(cursor);
-        if (samples.isEmpty) {
-          _logger.i(rounds == 1
-              ? 'Activity fetch: no new samples'
-              : 'Activity fetch: band has nothing beyond $cursor');
-          break;
+      // Show today before spending the budget on last week.
+      //
+      // The crawl below walks forward from the watermark, so when it is days
+      // behind, every round is spent on old data and the *current* day never
+      // reaches the screen — the user opens the app, sees a stale step count,
+      // and reasonably concludes it is broken.
+      //
+      // So when we are a long way behind, grab the recent window first. This
+      // deliberately does NOT touch the watermark: `updateActivitySync` is
+      // monotonic, so moving it to now would strand everything in between and
+      // the backfill point would be lost for good. `addSamples` never touches
+      // the watermark, which is what makes this safe.
+      //
+      // This applies to a manual sync too. "Sync now" that spends its whole
+      // budget on a five-day-old gap, and leaves today's step count stale, is
+      // the opposite of what the button appears to promise.
+      if (lastSync != null && haveDeepHistory) {
+        final behind = now.difference(lastSync);
+        if (behind > const Duration(hours: 12)) {
+          _logger.i('Sync: watermark is ${behind.inHours} h behind — fetching '
+              'the recent window first so today is not hidden by the backfill');
+          await _crawlActivity(
+            from: now.subtract(const Duration(hours: 6)),
+            budget: const Duration(seconds: 20),
+            advanceWatermark: false,
+            label: 'recent',
+          );
         }
-
-        activityStore.addSamples(samples);
-        totalSamples += samples.length;
-
-        // Watermark = the newest sample we actually received, NOT wall-clock
-        // now.
-        //
-        // This used to be DateTime.now(), which silently loses data: the next
-        // fetch asks for `lastSync - 6 h`, so if the app was disconnected for
-        // longer than that — an overnight gap, a killed process, a flat phone —
-        // the watermark had already jumped past the missing window and it was
-        // never re-requested, even though the band still held it. Observed on
-        // 2026-08-10: samples run 1/min to 06:29 and then stop dead until
-        // 17:00, a 10.5-hour hole in a night the band had recorded.
-        final newest = samples
-            .map((s) => s.timestamp)
-            .reduce((a, b) => a.isAfter(b) ? a : b);
-        activityStore.updateActivitySync(newest);
-        _logger.i('Activity fetch: got ${samples.length} samples '
-            '(newest ${newest.toIso8601String()})');
-
-        final hrReadings = ActivityFetcher.heartRatesFromSamples(samples);
-        if (hrReadings.isNotEmpty) {
-          activityStore.addHeartRateReadings(hrReadings);
-          activityStore.updateHrSync(hrReadings
-              .map((r) => r.timestamp)
-              .reduce((a, b) => a.isAfter(b) ? a : b));
-          _logger.i('HR history: derived ${hrReadings.length} readings from activity');
-        }
-
-        // Caught up to the present — nothing more can exist.
-        if (newest.isAfter(DateTime.now().subtract(const Duration(minutes: 2)))) {
-          break;
-        }
-        // Step over the gap. Without the +1 minute the band would hand back the
-        // same run and the loop would spin.
-        final next = newest.add(const Duration(minutes: 1));
-        if (!next.isAfter(cursor)) {
-          _logger.e('Activity fetch: cursor failed to advance past $cursor '
-              '— stopping to avoid a loop');
-          break;
-        }
-        cursor = next;
       }
-      if (rounds >= maxFetchRounds) {
-        _logger.i('Activity fetch: stopped at the $maxFetchRounds-round cap '
-            '(got $totalSamples samples) — the next sync continues from here');
-      }
+
+      // Then the backfill, from the watermark forward.
+      await _crawlActivity(
+        from: since,
+        budget: deep ? deepFetchBudget : periodicFetchBudget,
+        advanceWatermark: true,
+        label: deep ? 'deep' : 'incremental',
+      );
 
       // Stress measured by the band itself (findings-20 documented the fetch
       // types; findings-23 established that what comes back is not stress).
@@ -1217,6 +1230,111 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       _setFetchingActivity(false);
       _emitChange();
     }
+  }
+
+  /// Walks the band's activity log forward from [from], one contiguous run at a
+  /// time, until it reaches the present, the band runs dry, or [budget] is
+  /// spent. Returns how many samples were stored.
+  ///
+  /// The band does not answer "everything since X" in one go — it serves a
+  /// contiguous run and stops at the first discontinuity in its ring buffer (a
+  /// stretch where it was charging, off the wrist, or the log wrapped). So the
+  /// only way across a gap is to ask again from just past it, which is what
+  /// Gadgetbridge's `AbstractRepeatingFetchOperation` does too.
+  ///
+  /// [advanceWatermark] is false for the "show me today first" pass, which
+  /// fetches recent data out of order. The watermark is monotonic, so moving it
+  /// forward there would strand every sample in between.
+  Future<int> _crawlActivity({
+    required DateTime from,
+    required Duration budget,
+    required bool advanceWatermark,
+    required String label,
+  }) async {
+    final deadline = DateTime.now().add(budget);
+    var cursor = from;
+    var stored = 0;
+    var rounds = 0;
+
+    while (rounds < maxFetchRounds) {
+      if (DateTime.now().isAfter(deadline)) {
+        _logger.i('Activity fetch [$label]: budget spent after $rounds rounds '
+            '($stored samples). Watermark has advanced, so the next sync picks '
+            'up from ${cursor.toIso8601String()} rather than starting over.');
+        break;
+      }
+      if (!isConnected) {
+        _logger.i('Activity fetch [$label]: band went away mid-crawl after '
+            '$rounds rounds — stopping cleanly');
+        break;
+      }
+      rounds++;
+
+      final samples = await _activityFetcher!.fetchActivityData(cursor);
+      if (samples.isEmpty) {
+        _logger.i(rounds == 1
+            ? 'Activity fetch [$label]: no new samples'
+            : 'Activity fetch [$label]: band has nothing beyond $cursor '
+                '($rounds rounds, $stored samples)');
+        break;
+      }
+
+      activityStore.addSamples(samples);
+      stored += samples.length;
+
+      // Watermark = the newest sample actually received, never wall-clock now.
+      //
+      // `now` silently loses data: the next fetch asks from the watermark, so a
+      // disconnection longer than the overlap would move it past a window the
+      // band still held, and that window would never be requested again.
+      // Observed 2026-08-10: samples ran 1/min to 06:29 then stopped dead until
+      // 17:00 — a 10.5-hour hole in a night the band had recorded fine.
+      final newest = samples
+          .map((s) => s.timestamp)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      if (advanceWatermark) activityStore.updateActivitySync(newest);
+
+      final hrReadings = ActivityFetcher.heartRatesFromSamples(samples);
+      if (hrReadings.isNotEmpty) {
+        activityStore.addHeartRateReadings(hrReadings);
+        if (advanceWatermark) {
+          activityStore.updateHrSync(hrReadings
+              .map((r) => r.timestamp)
+              .reduce((a, b) => a.isAfter(b) ? a : b));
+        }
+      }
+
+      // Log per round only while crawling; a caught-up sync is one round and
+      // would otherwise spam the log every ten minutes.
+      if (rounds > 1 || samples.length > 60) {
+        _logger.i('Activity fetch [$label] round $rounds: ${samples.length} '
+            'samples, newest ${newest.toIso8601String()}');
+      }
+
+      // Reached the present — nothing newer can exist.
+      if (newest.isAfter(DateTime.now().subtract(const Duration(minutes: 2)))) {
+        _logger.i('Activity fetch [$label]: caught up to now '
+            '($rounds rounds, $stored samples)');
+        break;
+      }
+
+      // Step over the gap. Without the +1 minute the band hands back the same
+      // run and the loop spins on the spot.
+      final next = newest.add(const Duration(minutes: 1));
+      if (!next.isAfter(cursor)) {
+        _logger.e('Activity fetch [$label]: cursor failed to advance past '
+            '$cursor — stopping to avoid a loop');
+        break;
+      }
+      cursor = next;
+    }
+
+    if (rounds >= maxFetchRounds) {
+      _logger.e('Activity fetch [$label]: hit the $maxFetchRounds-round '
+          'backstop. That should be unreachable within the time budget — '
+          'the band may be returning one sample at a time.');
+    }
+    return stored;
   }
 
   // ---------------------------------------------------------------------------
