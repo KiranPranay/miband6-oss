@@ -152,7 +152,8 @@ void main() {
           heart: _heart(),
           activity: _activity(),
           now: _at(15),
-          spo2: 99);
+          spo2: 99,
+          spo2At: _at(14));
       expect(s.cards.first.domain, TodayDomain.sleep);
       expect(s.cards.last.domain, TodayDomain.spo2);
     });
@@ -163,7 +164,8 @@ void main() {
           heart: _heartElevated(),
           activity: _activity(),
           now: _at(15),
-          spo2: 99);
+          spo2: 99,
+          spo2At: _at(14));
       expect(s.cards.first.domain, TodayDomain.heart);
     });
   });
@@ -183,6 +185,69 @@ void main() {
         expect([TodayDomain.sleep, TodayDomain.activity, TodayDomain.heart]
             .contains(c.domain), isTrue);
       }
+    });
+  });
+
+  group('a stale blood-oxygen reading is not today\'s reading', () {
+    // The band measures SpO2 on demand, so there is routinely no reading for
+    // days. The value was taken straight from the newest stored reading with
+    // no regard for its age, so on the author's phone "Blood oxygen 95% —
+    // good" sat in Today's insights for 52 days after it was measured.
+    DailySummary withSpo2(int value, Duration age) => DailySummary.compute(
+          sleep: _sleep(),
+          heart: _heart(),
+          activity: _activity(),
+          now: _at(15),
+          spo2: value,
+          spo2At: _at(15).subtract(age),
+        );
+
+    String spo2Card(DailySummary s) =>
+        s.cards.firstWhere((c) => c.domain == TodayDomain.spo2).value;
+
+    bool hasSpo2Insight(DailySummary s) =>
+        s.insights.any((i) => i.domain == TodayDomain.spo2);
+
+    test('a reading from this morning counts as current', () {
+      final s = withSpo2(97, const Duration(hours: 6));
+      expect(hasSpo2Insight(s), isTrue);
+      expect(spo2Card(s), '97% · Good');
+    });
+
+    test('the 52-day-old reading from the real device is not an insight', () {
+      final s = withSpo2(95, const Duration(days: 52));
+      expect(hasSpo2Insight(s), isFalse,
+          reason: 'a measurement from June is not a fact about today');
+      expect(spo2Card(s), contains('52 days ago'),
+          reason: 'keep it visible, but say how old it is');
+      expect(spo2Card(s), isNot(contains('Good')),
+          reason: 'no verdict on a reading too old to judge');
+    });
+
+    test('the boundary is 24 hours', () {
+      expect(hasSpo2Insight(withSpo2(97, const Duration(hours: 23))), isTrue);
+      expect(hasSpo2Insight(withSpo2(97, const Duration(hours: 25))), isFalse);
+    });
+
+    test('a reading with no timestamp is treated as stale, not current', () {
+      // A caller that cannot say when a measurement was taken has not
+      // established that it is current.
+      final s = DailySummary.compute(
+          sleep: _sleep(),
+          heart: _heart(),
+          activity: _activity(),
+          now: _at(15),
+          spo2: 97);
+      expect(hasSpo2Insight(s), isFalse);
+    });
+
+    test('no reading at all still says so', () {
+      final s = DailySummary.compute(
+          sleep: _sleep(),
+          heart: _heart(),
+          activity: _activity(),
+          now: _at(15));
+      expect(spo2Card(s), 'No reading yet');
     });
   });
 }

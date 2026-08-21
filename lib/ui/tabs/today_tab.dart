@@ -155,13 +155,17 @@ class _TodayTabState extends State<TodayTab> {
       date: today,
     );
     final spo2Readings = store.spo2Readings;
-    final spo2Last = spo2Readings.isNotEmpty ? spo2Readings.last.value : null;
+    final spo2Last = spo2Readings.isNotEmpty ? spo2Readings.last : null;
     final summary = DailySummary.compute(
       sleep: sleep,
       heart: heart,
       activity: activity,
       now: now,
-      spo2: spo2Last,
+      spo2: spo2Last?.value,
+      // Pass the timestamp too: without it the engine cannot tell a reading
+      // taken this morning from one taken in June, and it showed both as
+      // today's.
+      spo2At: spo2Last?.timestamp,
     );
 
     return RefreshIndicator(

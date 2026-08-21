@@ -160,6 +160,14 @@ class DailySummary {
     return m == 0 ? '${h}h' : '${h}h ${m}m';
   }
 
+  /// "3 hours ago" / "52 days ago" — coarse on purpose; the point is only to
+  /// show that a reading is not current.
+  static String _ageWords(Duration age) {
+    if (age.inMinutes < 60) return '${age.inMinutes}m ago';
+    if (age.inHours < 48) return '${age.inHours}h ago';
+    return '${age.inDays} days ago';
+  }
+
   static String _grp(int n) {
     final s = n.abs().toString();
     final b = StringBuffer();
@@ -229,13 +237,40 @@ class DailySummary {
     return parts.isEmpty ? 'No reading yet' : parts.join(' · ');
   }
 
+  /// How old a blood-oxygen reading may be and still count as "today's".
+  ///
+  /// SpO2 on this band is measured on demand, so there is often no reading for
+  /// days at a time. Past this age it is history, not a current measurement.
+  static const Duration spo2Freshness = Duration(hours: 24);
+
   factory DailySummary.compute({
     required SleepAnalysis? sleep,
     required HeartAnalysis heart,
     required ActivityAnalysis activity,
     required DateTime now,
     int? spo2,
+
+    /// When [spo2] was measured. Without it a reading of any age is treated as
+    /// current, which is how a 52-day-old measurement came to be shown as a
+    /// today's insight — see the note on [spo2Fresh] below.
+    DateTime? spo2At,
   }) {
+    // A stale reading is not today's reading.
+    //
+    // This screen is explicitly about today, and the SpO2 value was taken
+    // straight from the newest stored reading with no regard for its age. On
+    // the author's phone that meant "Blood oxygen 95% — good" sat in Today's
+    // insights for 52 days after the measurement, because the band had not
+    // been asked for another one since 2026-06-30.
+    //
+    // Age unknown is treated as stale rather than fresh: a caller that cannot
+    // say when a measurement was taken has not established that it is current.
+    final spo2Age = spo2At == null ? null : now.difference(spo2At);
+    final spo2Fresh =
+        (spo2 != null && spo2Age != null && spo2Age <= spo2Freshness)
+            ? spo2
+            : null;
+
     final components = <HealthComponent>[];
 
     // Sleep — real 0–100 score, only when a night was actually recorded.
@@ -301,13 +336,14 @@ class DailySummary {
       for (final i in activity.insights)
         TodayInsight(i.good, i.text, TodayDomain.activity),
     ];
-    if (spo2 != null) {
-      pool.add(spo2 >= 95
+    if (spo2Fresh != null) {
+      pool.add(spo2Fresh >= 95
           ? TodayInsight(
-              true, 'Blood oxygen $spo2% — ${spo2 >= 98 ? 'excellent' : 'good'}',
+              true,
+              'Blood oxygen $spo2Fresh% — ${spo2Fresh >= 98 ? 'excellent' : 'good'}',
               TodayDomain.spo2)
-          : TodayInsight(
-              false, 'Blood oxygen $spo2% — below typical', TodayDomain.spo2));
+          : TodayInsight(false, 'Blood oxygen $spo2Fresh% — below typical',
+              TodayDomain.spo2));
     }
     // Attention (needs-attention) items rise above positives; order otherwise
     // preserved.
@@ -328,9 +364,22 @@ class DailySummary {
         .toList();
 
     // ── Summary cards, ordered by salience (dynamic priority) ─────────────────
-    final spo2Label = spo2 == null
+    final spo2Label = spo2Fresh == null
         ? null
-        : (spo2 >= 98 ? 'Excellent' : (spo2 >= 95 ? 'Good' : 'Low'));
+        : (spo2Fresh >= 98 ? 'Excellent' : (spo2Fresh >= 95 ? 'Good' : 'Low'));
+
+    // The card keeps a stale reading visible, but says how old it is rather
+    // than passing it off as current. "Last 95% · 52 days ago" tells the user
+    // something useful — go and measure — where a bare "95% · Good" told them
+    // something false.
+    final String spo2Value;
+    if (spo2Fresh != null) {
+      spo2Value = '$spo2Fresh% · $spo2Label';
+    } else if (spo2 != null && spo2Age != null) {
+      spo2Value = 'Last $spo2% · ${_ageWords(spo2Age)}';
+    } else {
+      spo2Value = 'No reading yet';
+    }
     // Gated trend chips — only under each engine's baseline gate (more sleep /
     // more steps = good; lower HR = good).
     final sleepTrend = (sleep != null &&
@@ -393,8 +442,8 @@ class DailySummary {
       TodayCard(
         domain: TodayDomain.spo2,
         title: 'Blood oxygen',
-        value: spo2 != null ? '$spo2% · $spo2Label' : 'No reading yet',
-        salience: _spo2Salience(spo2),
+        value: spo2Value,
+        salience: _spo2Salience(spo2Fresh),
         navigable: false,
       ),
     ];
