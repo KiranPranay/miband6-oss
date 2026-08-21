@@ -17,6 +17,20 @@ ActivitySample _s(DateTime t,
 List<HourlySteps> _hours([Map<int, int> steps = const {}]) =>
     List.generate(24, (h) => HourlySteps(hour: h, steps: steps[h] ?? 0));
 
+
+/// [days] fully-recorded past days, so the baseline gate opens.
+List<ActivitySample> _history(DateTime now, {int days = 10, int stepsPerDay = 500}) {
+  final out = <ActivitySample>[];
+  for (var d = 1; d <= days; d++) {
+    final day = now.subtract(Duration(days: d + 1));
+    for (var i = 0; i < 1440; i++) {
+      out.add(_s(DateTime(day.year, day.month, day.day).add(Duration(minutes: i)),
+          steps: i < 100 ? stepsPerDay ~/ 100 : 0));
+    }
+  }
+  return out;
+}
+
 void main() {
   final now = DateTime.now();
   DateTime at(int hour, [int minute = 0]) =>
@@ -170,14 +184,27 @@ void main() {
       final base = DateTime(
           Baseline.cutoff.year, Baseline.cutoff.month, Baseline.cutoff.day);
       final synthToday = base.add(const Duration(days: 20));
+
+      // Days are built at full minute resolution because that is what a
+      // synced day actually looks like — the band logs every minute while it
+      // has power, worn or not. A one-sample-per-day fixture stopped being
+      // representative once partial days were excluded from comparisons.
       final all = <ActivitySample>[];
-      for (var i = 0; i < 8; i++) {
-        all.add(_s(base.add(Duration(days: i, hours: 12)), steps: 3000));
+      void addDay(DateTime day, {required int steps}) {
+        final d = DateTime(day.year, day.month, day.day);
+        for (var i = 0; i < 1440; i++) {
+          all.add(_s(d.add(Duration(minutes: i)),
+              steps: i < 100 ? steps ~/ 100 : 0));
+        }
       }
-      all.add(_s(synthToday.subtract(const Duration(days: 1)).add(const Duration(hours: 10)), steps: 11000));
-      all.add(_s(synthToday.subtract(const Duration(days: 2)).add(const Duration(hours: 10)), steps: 11000));
-      // day-3 intentionally absent (no sample synced)
-      all.add(_s(synthToday.subtract(const Duration(days: 4)).add(const Duration(hours: 10)), steps: 11000));
+
+      for (var i = 0; i < 8; i++) {
+        addDay(base.add(Duration(days: i)), steps: 3000);
+      }
+      addDay(synthToday.subtract(const Duration(days: 1)), steps: 11000);
+      addDay(synthToday.subtract(const Duration(days: 2)), steps: 11000);
+      // day-3 intentionally absent (never synced)
+      addDay(synthToday.subtract(const Duration(days: 4)), steps: 11000);
 
       final a = ActivityAnalysis.compute(
         liveSteps: 5000,
@@ -223,6 +250,88 @@ void main() {
       final a = run(today: today, dailyGoal: 0);
       expect(a.activityScore, isNull);
       expect(a.scoreComponents, isEmpty);
+    });
+  });
+
+  group('a day the app never received is not a day to compare against', () {
+    // hasData() used to mean "at least one stored minute", so a day with 167 of
+    // 1440 minutes counted as complete. In the reference capture 2026-08-17 is
+    // exactly that: 11.6% coverage and a step total of 73, because sync had
+    // stalled. Comparing today against it yields "4,400 more steps than
+    // yesterday" — a fabricated achievement — and drags the personal baseline
+    // down so every "vs your average" line is wrong too.
+
+    /// A past day with [minutes] recorded, [steps] in each of the first 100.
+    List<ActivitySample> day(DateTime d, {required int minutes, int steps = 5}) =>
+        [
+          for (var i = 0; i < minutes; i++)
+            _s(DateTime(d.year, d.month, d.day, 0, 0).add(Duration(minutes: i)),
+                steps: i < 100 ? steps : 0),
+        ];
+
+    List<ActivitySample> fullDay(DateTime d, {int steps = 5}) =>
+        day(d, minutes: 1440, steps: steps);
+
+    test('a 12%-covered yesterday produces no comparison at all', () {
+      final yesterday = now.subtract(const Duration(days: 1));
+      final a = run(
+        liveSteps: 5000,
+        today: [_s(at(9), steps: 5000)],
+        all: [
+          ..._history(now, days: 10),
+          ...day(yesterday, minutes: 167),
+        ],
+      );
+      expect(a.vsYesterdaySteps, isNull,
+          reason: 'no comparison beats a fabricated one');
+    });
+
+    test('a fully recorded yesterday still compares', () {
+      final yesterday = now.subtract(const Duration(days: 1));
+      final a = run(
+        liveSteps: 5000,
+        today: [_s(at(9), steps: 5000)],
+        all: [
+          ..._history(now, days: 10),
+          ...fullDay(yesterday, steps: 1),
+        ],
+      );
+      expect(a.vsYesterdaySteps, isNotNull);
+    });
+
+    test('a partial day cannot extend a streak', () {
+      // Skipping it would invent continuity; counting it as a goal-met day
+      // would invent an achievement. It has to break the streak.
+      final gap = now.subtract(const Duration(days: 2));
+      final a = run(
+        liveSteps: 100,
+        today: [_s(at(9), steps: 100)],
+        all: [
+          ..._history(now, days: 10, stepsPerDay: 20000),
+          ...day(gap, minutes: 167, steps: 0),
+        ],
+      );
+      expect(a.activeStreakDays, isNotNull);
+      expect(a.activeStreakDays, lessThan(3),
+          reason: 'the streak must stop at the day we never received');
+    });
+
+    test('the threshold is 80% of a day', () {
+      expect(ActivityAnalysis.minComparableDayMinutes, 1152);
+      final yesterday = now.subtract(const Duration(days: 1));
+
+      final justUnder = run(
+        liveSteps: 5000,
+        today: [_s(at(9), steps: 5000)],
+        all: [..._history(now, days: 10), ...day(yesterday, minutes: 1100)],
+      );
+      final justOver = run(
+        liveSteps: 5000,
+        today: [_s(at(9), steps: 5000)],
+        all: [..._history(now, days: 10), ...day(yesterday, minutes: 1200)],
+      );
+      expect(justUnder.vsYesterdaySteps, isNull);
+      expect(justOver.vsYesterdaySteps, isNotNull);
     });
   });
 }

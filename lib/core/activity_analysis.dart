@@ -167,6 +167,15 @@ class ActivityAnalysis {
   /// "sitting" we can't observe.
   static const int _gapToleranceMin = 2;
 
+  /// Minutes a past day must contain before its step total may be compared
+  /// against, averaged, or counted towards a streak.
+  ///
+  /// 80% of a day. A normally-worn, fully-synced day contains all 1440 — 21 of
+  /// the 29 days in the reference capture do, and 4 more exceed this — so a day
+  /// below the threshold is not a quiet day, it is a day the app never fully
+  /// received. Comparing against one produces a confident fabrication.
+  static const int minComparableDayMinutes = 1152;
+
   static ActivityLevel _levelOf(int activeMinutes) {
     if (activeMinutes >= 60) return ActivityLevel.veryActive;
     if (activeMinutes >= 30) return ActivityLevel.active;
@@ -353,13 +362,38 @@ class ActivityAnalysis {
     // ── Daily step totals from history (corrected per-minute, matches the
     //    fixed store.totalStepsForDate and the band's own counter) ─────────────
     final dayTotals = <DateTime, int>{};
+    final dayMinutes = <DateTime, int>{};
     stepsPerMinute(allSamples).forEach((minute, steps) {
       final key = DateTime(minute.year, minute.month, minute.day);
       dayTotals[key] = (dayTotals[key] ?? 0) + steps;
+      dayMinutes[key] = (dayMinutes[key] ?? 0) + 1;
     });
     int totalFor(DateTime d) => dayTotals[DateTime(d.year, d.month, d.day)] ?? 0;
-    bool hasData(DateTime d) =>
-        dayTotals.containsKey(DateTime(d.year, d.month, d.day));
+
+    /// A past day counts as comparable only when most of it was actually
+    /// recorded.
+    ///
+    /// This used to be `dayTotals.containsKey(...)` — a single stored minute
+    /// made a day count as complete. Real days in the capture run to exactly
+    /// 1440 minutes when the band is worn and synced, so a day at 12% is not a
+    /// quiet day, it is a day the app never received; 2026-08-17 has 167
+    /// minutes and a step total of 73.
+    ///
+    /// Comparing against one of those produces a confident fabrication — "4,400
+    /// more steps than yesterday" when yesterday simply was not recorded — and
+    /// drags the personal baseline down, which then makes every "vs your
+    /// average" line wrong too. Excluding it means the comparison sometimes
+    /// does not appear, which is the correct outcome: there is nothing to
+    /// compare against.
+    ///
+    /// The threshold is coverage of the whole day, not of waking hours, so it
+    /// is a proxy rather than a guarantee. 21 of the 29 captured days are at
+    /// 100% and 4 more above 80%, so 80% admits every normally-worn day and
+    /// excludes the four that are visibly broken.
+    bool isComplete(DateTime d) {
+      final m = dayMinutes[DateTime(d.year, d.month, d.day)];
+      return m != null && m >= minComparableDayMinutes;
+    }
 
     // Weekly progress uses the live count for today + stored prior days.
     final last7 =
@@ -410,7 +444,7 @@ class ActivityAnalysis {
         for (var i = startBack; i <= endBack; i++) {
           final d = today.subtract(Duration(days: i));
           if (d.isBefore(cutoffDay)) continue;
-          if (hasData(d)) vals.add(totalFor(d));
+          if (isComplete(d)) vals.add(totalFor(d));
         }
         if (vals.isEmpty) return null;
         return vals.reduce((a, b) => a + b) / vals.length;
@@ -424,7 +458,7 @@ class ActivityAnalysis {
       }
 
       final yesterday = today.subtract(const Duration(days: 1));
-      if (!yesterday.isBefore(cutoffDay) && hasData(yesterday)) {
+      if (!yesterday.isBefore(cutoffDay) && isComplete(yesterday)) {
         vsYesterdaySteps = todaySteps - totalFor(yesterday);
       }
 
@@ -435,7 +469,7 @@ class ActivityAnalysis {
       for (var i = 1; i <= 400; i++) {
         final d = today.subtract(Duration(days: i));
         if (d.isBefore(cutoffDay)) break;
-        if (!hasData(d)) break; // missing day breaks the streak
+        if (!isComplete(d)) break; // a day we never received breaks the streak
         if (totalFor(d) >= dailyGoal) {
           streak++;
         } else {
