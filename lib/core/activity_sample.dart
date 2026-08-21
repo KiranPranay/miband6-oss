@@ -156,6 +156,48 @@ class SleepDay {
 
   /// A short session is treated as a nap rather than a main night's sleep.
   bool get isNap => totalSleepMinutes < 3 * 60;
+
+  /// How recently a session must have ended to count as "last night" on a
+  /// screen that is explicitly about today.
+  ///
+  /// A day, which covers waking this morning and checking at any point before
+  /// going to bed again, including well after midnight. Past that it is not
+  /// last night on any reading.
+  static const Duration lastNightWindow = Duration(hours: 24);
+
+  /// The main sleep session for "last night" — the most recent non-nap that
+  /// ended within [lastNightWindow] of [now], or null when nothing qualifies.
+  ///
+  /// Two things here were wrong, and both are worth stating.
+  ///
+  /// The window must be anchored to *now*. Anchoring it to the newest recorded
+  /// session — as the Today tab did — means it can never come up empty,
+  /// because the newest session is by definition within the window of itself.
+  /// While sync was stalled that reported a four-night-old session as "Last
+  /// night" on a screen headed with today's date, and the composite Health
+  /// Score folded the stale night in as though it were current.
+  ///
+  /// And the pick must be the most recent qualifying night, not the longest.
+  /// Longest-wins lets the night before last take the slot whenever it happened
+  /// to be the better sleep — precisely the wrong answer to "how did I sleep
+  /// last night". Short fragments are already excluded by [isNap], so that rule
+  /// was not protecting against anything.
+  ///
+  /// Null is the honest answer when nothing qualifies. The score already knows
+  /// how to re-normalise over the remaining domains and report Sleep as
+  /// missing.
+  static SleepDay? lastNight(List<SleepDay> days, DateTime now) {
+    final cutoff = now.subtract(lastNightWindow);
+    final recent = days
+        .where((d) => d.endTime != null && !d.endTime!.isBefore(cutoff))
+        .toList();
+    final nights = recent.where((d) => !d.isNap).toList();
+    // Fall back to naps only if that is genuinely all there was — reporting no
+    // sleep would be its own kind of wrong when the band did record one.
+    final pool = nights.isNotEmpty ? nights : recent;
+    if (pool.isEmpty) return null;
+    return pool.reduce((a, b) => a.endTime!.isAfter(b.endTime!) ? a : b);
+  }
 }
 
 /// A stress score measured **by the band itself** (0-100).

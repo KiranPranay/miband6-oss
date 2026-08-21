@@ -97,21 +97,11 @@ class _TodayTabState extends State<TodayTab> {
     return '${diff.inDays}d ago';
   }
 
-  /// Last night's main sleep session (longest non-nap within ~40h of the latest
-  /// recorded sleep), mirroring how the Sleep tab selects its session.
-  SleepDay? _lastNight(List<SleepDay> days) {
-    final ends = days.map((d) => d.endTime).whereType<DateTime>().toList();
-    if (ends.isEmpty) return null;
-    final latest = ends.reduce((a, b) => a.isAfter(b) ? a : b);
-    final cutoff = latest.subtract(const Duration(hours: 40));
-    final recent =
-        days.where((d) => d.endTime != null && !d.endTime!.isBefore(cutoff));
-    final nights = recent.where((d) => !d.isNap).toList();
-    final pool = nights.isNotEmpty ? nights : recent.toList();
-    if (pool.isEmpty) return null;
-    return pool
-        .reduce((a, b) => a.totalSleepMinutes >= b.totalSleepMinutes ? a : b);
-  }
+  /// Last night's main sleep session, or null if nothing was recorded recently.
+  /// See [SleepDay.lastNight] — the selection lives in the engine so it can be
+  /// tested without a widget.
+  SleepDay? _lastNight(List<SleepDay> days, DateTime now) =>
+      SleepDay.lastNight(days, now);
 
   @override
   Widget build(BuildContext context) {
@@ -142,7 +132,7 @@ class _TodayTabState extends State<TodayTab> {
     // The results are memoised against the store revision, so a rebuild caused
     // by a live heart rate costs a map lookup rather than three full passes.
     final allDays = store.computeSleepDays();
-    final lastNight = _lastNight(allDays);
+    final lastNight = _lastNight(allDays, now);
     final sleep = lastNight == null
         ? null
         : AnalysisCache.sleep(store, session: lastNight, allDays: allDays);
