@@ -179,7 +179,13 @@ void main() {
     });
   });
 
-  group('deep sleep from a sustained heart-rate dip', () {
+  // Quarantined by findings-24: the detector's output is uniform across the
+  // night rather than front-loaded, so it is not finding slow-wave sleep. The
+  // test is kept, and skipped, as the specification a replacement must meet.
+  group('deep sleep from a sustained heart-rate dip',
+      skip: SleepAnalyzer.kDeepStagingVerified
+          ? null
+          : 'deep-sleep staging is quarantined — see findings-24', () {
     test('a long low-HR run is marked deep', () {
       final start = DateTime(2026, 8, 8, 23);
       final samples = _run(start, 240);

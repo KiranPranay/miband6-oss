@@ -364,24 +364,18 @@ stores nothing from the band.
       `0xF`-flagged kind, against 65 for `0xF0`. The non-`0xF` cases are already
       excluded; `0xFB` is deliberately left in, because excluding it is unproven
       and it costs one minute on the night that prompted this.
-- [ ] **P10.2 Re-derive the deep-sleep calibration on deduplicated data.**
-      *(No longer a prediction — now observed.)* The table in
-      `sleep_analyzer.dart` was fitted on captures carrying 56% duplicate
-      samples, and its windows are indexed by position rather than by time, so
-      duplicated minutes silently narrowed them.
-      With de-duplication complete (2026-08-13, every day now exactly 1440
-      samples), the median deep share across 20 nights sits at **10.2%** against
-      a healthy-adult range of 13-23%, and one night reports 0% deep. Before
-      dedup it read 13.7%.
-      This is a *calibration* problem, not a staging bug — `_refineWithHeartRate`
-      is doing what it was tuned to do, on windows that are now the size they
-      were always supposed to be. Re-fit `_deepBaselineHalfWindow`,
-      `deepDipBpm` and `_minDeepRunMinutes` against the deduplicated capture
-      before trusting the deep figure. **Do not** tune it to hit 13-23% — that
-      would be fitting to a prior. Tune the window arithmetic to what the
-      original derivation intended, then report whatever it gives.
-
-## P11 — Free upside, no risk
+- [x] **P10.2 Re-derive the deep-sleep calibration on deduplicated data.**
+      **CLOSED 2026-08-22 — not re-calibrated; quarantined.** See
+      [findings-24](findings-24.md). The detector's output is uniform across the
+      night (qualifying minutes split 219/205/211 across night-thirds on one
+      real night) because it thresholds a residual against a rolling median
+      centred on its own data. Slow-wave sleep is front-loaded, so it is not
+      finding slow-wave sleep. Every parameter combination tried left the mean
+      deep position between 0.501 and 0.533 while the reported share swung from
+      5% to 19% — the number could have been tuned into the published 13-23%
+      band without any of it becoming true. Deep staging is off, the stage is
+      not presented, and the 30% it carried in the sleep score has been removed
+      with the remaining weights re-normalised.
 
 - [ ] **P11.1 What is activity byte[4]?** `ActivitySample` currently discards it.
       It reads 5 at rest (76.3%), then 7/13/15/21/23 — and in a byte-identity

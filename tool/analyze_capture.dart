@@ -93,7 +93,16 @@ void main(List<String> args) {
   void check(String label, bool ok, String detail) =>
       stdout.writeln('  ${ok ? "PASS" : "FAIL"}  $label — $detail');
 
-  if (deepPcts.isNotEmpty) {
+  // While deep staging is quarantined the expectation inverts: deep must never
+  // be reported at all, exactly like REM. Checking it against a healthy share
+  // would demand the app produce the very number findings-24 established it
+  // cannot produce honestly.
+  if (!SleepAnalyzer.kDeepStagingVerified) {
+    final leaked = deepPcts.where((p) => p >= 1).length;
+    check('deep never reported while quarantined', leaked == 0,
+        '$leaked night(s) reported deep sleep (findings-24 — the detector is '
+        'not front-loaded, so no share of it is meaningful)');
+  } else if (deepPcts.isNotEmpty) {
     final md = _median(deepPcts);
     check('deep sleep share', md >= 10 && md <= 30,
         'median ${md.toStringAsFixed(1)}% (healthy adult 13-23%)');

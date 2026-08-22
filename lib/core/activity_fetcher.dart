@@ -147,16 +147,34 @@ class ActivityFetcher {
   }
 
   Future<List<ActivitySample>> fetchActivityData(DateTime since) async {
-    await fetchRawData(0x01, since);
-    return _parseActivityData();
+    // Parse what `fetchRawData` RETURNS, not `_dataBuffer`.
+    //
+    // `_completeFetch` enforces the whole "a wrong timeline is worse than no
+    // data" contract by completing with `const []` when the stream was found
+    // to be broken — a dropped packet counter or a stall. It does not clear
+    // `_dataBuffer`, so re-reading that member threw the verdict away and
+    // parsed the damaged buffer anyway. The guard has never once fired for
+    // activity or SpO2; it worked only for the stress fetches, which happen to
+    // consume the returned value, and those are quarantined.
+    //
+    // It matters more than lost data. A notification carries one counter byte
+    // plus up to 243 payload bytes, which is not a multiple of the 8-byte
+    // sample grid, so a single dropped packet shifts every following field:
+    // steps read as heart rate, heart rate as padding. `parseActivitySamples`
+    // re-stamps those as one-per-minute from the start time, the store keeps
+    // whatever lands on an empty minute, `heartRatesFromSamples` promotes any
+    // byte in 7..249 to a heart-rate reading, and the watermark advances past
+    // the hole so the real data behind it is never requested again.
+    final raw = await fetchRawData(0x01, since);
+    return parseActivitySamples(raw, _fetchStartTime);
   }
 
   Future<List<Spo2Reading>> fetchSpo2(DateTime since) async {
     // SpO2 fetch type = 0x25 (37). NOTE: 0x12 is STRESS and 0x0D is SLEEP —
     // both were wrong in the earlier code (see findings-02.md §3). The SpO2
     // sample layout is still UNVERIFIED; this is a best-effort parse.
-    await fetchRawData(0x25, since);
-    return _parseSpo2Data();
+    final raw = await fetchRawData(0x25, since);
+    return _parseSpo2Data(raw);
   }
 
   /// HR history is embedded in the activity stream (byte 3 of each 8-byte
@@ -476,8 +494,7 @@ class ActivityFetcher {
     }
   }
 
-  List<ActivitySample> _parseActivityData() =>
-      parseActivitySamples(_dataBuffer, _fetchStartTime);
+
 
   /// Parse the Mi Band 6 8-byte activity samples (one per minute):
   ///   [0] category/kind  [1] intensity  [2] steps (single byte 0-255)
@@ -535,8 +552,7 @@ class ActivityFetcher {
   ///     [rec+0..3]  uint32 LE Unix-seconds timestamp
   ///     [rec+4]     spo2 — value = byte & 0x7F (high bit = auto measurement)
   ///     [rec+5..64] padding
-  List<Spo2Reading> _parseSpo2Data() {
-    final data = _dataBuffer;
+  List<Spo2Reading> _parseSpo2Data(List<int> data) {
     const recSize = 65;
     if (data.length < 1 + recSize) return [];
     if (data[0] != 2) {

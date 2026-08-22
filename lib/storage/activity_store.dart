@@ -99,70 +99,73 @@ class ActivityStore {
 
   // ── Load / Save ─────────────────────────────────────────────────────────
 
+  /// True when a data file existed but could not be parsed.
+  ///
+  /// The next [save] would otherwise overwrite whatever was left of it with the
+  /// empty in-memory list, turning a recoverable file into a permanent loss.
+  bool _loadFailed = false;
+
+  /// Whether the last [load] hit a file it could not read. Callers should treat
+  /// this as "do not overwrite" until the user has been told.
+  bool get loadFailed => _loadFailed;
+
+  /// Reads and decodes one JSON list file.
+  ///
+  /// A parse failure used to be swallowed by `catch (_) {}`, which starts the
+  /// list empty and looks exactly like a first run. The next save then wrote the
+  /// empty list over the damaged file and two months of history were gone
+  /// silently. Now the bad file is kept aside with a timestamped name so it can
+  /// be recovered by hand, and the failure is recorded.
+  Future<List<T>> _loadList<T>(
+    String name,
+    T Function(Map<String, dynamic>) fromJson,
+  ) async {
+    try {
+      final f = await _getFile(name);
+      if (!await f.exists()) return <T>[];
+      final raw = await f.readAsString();
+      final json = jsonDecode(raw) as List;
+      return json
+          .map((e) => fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      _loadFailed = true;
+      try {
+        final f = await _getFile(name);
+        if (await f.exists()) {
+          final stamp = DateTime.now().millisecondsSinceEpoch;
+          await f.rename('${f.path}.corrupt-$stamp');
+        }
+      } catch (_) {
+        // If even the rename fails there is nothing further to try; the flag
+        // above still stops the empty list being written back.
+      }
+      return <T>[];
+    }
+  }
+
   Future<void> load() async {
-    try {
-      final f = await _getFile(_activityFile);
-      if (await f.exists()) {
-        final json = jsonDecode(await f.readAsString()) as List;
-        _samples = json
-            .map((e) => ActivitySample.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
+    _loadFailed = false;
 
-    try {
-      final f = await _getFile(_spo2File);
-      if (await f.exists()) {
-        final json = jsonDecode(await f.readAsString()) as List;
-        _spo2Readings = json
-            .map((e) => Spo2Reading.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
+    _samples = await _loadList(_activityFile, ActivitySample.fromJson);
+    _spo2Readings = await _loadList(_spo2File, Spo2Reading.fromJson);
+    _hrReadings = await _loadList(_hrFile, HeartRateReading.fromJson);
+    _stressReadings = await _loadList(_stressFile, StressReading.fromJson);
 
-    try {
-      final f = await _getFile(_hrFile);
-      if (await f.exists()) {
-        final json = jsonDecode(await f.readAsString()) as List;
-        _hrReadings = json
-            .map((e) => HeartRateReading.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
-
-    try {
-      final f = await _getFile(_stressFile);
-      if (await f.exists()) {
-        final json = jsonDecode(await f.readAsString()) as List;
-        _stressReadings = json
-            .map((e) => StressReading.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
-
-    try {
-      final f = await _getFile(_lastActivitySyncFile);
-      if (await f.exists()) {
+    Future<DateTime?> readStamp(String name) async {
+      try {
+        final f = await _getFile(name);
+        if (!await f.exists()) return null;
         final ms = int.tryParse(await f.readAsString());
-        if (ms != null) _lastActivitySync = DateTime.fromMillisecondsSinceEpoch(ms);
+        return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+      } catch (_) {
+        return null;
       }
-    } catch (_) {}
+    }
 
-    try {
-      final f = await _getFile(_lastSpo2SyncFile);
-      if (await f.exists()) {
-        final ms = int.tryParse(await f.readAsString());
-        if (ms != null) _lastSpo2Sync = DateTime.fromMillisecondsSinceEpoch(ms);
-      }
-    } catch (_) {}
-
-    try {
-      final f = await _getFile(_lastHrSyncFile);
-      if (await f.exists()) {
-        final ms = int.tryParse(await f.readAsString());
-        if (ms != null) _lastHrSync = DateTime.fromMillisecondsSinceEpoch(ms);
-      }
-    } catch (_) {}
+    _lastActivitySync = await readStamp(_lastActivitySyncFile);
+    _lastSpo2Sync = await readStamp(_lastSpo2SyncFile);
+    _lastHrSync = await readStamp(_lastHrSyncFile);
 
     // Before anything reads the stress list: discard a store written under the
     // schema whose every row was fabricated.
@@ -221,7 +224,35 @@ class ActivityStore {
       ..addAll(_stressReadings.map((r) => r.timestamp.millisecondsSinceEpoch));
   }
 
+  /// Writes via a temporary file and renames it into place.
+  ///
+  /// `writeAsString` truncates the target first and then streams the new
+  /// contents, so a process death partway through — the OS reclaiming a
+  /// backgrounded app mid-save is the normal case, not an exotic one — leaves a
+  /// truncated file. On the next launch that file fails to parse, `load()`
+  /// swallows the error, and the store silently starts again from empty. Two
+  /// months of history, several megabytes of it, gone with no message.
+  ///
+  /// A rename within the same directory is atomic on POSIX, so a reader sees
+  /// either the previous complete file or the new complete file, never a half
+  /// one.
+  Future<void> _writeAtomically(String name, String contents) async {
+    final target = await _getFile(name);
+    final tmp = File('${target.path}.tmp');
+    await tmp.writeAsString(contents, flush: true);
+    await tmp.rename(target.path);
+  }
+
   Future<void> save() async {
+    // Never overwrite a file we failed to read.
+    //
+    // A failed load leaves the in-memory lists empty, which is indistinguishable
+    // from a first run — and saving then replaces a damaged but partly
+    // recoverable file with a definitively empty one. The corrupt original has
+    // been renamed aside by `_loadList`, but the app should still not race to
+    // write over the rest.
+    if (_loadFailed) return;
+
     // JSON-encode on a background isolate so a large history never blocks a
     // frame. The maps are built here (cheap) and the encode is shipped out.
     final encoded = await compute(
@@ -234,17 +265,10 @@ class ActivityStore {
       ),
     );
 
-    final f1 = await _getFile(_activityFile);
-    await f1.writeAsString(encoded[0]);
-
-    final f2 = await _getFile(_spo2File);
-    await f2.writeAsString(encoded[1]);
-
-    final fHr = await _getFile(_hrFile);
-    await fHr.writeAsString(encoded[2]);
-
-    final fStress = await _getFile(_stressFile);
-    await fStress.writeAsString(encoded[3]);
+    await _writeAtomically(_activityFile, encoded[0]);
+    await _writeAtomically(_spo2File, encoded[1]);
+    await _writeAtomically(_hrFile, encoded[2]);
+    await _writeAtomically(_stressFile, encoded[3]);
 
     if (_lastActivitySync != null) {
       final f = await _getFile(_lastActivitySyncFile);

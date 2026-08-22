@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:band/core/activity_sample.dart';
 import 'package:band/core/sleep_analysis.dart';
+import 'package:band/core/sleep_analyzer.dart';
 
 /// A night ending on [date] with the given stage minutes (a single interval is
 /// enough for start/end; isNap is false when total >= 3h).
@@ -31,14 +32,24 @@ void main() {
       final a = SleepAnalysis.compute(
           session: s, allDays: [s], hr: const [], spo2: const []);
 
-      expect(a.scoreComponents.map((c) => c.label).toList(),
-          ['Duration', 'Deep sleep', 'Efficiency']);
-      expect(a.scoreComponents[0].weight, 0.55);
-      expect(a.scoreComponents[1].weight, 0.30);
-      expect(a.scoreComponents[2].weight, 0.15);
+      // Deep sleep is excluded while its staging is quarantined (findings-24),
+      // and the remaining weights are re-normalised so the score still spans
+      // 0-100 rather than topping out at 70.
+      expect(
+          a.scoreComponents.map((c) => c.label).toList(),
+          SleepAnalyzer.kDeepStagingVerified
+              ? ['Duration', 'Deep sleep', 'Efficiency']
+              : ['Duration', 'Efficiency']);
 
-      final expected = a.scoreComponents
-          .fold<double>(0, (acc, c) => acc + c.score * c.weight)
+      final totalWeight =
+          a.scoreComponents.fold<double>(0, (acc, c) => acc + c.weight);
+      expect(totalWeight, closeTo(1.0, 0.001),
+          reason: 'weights must re-normalise, or the best possible night '
+              'would score 70');
+
+      final expected = (a.scoreComponents
+                  .fold<double>(0, (acc, c) => acc + c.score * c.weight) /
+              totalWeight)
           .round();
       expect(a.score, expected);
       expect(a.score, inInclusiveRange(0, 100));
@@ -77,7 +88,14 @@ void main() {
     });
   });
 
-  group('score coherence (findings-21 follow-up)', () {
+  // Deep sleep is quarantined (findings-24): its detector does not locate
+  // slow-wave sleep, so the component is excluded from the score. These tests
+  // describe how the deep term must behave *if* a valid detector is ever
+  // wired up, so they are kept and skipped rather than deleted.
+  group('score coherence (findings-21 follow-up)',
+      skip: SleepAnalyzer.kDeepStagingVerified
+          ? null
+          : 'deep-sleep staging is quarantined — see findings-24', () {
     test('a deep-sleep shortfall scores proportionally, not generously', () {
       // 8 % deep against a 13-23 % healthy band. The old rule (100 - 4/pt)
       // scored this 80/100 while the app simultaneously told the user "deep

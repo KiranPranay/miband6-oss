@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'activity_sample.dart';
 import 'baseline.dart';
+import 'sleep_analyzer.dart';
 
 /// How a stage compares to its healthy range.
 enum MetricStatus { below, normal, above }
@@ -219,7 +220,18 @@ class SleepAnalysis {
             .map((r) => r.value)
             .toList();
       }
-      if (pool.isEmpty) pool = spo2.where(ok).map((r) => r.value).toList();
+      // No fallback to the wider history.
+      //
+      // This used to be `if (pool.isEmpty) pool = spo2.where(ok)...` — when the
+      // night contained no reading it averaged *every* SpO2 value ever stored
+      // and returned that as the night's blood oxygen. The whole capture holds
+      // three readings, two of them taken in daylight (08:41 and 10:47), so 22
+      // of 23 nights displayed the same fabricated "97% · Normal", including
+      // August nights built from June spot checks. The give-away was that the
+      // number never changed from one night to the next.
+      //
+      // The tile already renders "—" for null, so the fallback bought nothing
+      // but a plausible-looking lie.
       if (pool.isNotEmpty) {
         avgSpo2 = (pool.reduce((a, b) => a + b) / pool.length).round();
       }
@@ -253,12 +265,19 @@ class SleepAnalysis {
       );
     }
 
-    // Only deep + light: MB6 does not track REM, so we never present a REM
-    // figure as if it were measured (see findings-09.md).
+    // REM is never presented: MB6 does not track it (findings-09).
+    //
+    // Deep joins it while its staging is unverified. The detector does not
+    // locate slow-wave sleep — its output is uniform across the night instead
+    // of front-loaded, and no parameter choice changes that (findings-24) — so
+    // a "Deep 12%" figure would be a number with nothing behind it. Light then
+    // covers all measured sleep, which is what the data actually supports:
+    // asleep versus awake.
     final stages = [
-      mk(SleepStage.deep, 'Deep', 13, 23),
+      if (SleepAnalyzer.kDeepStagingVerified) mk(SleepStage.deep, 'Deep', 13, 23),
       mk(SleepStage.light, 'Light', 60, 87),
     ];
+    final deepStage = SleepAnalyzer.kDeepStagingVerified ? stages[0] : null;
 
     // Score: duration (45%), deep band (25%), REM band (15%), efficiency (15%).
     // Sub-score for a percentage that has a healthy band.
@@ -289,25 +308,44 @@ class SleepAnalysis {
     final durSub = ((total / goalMinutes).clamp(0.0, 1.0) * 100).round();
     final deepSub = band(stages[0].pct, 13, 23).round();
     final effSub = eff;
+
+    // Deep sleep is excluded while its staging is unverified.
+    //
+    // It used to carry 30% of this score. The detector behind it does not
+    // locate slow-wave sleep — its output is spread uniformly across the night
+    // rather than front-loaded, and no parameter choice changes that
+    // (findings-24, `SleepAnalyzer.kDeepStagingVerified`). Nearly a third of the
+    // headline number was therefore being set by noise.
+    //
+    // Dropping the component rather than scoring it zero matters: a zero would
+    // read as "you got no deep sleep", which is a claim about the user. The
+    // remaining weights are re-normalised so the score still spans 0-100 and
+    // stays comparable with the nights already in the user's history — those
+    // were computed with a deep term, so the two are not perfectly comparable,
+    // and the Sleep screen says as much.
     final scoreComponents = <ScoreComponent>[
       ScoreComponent(
           label: 'Duration',
           score: durSub,
-          weight: 0.55,
+          weight: SleepAnalyzer.kDeepStagingVerified ? 0.55 : 0.79,
           detail: '${_fmt(total)} of ${_fmt(goalMinutes)} goal'),
-      ScoreComponent(
-          label: 'Deep sleep',
-          score: deepSub,
-          weight: 0.30,
-          detail: '${stages[0].pct}% of sleep'),
+      if (SleepAnalyzer.kDeepStagingVerified)
+        ScoreComponent(
+            label: 'Deep sleep',
+            score: deepSub,
+            weight: 0.30,
+            detail: '${deepStage?.pct ?? 0}% of sleep'),
       ScoreComponent(
           label: 'Efficiency',
           score: effSub,
-          weight: 0.15,
+          weight: SleepAnalyzer.kDeepStagingVerified ? 0.15 : 0.21,
           detail: '$eff% asleep while in bed'),
     ];
-    final score = scoreComponents
-        .fold<double>(0, (a, c) => a + c.score * c.weight)
+    final totalWeight =
+        scoreComponents.fold<double>(0, (a, c) => a + c.weight);
+    final score = (scoreComponents.fold<double>(
+                0, (a, c) => a + c.score * c.weight) /
+            totalWeight)
         .round()
         .clamp(0, 100);
     // Rating, with a duration floor.
@@ -376,9 +414,11 @@ class SleepAnalysis {
           ? SleepInsight(true, '${_fmt(vsYesterday)} more than the night before')
           : SleepInsight(false, '${_fmt(-vsYesterday)} less than the night before'));
     }
-    insights.add(stages[0].status == MetricStatus.below
-        ? const SleepInsight(false, 'Deep sleep below the healthy range')
-        : const SleepInsight(true, 'Healthy amount of deep sleep'));
+    if (deepStage != null) {
+      insights.add(deepStage.status == MetricStatus.below
+          ? const SleepInsight(false, 'Deep sleep below the healthy range')
+          : const SleepInsight(true, 'Healthy amount of deep sleep'));
+    }
     // 85 % is the classic normal cutoff for sleep efficiency; a 90 % bar
     // labelled a perfectly ordinary night "restless".
     insights.add(eff >= 85
@@ -390,13 +430,13 @@ class SleepAnalysis {
     if (total < goalMinutes) {
       recs.add('Get to bed about ${_fmt(((goalMinutes - total) / 2).round())} earlier tonight.');
     }
-    if (stages[0].status == MetricStatus.below) {
+    if (deepStage != null && deepStage.status == MetricStatus.below) {
       recs.add('Deep sleep was low — keep the room cool and avoid screens before bed.');
     }
     if (consistency != null && consistency < 70) {
       recs.add('Aim for a more consistent bedtime to steady your rhythm.');
     }
-    recs.add('Avoid caffeine after 6 PM to protect deep sleep.');
+    recs.add('Avoid caffeine after 6 PM — it shortens deep sleep.');
 
     return SleepAnalysis._(
       session: session,

@@ -465,9 +465,43 @@ class SleepAnalyzer {
       out.add(_Staged(s.timestamp, SleepStage.light));
     }
 
-    if (baseline != null) _refineWithHeartRate(out, sessionHr, baseline);
+    if (kDeepStagingVerified && baseline != null) {
+      _refineWithHeartRate(out, sessionHr, baseline);
+    }
     return out;
   }
+
+  /// Whether deep-sleep staging is trustworthy enough to report.
+  ///
+  /// **False.** The detector does not find slow-wave sleep, and no choice of
+  /// constants can make it — see findings-24.
+  ///
+  /// [_refineWithHeartRate] marks a minute deep when smoothed heart rate sits
+  /// [deepDipBpm] below a rolling median of itself. That rolling median is
+  /// centred on the data, so about half of all residuals are negative *by
+  /// construction*, spread evenly across the night. Measured on three real
+  /// nights, the minutes at residual ≤ −1 bpm split across night-thirds as
+  /// 219/205/211, 60/74/64 and 71/77/80 — uniform.
+  ///
+  /// Slow-wave sleep is front-loaded: it concentrates in the first cycles and
+  /// fades towards morning. A detector whose output is uniform is therefore not
+  /// detecting it, whatever the totals look like. The capture harness measures
+  /// mean deep position at 0.524 of the night, and that figure barely moves
+  /// across every parameter combination tried — 0.501 to 0.533 for run lengths
+  /// 8-12 min and baseline half-windows 45-120 min — while the reported share
+  /// swings from 5% to 19%.
+  ///
+  /// That last point is what settles it. The share can be tuned to sit inside
+  /// the published 13-23% band, and doing so would have made every plausibility
+  /// check pass. It would also have been meaningless: the same minutes, in the
+  /// same wrong places, relabelled until the total looked healthy. Tuning to
+  /// the norm was the documented method for choosing [deepDipBpm], and on this
+  /// evidence that method cannot be applied here.
+  ///
+  /// The code is kept, not deleted, so a better rule can be tested against the
+  /// same captures. Flipping this to true needs a method whose output is
+  /// front-loaded — the harness checks exactly that.
+  static const bool kDeepStagingVerified = false;
 
   /// Cole–Kripke sleep/wake scoring — the **published** coefficients.
   ///
