@@ -146,6 +146,13 @@ class _SleepTabState extends State<SleepTab> {
     }
     selected ??= _main(recent) ?? (days.isNotEmpty ? days.last : null);
 
+    // Computed once here, not inside the sliver list literal below — that
+    // literal is built eagerly on every rebuild, so the call ran a full
+    // whole-history sleep pass per frame while re-deriving sessions the memo on
+    // line above had already produced.
+    final regularity = SleepRegularity.compute(store.samples,
+        hr: store.hrReadings, sessions: days);
+
     final analysis = selected == null
         ? null
         : AnalysisCache.sleep(store, session: selected, allDays: days);
@@ -190,9 +197,7 @@ class _SleepTabState extends State<SleepTab> {
                                 const SectionHeader('Sleep sounds'),
                 const _SnoringSection(),
                                 const SectionHeader('Sleep regularity'),
-                _RegularityCard(
-                    result: SleepRegularity.compute(store.samples,
-                        hr: store.hrReadings)),
+                _RegularityCard(result: regularity),
                                 const SectionHeader('Recent nights'),
                 _WeeklySummary(a: analysis, nights: _perNight(days)),
                 const SizedBox(height: AppSpacing.sm),

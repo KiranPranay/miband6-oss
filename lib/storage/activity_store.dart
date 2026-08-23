@@ -49,6 +49,17 @@ class ActivityStore {
   static const _lastSpo2SyncFile = 'last_spo2_sync.txt';
   static const _lastHrSyncFile = 'last_hr_sync.txt';
 
+  /// How much history is kept on disk.
+  ///
+  /// `purgeOlderThan` existed but nothing ever called it, so the store grew
+  /// without limit: nine weeks of use produced 38 071 activity samples plus
+  /// 81 471 heart-rate readings, about 4.9 MB, growing strictly linearly and
+  /// re-serialised in full on every save.
+  ///
+  /// A year is generous — the band itself holds about a week — and it bounds
+  /// the file at roughly 30 MB in the worst case rather than at nothing.
+  static const int retentionDays = 365;
+
   List<ActivitySample> _samples = [];
   List<Spo2Reading> _spo2Readings = [];
   List<HeartRateReading> _hrReadings = [];
@@ -68,6 +79,10 @@ class ActivityStore {
   /// memoised analyses off this, so an unchanged store never recomputes.
   int _revision = 0;
   int get revision => _revision;
+
+  /// [_revision] at the last successful save, so an unchanged store is not
+  /// re-serialised and rewritten.
+  int _savedRevision = -1;
 
   /// Notifies when [revision] changes, so widgets can subscribe to "the stored
   /// data changed" without listening to unrelated BLE state.
@@ -171,6 +186,10 @@ class ActivityStore {
     // schema whose every row was fabricated.
     await purgeUnverifiedStress();
 
+    // Apply retention once per launch. Cheap, and the only thing standing
+    // between this store and unbounded growth.
+    purgeOlderThan(retentionDays);
+
     _dedupeSamplesByMinute();
 
     _rebuildKeyIndexes();
@@ -253,6 +272,19 @@ class ActivityStore {
     // write over the rest.
     if (_loadFailed) return;
 
+    // Nothing changed since the last successful save — do not rewrite 4.9 MB.
+    //
+    // `save()` is debounced but still called after every sync and every batch
+    // of streamed heart rate, roughly 144 times a day at the 10-minute sync
+    // cadence alone. Each call re-serialised the entire history: ~120 000 fresh
+    // maps built on the calling isolate, copied across an isolate boundary,
+    // encoded, and written. Skipping the unchanged case costs one integer
+    // comparison.
+    if (_savedRevision == _revision) return;
+    // Snapshot before the first await: the encode below is asynchronous, so a
+    // sync landing mid-save must not be marked as already persisted.
+    final revisionBeingSaved = _revision;
+
     // JSON-encode on a background isolate so a large history never blocks a
     // frame. The maps are built here (cheap) and the encode is shipped out.
     final encoded = await compute(
@@ -269,6 +301,8 @@ class ActivityStore {
     await _writeAtomically(_spo2File, encoded[1]);
     await _writeAtomically(_hrFile, encoded[2]);
     await _writeAtomically(_stressFile, encoded[3]);
+
+    _savedRevision = revisionBeingSaved;
 
     if (_lastActivitySync != null) {
       final f = await _getFile(_lastActivitySyncFile);

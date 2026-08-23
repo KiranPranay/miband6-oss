@@ -58,6 +58,15 @@ class SleepRegularity {
   static SleepRegularityResult? compute(
     List<ActivitySample> samples, {
     List<HeartRateReading> hr = const [],
+
+    /// Already-detected sessions, when the caller has them.
+    ///
+    /// Without this the method re-runs [SleepAnalyzer.detectSessions] over the
+    /// entire history — the same whole-history pass the store memoises against
+    /// its revision precisely because it is expensive. The Sleep tab had the
+    /// memoised result one line above the call and threw it away, paying for a
+    /// full re-derivation on every rebuild of that screen.
+    List<SleepDay>? sessions,
   }) {
     if (samples.isEmpty) return null;
 
@@ -69,7 +78,7 @@ class SleepRegularity {
     if (recorded.isEmpty) return null;
 
     final asleep = <int>{};
-    for (final day in SleepAnalyzer.detectSessions(samples, hr: hr)) {
+    for (final day in sessions ?? SleepAnalyzer.detectSessions(samples, hr: hr)) {
       for (final iv in day.intervals) {
         if (iv.stage == SleepStage.awake) continue;
         var t = iv.startTime;
