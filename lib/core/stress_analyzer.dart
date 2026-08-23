@@ -429,6 +429,12 @@ class StressAnalyzer {
   /// the hour is *absent*, never zero — a gap in wear is not a calm hour.
   static const int minReadingsPerHour = 5;
 
+  /// Steps in a minute above which that minute is treated as physical activity
+  /// and excluded from the stress estimate. Matches
+  /// `ActivityAnalysis._activeStepsPerMin`, the app's existing definition of a
+  /// walking minute.
+  static const int activeStepsPerMinute = 20;
+
   /// Minimum scored hours before a day is reported at all.
   static const int minHoursPerDay = 6;
 
@@ -456,6 +462,16 @@ class StressAnalyzer {
     required DateTime now,
     bool bandStreamVerified = true,
     List<double> rrIntervalsMs = const [],
+
+    /// Per-minute activity, used to drop heart rate recorded while moving.
+    ///
+    /// Without it the hourly "stress" curve is largely a step-count curve
+    /// wearing a stress label: heart rate rises far more with exertion than
+    /// with any psychological state, and a brisk walk reads as high stress.
+    /// The samples cover exactly the same timestamps as [hrReadings] and are in
+    /// the same store, so the confounder was measurable and simply not
+    /// measured.
+    List<ActivitySample> activitySamples = const [],
   }) {
     final estimate = current(
       bandReadings: bandReadings,
@@ -500,9 +516,26 @@ class StressAnalyzer {
       );
     }
 
+    // Minutes in which the user was walking are excluded outright.
+    //
+    // The threshold matches ActivityAnalysis's own definition of a walking
+    // minute (20 steps/min). An hour that loses too many readings to this
+    // filter then falls below `minReadingsPerHour` and is omitted entirely,
+    // which is the file's existing rule and the right outcome: an hour spent
+    // mostly moving carries no readable resting signal.
+    final activeMinutes = <int>{};
+    for (final s in activitySamples) {
+      if (s.steps >= activeStepsPerMinute) {
+        activeMinutes.add(s.timestamp.millisecondsSinceEpoch ~/ 60000);
+      }
+    }
+
     // One score per hour that has enough readings behind it.
     final byHour = <DateTime, List<int>>{};
     for (final r in hrReadings) {
+      if (activeMinutes.contains(r.timestamp.millisecondsSinceEpoch ~/ 60000)) {
+        continue;
+      }
       final h = DateTime(r.timestamp.year, r.timestamp.month, r.timestamp.day,
           r.timestamp.hour);
       (byHour[h] ??= []).add(r.value);

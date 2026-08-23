@@ -134,6 +134,19 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   BandMetrics _metrics = const BandMetrics();
   int? _batteryLevel;
   int? _heartRate;
+  /// How far the health **history** has actually been pulled from the band.
+  ///
+  /// This is what "Last sync just now" on the Today card and in the persistent
+  /// notification means, so it must only ever mirror
+  /// `activityStore.lastActivitySync`.
+  ///
+  /// It used to be re-stamped with `DateTime.now()` from two places that have
+  /// nothing to do with history: every realtime step packet (the notify
+  /// subscription plus a 2-minute poll) and every live heart-rate beat. So the
+  /// one staleness indicator the app has reported "just now" continuously while
+  /// the actual history sync was frozen — which is exactly what happened
+  /// between 2026-08-17 and 08-21, and why nothing on screen suggested anything
+  /// was wrong for five days.
   DateTime? _lastSyncTime;
 
   ActivityFetcher? _activityFetcher;
@@ -438,11 +451,28 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _connSubscription?.cancel();
     _reconnectTimer?.cancel();
     _isReconnecting = false;
+    // Ignore the replayed `disconnected` that arrives before we have connected.
+    //
+    // `connectionState` is a stream with an initial value, and that value is
+    // `disconnected` whenever the plugin has no cached state for the device —
+    // i.e. on every first connect and after every real drop. So the listener
+    // fired `_handleDisconnect()` in a microtask *before* `target.connect()`
+    // had even been issued, which tore down state we were about to build and
+    // re-armed the reconnect timer this method had just cancelled two lines
+    // above. Every connection attempt therefore scheduled a competing one.
+    //
+    // A disconnect only means something once we have actually been connected.
+    var everConnected = false;
     _connSubscription = target.connectionState.listen((state) {
       _logger.i("Connection state: $state");
       if (state == BluetoothConnectionState.disconnected) {
+        if (!everConnected) {
+          _logger.d("Ignoring replayed initial 'disconnected' state");
+          return;
+        }
         _handleDisconnect();
       } else if (state == BluetoothConnectionState.connected) {
+        everConnected = true;
         _handleConnected();
       }
       _emitChange();
@@ -1235,6 +1265,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     } catch (e) {
       _logger.e('Activity fetch error: $e');
     } finally {
+      // Keep the user-visible "last sync" in step with the real watermark.
+      _lastSyncTime = activityStore.lastActivitySync;
       _setFetchingActivity(false);
       _emitChange();
     }
@@ -1397,7 +1429,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     }
     _metrics = parsed;
     metricsListenable.value = parsed;
-    _lastSyncTime = DateTime.now();
+    // Deliberately does NOT touch `_lastSyncTime` — see its declaration.
     _logger.i("Steps: ${parsed.steps} steps, ${parsed.distanceMeters} m, "
         "${parsed.calories} kcal");
     // Persisting is deferred: this runs inside a BLE notify callback that fires
@@ -1690,9 +1722,9 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       // every tab (and re-run their full analysis passes) per beat. Widgets that
       // render the live number subscribe to `heartRateListenable` instead.
       _setHeartRate(bpm);
-      _lastSyncTime = DateTime.now();
+      // A live beat is not a history sync — see `_lastSyncTime`.
       activityStore.addHeartRateReadings(
-          [HeartRateReading(timestamp: _lastSyncTime!, value: bpm)]);
+          [HeartRateReading(timestamp: DateTime.now(), value: bpm)]);
       _storeSaveDebouncer(() => activityStore.save());
     }
   }

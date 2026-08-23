@@ -29,7 +29,15 @@ class ActivityTab extends StatefulWidget {
 }
 
 class _ActivityTabState extends State<ActivityTab> {
-  static const int _stepGoal = 10000;
+  /// Fallback only, for the window before the band's own settings have loaded.
+  ///
+  /// The real goal lives in `BandConfigController.settings.stepGoal` — the same
+  /// value Band settings writes to the band, which drives its on-wrist progress
+  /// ring. Hardcoding 10 000 here meant a user who set 15 000 saw every goal
+  /// readout in the app disagree with their wrist: the ring sweep, the "%
+  /// complete", the "to go" line, the ahead/behind pace verdict, the goal-met
+  /// streak and the "Steps vs goal" score component.
+  static const int _stepGoalFallback = 10000;
 
   // 0 = Today, 1 = Week, 2 = Month.
   int _range = 0;
@@ -45,6 +53,10 @@ class _ActivityTabState extends State<ActivityTab> {
         ? const ['Today', 'Week', 'Month']
         : const ['Today', 'Week'];
   }
+
+  /// The band's configured goal, falling back only until settings load.
+  static int _resolvedStepGoal(BLEManager ble) =>
+      ble.bandConfig.isLoaded ? ble.bandConfig.settings.stepGoal : _stepGoalFallback;
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +91,7 @@ class _ActivityTabState extends State<ActivityTab> {
       store,
       liveSteps: ble.metrics.steps,
       now: now,
-      dailyGoal: _stepGoal,
+      dailyGoal: _resolvedStepGoal(ble),
       date: today,
     );
 
@@ -1100,6 +1112,12 @@ class _DailyStepsChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totals = days.map((d) => store.totalStepsForDate(d)).toList();
+    // A day with no samples is not a zero-step day.
+    //
+    // `totalStepsForDate` returns 0 for both, so an unsynced day was drawn as a
+    // flat bar and its tooltip asserted "0 steps" — inventing a sedentary day
+    // out of missing data. Those days now have no bar at all.
+    final recorded = days.map((d) => store.hasDataForDate(d)).toList();
     final sum = totals.fold<int>(0, (a, b) => a + b);
     if (sum == 0) {
       return const ChartEmpty(
@@ -1183,18 +1201,19 @@ class _DailyStepsChart extends StatelessWidget {
         ),
         barGroups: [
           for (var i = 0; i < days.length; i++)
-            BarChartGroupData(
-              x: i,
-              barRods: [
-                BarChartRodData(
-                  toY: totals[i].toDouble(),
-                  width: barWidth,
-                  color: AppColors.activity,
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(6)),
-                ),
-              ],
-            ),
+            if (recorded[i])
+              BarChartGroupData(
+                x: i,
+                barRods: [
+                  BarChartRodData(
+                    toY: totals[i].toDouble(),
+                    width: barWidth,
+                    color: AppColors.activity,
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(6)),
+                  ),
+                ],
+              ),
         ],
       ),
     );

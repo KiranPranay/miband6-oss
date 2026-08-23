@@ -467,6 +467,13 @@ class ActivityStore {
   }
 
   /// Total steps for a given date (one value per minute, see [stepsPerMinute]).
+  /// Whether any sample was recorded for [date].
+  ///
+  /// `totalStepsForDate` returns 0 both for a day the user genuinely did not
+  /// move and for a day that was never synced, and the two are not the same
+  /// claim. Callers that draw or compare a day must check this first.
+  bool hasDataForDate(DateTime date) => samplesForDate(date).isNotEmpty;
+
   int totalStepsForDate(DateTime date) {
     return stepsPerMinute(samplesForDate(date))
         .values

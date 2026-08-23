@@ -154,6 +154,9 @@ class AnalysisCache {
         now: now,
         bandStreamVerified: bandStreamVerified,
         rrIntervalsMs: rrIntervalsMs,
+        // Same store, same timestamps — used to drop heart rate recorded while
+        // walking, which otherwise dominates the estimate.
+        activitySamples: store.samples,
       );
       _stressRev = store.revision;
       _stressMinute = minute;

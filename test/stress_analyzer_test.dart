@@ -654,4 +654,89 @@ void main() {
       expect(StressAnalyzer.bandLabel(100), 'High');
     });
   });
+
+  group('physical activity is excluded from the stress estimate', () {
+    // Heart rate rises far more with exertion than with any psychological
+    // state, so without this the hourly curve is a step-count curve wearing a
+    // stress label — a brisk walk reads as high stress.
+    List<HeartRateReading> hr(DateTime from, int n, int bpm) => [
+          for (var i = 0; i < n; i++)
+            HeartRateReading(
+                timestamp: from.add(Duration(minutes: i)), value: bpm),
+        ];
+
+    List<ActivitySample> walking(DateTime from, int n) => [
+          for (var i = 0; i < n; i++)
+            ActivitySample(
+              timestamp: from.add(Duration(minutes: i)),
+              category: 1,
+              intensity: 40,
+              steps: 80, // well above the 20/min walking threshold
+              heartRate: 120,
+            ),
+        ];
+
+    test('an hour spent walking is omitted, not scored as stressed', () {
+      final base = DateTime(2026, 8, 21, 14);
+      // A calm baseline the bounds can be built from, plus one walking hour.
+      final readings = <HeartRateReading>[
+        for (var d = 1; d <= 6; d++)
+          ...hr(base.subtract(Duration(days: d)), 40, 62),
+        ...hr(base, 40, 130), // the walk
+      ];
+
+      final withoutActivity = StressAnalyzer.history(
+        hrReadings: readings,
+        bandReadings: const [],
+        now: base.add(const Duration(hours: 1)),
+        bandStreamVerified: false,
+      );
+      final withActivity = StressAnalyzer.history(
+        hrReadings: readings,
+        bandReadings: const [],
+        now: base.add(const Duration(hours: 1)),
+        bandStreamVerified: false,
+        activitySamples: walking(base, 40),
+      );
+
+      final walkHour =
+          withoutActivity.hours.where((h) => h.time == base).toList();
+      expect(walkHour, isNotEmpty,
+          reason: 'without the filter the walk is scored as an hour');
+      expect(walkHour.single.score, greaterThan(70),
+          reason: 'and scored as highly stressed, which is the bug');
+
+      expect(withActivity.hours.where((h) => h.time == base), isEmpty,
+          reason: 'with the filter the hour has too few resting readings left '
+              'to score, which is the honest outcome');
+    });
+
+    test('a still hour is unaffected by the filter', () {
+      final base = DateTime(2026, 8, 21, 14);
+      final readings = <HeartRateReading>[
+        for (var d = 1; d <= 6; d++)
+          ...hr(base.subtract(Duration(days: d)), 40, 62),
+        ...hr(base, 40, 66),
+      ];
+      final still = [
+        for (var i = 0; i < 40; i++)
+          ActivitySample(
+            timestamp: base.add(Duration(minutes: i)),
+            category: 1,
+            intensity: 5,
+            steps: 0,
+            heartRate: 66,
+          ),
+      ];
+
+      final a = StressAnalyzer.history(
+        hrReadings: readings,
+        bandReadings: const [],
+        now: base.add(const Duration(hours: 1)),
+        bandStreamVerified: false,
+        activitySamples: still,
+      );
+      expect(a.hours.where((h) => h.time == base), isNotEmpty);
+    });
+  });
 }

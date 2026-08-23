@@ -35,7 +35,10 @@ const int _activityTab = 2;
 const int _sleepTab = 3;
 
 class _TodayTabState extends State<TodayTab> {
-  static const int _stepsGoal = 10000;
+  /// Fallback only, until the band's own settings have loaded. The real goal is
+  /// `BandConfigController.settings.stepGoal` — the value Band settings writes
+  /// to the band and that its on-wrist ring uses. See activity_tab.dart.
+  static const int _stepsGoalFallback = 10000;
 
   Future<void> _onRefresh(BLEManager ble) async {
     // Pull-to-refresh must actually pull: the band records heart rate, stress
@@ -141,7 +144,9 @@ class _TodayTabState extends State<TodayTab> {
       store,
       liveSteps: ble.metrics.steps,
       now: now,
-      dailyGoal: _stepsGoal,
+      dailyGoal: ble.bandConfig.isLoaded
+          ? ble.bandConfig.settings.stepGoal
+          : _stepsGoalFallback,
       date: today,
     );
     final spo2Readings = store.spo2Readings;
