@@ -185,14 +185,24 @@ class _ActivityTabState extends State<ActivityTab> {
                 //    today-only (no historical source); HR is the average during
                 //    walking minutes, shown "--" when there is none.
                 _MetricGrid(children: [
-                  StatCard(
-                    icon: Icons.straighten_rounded,
-                    color: AppColors.distance,
-                    value: distanceKm,
-                    decimals: 2,
-                    unit: 'km',
-                    label: 'Distance',
-                  ),
+                  // Distance and calories come from the band's own live
+                  // counter. Until a packet has arrived they are unknown, not
+                  // zero — showing "0.00 km" as today's distance is a claim the
+                  // app cannot support.
+                  ble.hasLiveMetrics
+                      ? StatCard(
+                          icon: Icons.straighten_rounded,
+                          color: AppColors.distance,
+                          value: distanceKm,
+                          decimals: 2,
+                          unit: 'km',
+                          label: 'Distance',
+                        )
+                      : _NoDataTile(
+                          icon: Icons.straighten_rounded,
+                          color: AppColors.distance,
+                          label: 'Distance',
+                        ),
                   StatCard(
                     icon: Icons.directions_walk_rounded,
                     color: AppColors.activity,
@@ -207,13 +217,19 @@ class _ActivityTabState extends State<ActivityTab> {
                     unit: 'min',
                     label: 'Brisk',
                   ),
-                  StatCard(
-                    icon: Icons.local_fire_department_rounded,
-                    color: AppColors.calories,
-                    value: ble.metrics.calories,
-                    unit: 'kcal',
-                    label: 'Calories',
-                  ),
+                  ble.hasLiveMetrics
+                      ? StatCard(
+                          icon: Icons.local_fire_department_rounded,
+                          color: AppColors.calories,
+                          value: ble.metrics.calories,
+                          unit: 'kcal',
+                          label: 'Calories',
+                        )
+                      : _NoDataTile(
+                          icon: Icons.local_fire_department_rounded,
+                          color: AppColors.calories,
+                          label: 'Calories',
+                        ),
                   activity.avgActiveHr != null
                       ? StatCard(
                           icon: Icons.favorite_rounded,

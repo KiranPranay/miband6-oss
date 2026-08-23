@@ -151,9 +151,24 @@ class SleepAnalysis {
           (a.startTime ?? a.date).compareTo(b.startTime ?? b.date));
     final sessionStart = session.startTime ?? session.date;
 
+    // "The night before" has to actually be the night before.
+    //
+    // This walked back to the previous *recorded* session, which after a gap in
+    // sync — or a week off the wrist — could be a fortnight earlier, and could
+    // equally be a six-minute nap. The comparison was then presented as
+    // "1h 32m more than the night before".
+    //
+    // Requiring it to start within 48 h of this session, and to be a real night
+    // rather than a nap, means the insight is simply omitted when there is
+    // nothing honest to compare against.
     SleepDay? prev;
     for (final n in nights) {
       if ((n.startTime ?? n.date).isBefore(sessionStart)) prev = n;
+    }
+    if (prev != null) {
+      final prevStart = prev.startTime ?? prev.date;
+      final gap = sessionStart.difference(prevStart);
+      if (gap > const Duration(hours: 48) || prev.isNap) prev = null;
     }
     final vsYesterday = prev != null ? total - prev.totalSleepMinutes : null;
 

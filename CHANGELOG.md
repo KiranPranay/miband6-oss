@@ -9,6 +9,56 @@ second one matters to anyone whose history just moved.
 
 ## [Unreleased]
 
+### Fixed — after several weeks of real use
+
+An audit over the live capture (38 071 activity samples, 81 471 heart-rate
+readings) plus a five-day sync outage the app never reported. Ranked by what a
+user would actually have seen.
+
+- **History sync deadlocked and stayed frozen for five days.** The repeating
+  fetch started ten minutes *behind* the watermark but advanced only as far as
+  the band's next gap — often ten minutes — against a twelve-round cap. With a
+  six-hour overlap it needed 36 rounds to reach ground it already had, so every
+  sync did work and finished exactly where it began. Budgeted by wall-clock time
+  now, and the recent window is fetched first so today is never hidden behind a
+  backfill.
+- **"Synced just now" was measured from the wrong thing** — re-stamped by every
+  step packet and heartbeat, so the one staleness indicator read healthy
+  throughout the outage.
+- **Deep sleep was withdrawn, not re-calibrated.** Its share could be tuned from
+  5% to 19% — anywhere inside the published healthy band — while the minutes it
+  picked stayed spread evenly across the night. Real slow-wave sleep is
+  front-loaded. See findings-24.
+- **A 52-day-old SpO2 reading was shown as today's**, and on the Sleep tab a
+  night with no reading displayed the all-time average as that night's
+  measurement — the same fabricated "97% · Normal" on 22 of 23 nights.
+- **Wake-ups counted classifier noise**: 38 became 6 once the audited
+  ≥5-minute count the repo already had was actually used.
+- **"Last night" could be any night**, and among candidates picked the longest
+  rather than the most recent.
+- **Days the app never received were compared as if complete** — a day with 167
+  of 1440 minutes and 73 steps was "yesterday" for comparison purposes, and sat
+  inside the personal baseline.
+- **Corrupt transfers were parsed anyway.** The integrity guard returned an
+  empty list; the callers ignored it and re-parsed the damaged buffer.
+- **History could vanish on a crash** — non-atomic writes, a silent catch-all on
+  load, and a save that would then overwrite the remains with nothing.
+- **The auth key was written to the log**, and release builds echoed everything
+  to logcat. **Android Auto Backup was on**, contradicting the privacy promise
+  in the README.
+- **A fabricated user profile** (male, 1990, 175 cm, 70 kg) was written to the
+  band on every connection, overwriting the user's own and driving the band's
+  distance and calorie maths.
+- **The band's configured step goal was ignored**; both screens hardcoded 10 000.
+- **Stress was partly a step counter** — no exclusion of minutes spent walking,
+  though the step data sat in the same store.
+- **Sleep sessions crossing 18:00 overlapped** and double-counted up to an hour.
+- Plus: every connect scheduled a competing reconnect, several notification
+  subscriptions leaked per reconnect, unrecorded days were drawn as zero-step
+  bars, the store had no retention and rewrote 4.9 MB on every save, and the
+  Sleep tab re-derived the entire sleep history on every rebuild.
+
+
 ### Open-source release
 
 - AGPL-3.0-or-later licence, with attribution headers on the two files

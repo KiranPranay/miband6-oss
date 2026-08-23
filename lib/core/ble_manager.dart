@@ -325,6 +325,15 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   bool get isAuthenticating => _isAuthenticating;
   bool get isReconnecting => _isReconnecting;
   BandMetrics get metrics => _metrics;
+
+  /// Whether a real metrics packet has arrived from the band this session.
+  ///
+  /// `_metrics` starts as `const BandMetrics()` — zeros — and nothing restores
+  /// a previous value, so between launch and the first successful read the
+  /// Activity screen showed "0.00 km" and "0 kcal" as though they were today's
+  /// measurements. A zero the band never reported is a claim, not a default.
+  bool get hasLiveMetrics => _hasLiveMetrics;
+  bool _hasLiveMetrics = false;
   int? get batteryLevel => _batteryLevel;
   int? get heartRate => _heartRate;
   DateTime? get lastSyncTime => _lastSyncTime;
@@ -1444,6 +1453,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       return;
     }
     _metrics = parsed;
+    _hasLiveMetrics = true;
     metricsListenable.value = parsed;
     // Deliberately does NOT touch `_lastSyncTime` — see its declaration.
     _logger.i("Steps: ${parsed.steps} steps, ${parsed.distanceMeters} m, "
