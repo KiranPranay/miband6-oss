@@ -19,8 +19,10 @@ import '../widgets/segmented_toggle.dart';
 /// The Heart screen — a heart-health view, not a bare sensor dashboard: a hero
 /// leading with status + resting HR + trend, rule-based insights, a referenced
 /// trend chart, and (gated) personal comparisons. Stress lives on its own
-/// screen and is MEASURED BY THE BAND (findings-20); Recovery stays omitted
-/// because it needs HRV, which this firmware does not report.
+/// screen; the band's own stress stream is quarantined because what it returns
+/// does not decode as stress (findings-23), so what is shown is estimated from
+/// heart rate and labelled as such. Recovery stays omitted because it needs
+/// HRV, which this firmware does not report.
 ///
 /// Colour roles: pink = live heart data, purple = trends/resting, green =
 /// healthy status, amber = warnings.
@@ -1154,7 +1156,13 @@ class _MoreMetricsCard extends StatelessWidget {
             icon: Icons.bolt_rounded,
             color: AppColors.warning,
             title: 'Stress',
-            note: 'Measured by your band',
+            // Driven by the same constant the Stress screen uses, so the two
+            // can never disagree. It read "Measured by your band" throughout
+            // the period the band's stream was quarantined for not decoding as
+            // stress at all (findings-23).
+            note: BLEManager.kStressFetchVerified
+                ? 'Measured by your band'
+                : 'Estimated from heart rate',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => const StressScreen(),
             )),

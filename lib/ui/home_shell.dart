@@ -28,7 +28,11 @@ class _NavDest {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static final _dests = [
+  // Not `static final`: that resolves the palette once at class-load time and
+  // then keeps those colours for the process lifetime, which is precisely the
+  // staleness the KeyedSubtree fix in main.dart exists to prevent. Built per
+  // build instead — it is five const-ish entries.
+  List<_NavDest> get _dests => [
     _NavDest(Icons.today_outlined, Icons.today_rounded, 'Today',
         AppColors.primary),
     _NavDest(Icons.favorite_border_rounded, Icons.favorite_rounded, 'Heart',

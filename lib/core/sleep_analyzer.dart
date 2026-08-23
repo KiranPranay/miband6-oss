@@ -39,23 +39,20 @@ import 'activity_sample.dart';
 ///   published coefficients and kept for reference, but is **not** the default:
 ///   its weights are defined over ActiGraph counts, and converting our intensity
 ///   byte to those would be an invention. See [coleKripkeAwake].
-/// * **Deep sleep — detrended heart-rate dip.** Heart rate falls to its nightly
-///   minimum during slow-wave sleep, but it *also* falls towards a circadian
-///   nadir near 04:00-05:00 regardless of stage, so an absolute threshold finds
-///   the trough rather than the cycles. Subtracting a rolling ±45-minute median
-///   (about one sleep cycle) removes that drift; sustained runs below the local
-///   baseline are then marked deep. See [_refineWithHeartRate].
+/// * **Deep sleep — withdrawn.** See [kDeepStagingVerified] and findings-24.
+///   The detrended heart-rate rule is still here, and still switched off: its
+///   output is spread uniformly across the night rather than front-loaded, so
+///   it is not finding slow-wave sleep, and no choice of constants changes
+///   that. Every minute of measured sleep is reported simply as *asleep*.
 ///
 /// ## Honesty
 ///
-/// Deep/light is an **estimate**. Consumer wearables agree with polysomnography
-/// only 50-65 % of the time on multi-state staging, and deep is among the
-/// weakest classes. A known unresolved limitation: on our captures the estimated
-/// deep sleep is not front-loaded (mean position ~0.55 of the night) when
-/// slow-wave sleep should dominate the early cycles. Detrending improved this
-/// but did not fix it, and without polysomnography, tuning further would just be
-/// fitting to a prior. It is reported in `tool/analyze_capture.dart` rather than
-/// hidden.
+/// What this class can support is **asleep versus awake**, which is what
+/// Chinoy validated on this vendor's hardware. Multi-state staging is not:
+/// consumer wearables agree with polysomnography only 50-65 % of the time on
+/// it, and deep is among the weakest classes. Rather than publish a deep
+/// figure tuned until it looked healthy, the stage was removed —
+/// `tool/analyze_capture.dart` now asserts it is never reported.
 class SleepAnalyzer {
   const SleepAnalyzer._();
 
@@ -233,9 +230,26 @@ class SleepAnalyzer {
     final blocks = _rawBlocks(sorted);
 
     final days = <SleepDay>[];
+    // Sessions must not overlap.
+    //
+    // `_rawBlocks` splits whenever the sleep-day changes, so a continuous run
+    // across 18:00 becomes two *adjacent* blocks with no gap. `_buildSession`
+    // then extends each block backwards by up to `restOnsetLookbackMinutes` to
+    // find rest onset — and for the second block that walk marches straight
+    // back into the first block's minutes, which are asleep, worn and still, so
+    // they all qualify. Those minutes were staged and totalled twice.
+    //
+    // Measured on a synthetic unbroken 16:30→20:30 run: two sessions reporting
+    // 89 + 209 = 298 minutes of sleep out of 240 real ones, with the second
+    // session starting an hour before the first one ended.
+    DateTime? prevEnd;
     for (final block in blocks) {
-      final day = _buildSession(block, sorted, hr);
-      if (day != null) days.add(day);
+      final day = _buildSession(block, sorted, hr, notBefore: prevEnd);
+      if (day != null) {
+        days.add(day);
+        final e = day.endTime;
+        if (e != null && (prevEnd == null || e.isAfter(prevEnd))) prevEnd = e;
+      }
     }
     return days;
   }
@@ -313,11 +327,15 @@ class SleepAnalyzer {
   }
 
   /// Turns a candidate block into a [SleepDay], or null if it does not qualify.
+  /// [notBefore] is the previous session's end. The backwards rest-onset walk
+  /// is clamped to just after it so two adjacent blocks cannot claim the same
+  /// minutes.
   static SleepDay? _buildSession(
     List<ActivitySample> block,
     List<ActivitySample> allSorted,
-    List<HeartRateReading> hr,
-  ) {
+    List<HeartRateReading> hr, {
+    DateTime? notBefore,
+  }) {
     if (block.isEmpty) return null;
     final start = block.first.timestamp;
     final end = block.last.timestamp;
@@ -326,8 +344,12 @@ class SleepAnalyzer {
 
     // Extend backwards over a bounded "settling down" period so latency and
     // efficiency have a rest interval to be measured against (see
-    // [restOnsetLookbackMinutes]).
-    final restStart = _restOnset(allSorted, start);
+    // [restOnsetLookbackMinutes]), but never back into the previous session.
+    var restStart = _restOnset(allSorted, start);
+    if (notBefore != null && !restStart.isAfter(notBefore)) {
+      restStart = notBefore.add(const Duration(minutes: 1));
+      if (restStart.isAfter(start)) restStart = start;
+    }
 
     // Every sample in the window, including the awake ones between asleep runs,
     // so wake episodes inside the night are measured rather than assumed.

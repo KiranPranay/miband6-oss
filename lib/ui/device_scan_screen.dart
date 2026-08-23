@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -16,6 +18,12 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
   final List<BluetoothDevice> _devices = [];
   bool _isScanning = false;
 
+  /// Held so it can be cancelled. Each `_startScan` used to add another
+  /// anonymous listener to the global `scanResults` stream and never remove it,
+  /// so pressing Rescan N times left N listeners running — all still calling
+  /// `setState` on this screen after it was popped, guarded only by `mounted`.
+  StreamSubscription<List<ScanResult>>? _scanSub;
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +32,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
 
   @override
   void dispose() {
+    _scanSub?.cancel();
     FlutterBluePlus.stopScan();
     super.dispose();
   }
@@ -62,7 +71,8 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
     // We only filter for matching names generally, but just display all for safety
     FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
 
-    FlutterBluePlus.scanResults.listen((results) {
+    _scanSub?.cancel();
+    _scanSub = FlutterBluePlus.scanResults.listen((results) {
       if (!mounted) return;
       for (ScanResult r in results) {
         if (!_devices.any((element) => element.remoteId == r.device.remoteId)) {

@@ -62,6 +62,16 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   StreamSubscription<List<int>>? _charSubscription;
   StreamSubscription<List<int>>? _stepsSubscription;
   StreamSubscription<List<int>>? _hrSubscription;
+
+  /// Battery and init-characteristic notifies.
+  ///
+  /// These were fire-and-forget `listen()` calls with nothing holding the
+  /// subscription, so each reconnect added another live listener on the same
+  /// characteristic — the same leak that broke history sync entirely when it
+  /// happened to `ActivityFetcher`. Harmless here in effect (they only log or
+  /// set the battery level) but they accumulate for the life of the process.
+  StreamSubscription<List<int>>? _battSubscription;
+  final List<StreamSubscription<List<int>>> _initCharSubs = [];
   Timer? _authTimeoutTimer;
   Timer? _reconnectTimer;
   Timer? _hrKeepAliveTimer;
@@ -502,6 +512,12 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _activityFetcher?.dispose();
     _activityFetcher = null;
     _fetcherDevice = null;
+    _battSubscription?.cancel();
+    _battSubscription = null;
+    for (final sub in _initCharSubs) {
+      sub.cancel();
+    }
+    _initCharSubs.clear();
     _charSubscription?.cancel();
     _stepsSubscription?.cancel();
     _hrSubscription?.cancel();
@@ -1456,10 +1472,10 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
                 cu.contains('0010')) {
               _logger.i("Subscribing to init characteristic $cu...");
               await char.setNotifyValue(true);
-              char.onValueReceived.listen((data) {
+              _initCharSubs.add(char.onValueReceived.listen((data) {
                 _logger.d(
                     "Init Char $cu data: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}");
-              });
+              }));
             }
           }
         }
@@ -1830,7 +1846,9 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         _applyHuamiBattery(raw);
         try {
           await _battChar!.setNotifyValue(true);
-          _battChar!.onValueReceived.listen(_applyHuamiBattery);
+          _battSubscription?.cancel();
+          _battSubscription =
+              _battChar!.onValueReceived.listen(_applyHuamiBattery);
         } catch (_) {}
         return;
       }
@@ -1858,7 +1876,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       }
       try {
         await stdBatt.setNotifyValue(true);
-        stdBatt.onValueReceived.listen((data) {
+        _battSubscription?.cancel();
+        _battSubscription = stdBatt.onValueReceived.listen((data) {
           if (data.isNotEmpty) {
             _setBatteryLevel(data[0].clamp(0, 100));
             _logger.d("Battery update (0x2a19): $_batteryLevel%");
@@ -1944,6 +1963,12 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     _stepsPollTimer?.cancel();
     connectionPhaseListenable.dispose();
     _connSubscription?.cancel();
+    _battSubscription?.cancel();
+    _battSubscription = null;
+    for (final sub in _initCharSubs) {
+      sub.cancel();
+    }
+    _initCharSubs.clear();
     _charSubscription?.cancel();
     _stepsSubscription?.cancel();
     _hrSubscription?.cancel();

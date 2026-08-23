@@ -496,4 +496,41 @@ void main() {
       }
     });
   });
+
+  group('sessions never overlap', () {
+    // `_rawBlocks` splits whenever the sleep-day changes, so a continuous run
+    // across 18:00 becomes two adjacent blocks. Each then extended itself
+    // backwards by up to an hour looking for rest onset, and the second walked
+    // straight into the first's minutes — asleep, worn and still, so they all
+    // qualified. A synthetic unbroken 16:30->20:30 run reported 89 + 209 = 298
+    // minutes of sleep out of 240 real ones.
+    List<ActivitySample> asleepRun(DateTime from, int minutes) => [
+          for (var i = 0; i < minutes; i++)
+            ActivitySample(
+              timestamp: from.add(Duration(minutes: i)),
+              category: 0xF0,
+              intensity: 0,
+              steps: 0,
+              heartRate: 60,
+            ),
+        ];
+
+    test('a run crossing the 18:00 boundary is not double-counted', () {
+      final days = SleepAnalyzer.detectSessions(
+          asleepRun(DateTime(2026, 5, 10, 16, 30), 240));
+
+      final reported =
+          days.fold<int>(0, (a, d) => a + d.totalSleepMinutes);
+      expect(reported, lessThanOrEqualTo(240),
+          reason: 'reported sleep cannot exceed the minutes that exist');
+
+      for (var i = 1; i < days.length; i++) {
+        final prevEnd = days[i - 1].endTime!;
+        final start = days[i].startTime!;
+        expect(start.isBefore(prevEnd), isFalse,
+            reason: 'session $i starts at $start, before session ${i - 1} '
+                'ended at $prevEnd');
+      }
+    });
+  });
 }
