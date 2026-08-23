@@ -4,7 +4,7 @@
 
 Please report security issues **privately**, not in the public issue tracker.
 
-Use GitHub's [private vulnerability reporting](https://github.com/KiranPranay/miband/security/advisories/new)
+Use GitHub's [private vulnerability reporting](https://github.com/KiranPranay/miband6-oss/security/advisories/new)
 (Security → Report a vulnerability), or contact the maintainer directly through
 their GitHub profile.
 
@@ -70,6 +70,13 @@ Stated so you can verify it rather than trust it:
 - Debug logging can include raw protocol bytes. It is **off by default**
   (`BLELogger.verbose`), and the Debug Console lives under Profile → Debug
   Console rather than on any main screen. If you share a log, read it first.
+- **Release builds write nothing to logcat.** The in-app buffer still records
+  everything, so the Debug Console is unchanged, but nothing is emitted where
+  adb or a bug report would pick it up without you choosing to share it.
+- **The auth key is never logged**, at any level. It used to be written in full
+  hex at debug level, which put it in the buffer users are asked to paste.
+- **Android Auto Backup is disabled**, so health data and the keystore blob are
+  not uploaded to the user's Google account.
 - Microphone audio is processed in memory and discarded. Only derived
   measurements — timestamps and loudness — are persisted.
 

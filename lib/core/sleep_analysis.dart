@@ -189,8 +189,19 @@ class SleepAnalysis {
     final span = (st != null && en != null) ? en.difference(st).inMinutes : total;
     final eff = span > 0 ? ((total / span) * 100).round().clamp(0, 100) : 0;
 
-    final wake =
-        session.intervals.where((iv) => iv.stage == SleepStage.awake).length;
+    // Use the audited count, not the raw interval count.
+    //
+    // `intervals.where(awake).length` counts every awake run — one-minute
+    // classifier flapping, the sleep-latency interval before you fell asleep,
+    // and the final morning wake-up. On 2026-08-11 that read 35, of which 18
+    // were exactly one minute long and sat at a heart rate *below* the
+    // surrounding median, i.e. not arousals at all.
+    //
+    // `SleepQuality.wakeEpisodes` already applies the actigraphy convention —
+    // at least `minAwakeningMinutes`, and only awakenings *between* sleep. That
+    // fix landed months ago; this screen simply never used it, so the user has
+    // been reading the number the repo itself documented as noise.
+    final wake = SleepQuality.of(session).wakeEpisodes;
 
     int? avgHr;
     int? restingHr;
@@ -273,9 +284,16 @@ class SleepAnalysis {
     // a "Deep 12%" figure would be a number with nothing behind it. Light then
     // covers all measured sleep, which is what the data actually supports:
     // asleep versus awake.
+    // While deep is quarantined the "light" bucket holds *all* measured sleep,
+    // so the 60-87% healthy band for light sleep no longer applies to it —
+    // against that band it is trivially "Above range" every single night, which
+    // is a verdict with no meaning behind it. Give it the full 0-100 range so
+    // no judgement is rendered, and call it what it now is.
     final stages = [
       if (SleepAnalyzer.kDeepStagingVerified) mk(SleepStage.deep, 'Deep', 13, 23),
-      mk(SleepStage.light, 'Light', 60, 87),
+      SleepAnalyzer.kDeepStagingVerified
+          ? mk(SleepStage.light, 'Light', 60, 87)
+          : mk(SleepStage.light, 'Asleep', 0, 100),
     ];
     final deepStage = SleepAnalyzer.kDeepStagingVerified ? stages[0] : null;
 

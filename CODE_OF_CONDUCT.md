@@ -37,7 +37,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at the maintainer via a GitHub private report on
-https://github.com/KiranPranay/miband — Security → Report a vulnerability, or
+https://github.com/KiranPranay/miband6-oss — Security → Report a vulnerability, or
 by direct message through the maintainer's GitHub profile. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.

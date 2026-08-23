@@ -42,6 +42,9 @@
          connection survive the activity being destroyed. See findings-17. -->
     <application
         android:label="band"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:name=".BandApplication"
         android:icon="@mipmap/ic_launcher">
         <activity

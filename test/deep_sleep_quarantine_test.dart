@@ -88,4 +88,44 @@ void main() {
         reason: 'a full, efficient night should not be dragged down by a stage '
             'the app has stopped claiming to measure');
   });
+
+  test('wake-ups use the audited episode count, not raw awake intervals', () {
+    // The raw count includes one-minute classifier flapping, the sleep-latency
+    // interval and the morning wake-up. On 2026-08-11 it read 35, of which 18
+    // were single minutes at a heart rate below the surrounding median. The
+    // audited figure has existed in SleepQuality all along; this screen simply
+    // never used it.
+    final start = DateTime(2026, 8, 21, 1, 0);
+    SleepInterval iv(int offset, int mins, SleepStage stage) => SleepInterval(
+          startTime: start.add(Duration(minutes: offset)),
+          endTime: start.add(Duration(minutes: offset + mins)),
+          stage: stage,
+          durationMinutes: mins,
+        );
+
+    // 60 asleep, 1 awake (noise), 60 asleep, 20 awake (real), 60 asleep.
+    final day = SleepDay(
+      date: DateTime(2026, 8, 21),
+      intervals: [
+        iv(0, 60, SleepStage.light),
+        iv(60, 1, SleepStage.awake),
+        iv(61, 60, SleepStage.light),
+        iv(121, 20, SleepStage.awake),
+        iv(141, 60, SleepStage.light),
+      ],
+      totalLightMinutes: 180,
+      totalDeepMinutes: 0,
+      totalRemMinutes: 0,
+      totalAwakeMinutes: 21,
+      totalNapMinutes: 0,
+    );
+
+    final a = SleepAnalysis.compute(
+        session: day, allDays: [day], hr: const [], spo2: const []);
+
+    expect(a.wakeCount, SleepQuality.of(day).wakeEpisodes,
+        reason: 'the two must never drift apart again');
+    expect(a.wakeCount, lessThan(2),
+        reason: 'a one-minute blip is not an awakening');
+  });
 }

@@ -7,6 +7,7 @@ import '../../core/sleep_regularity.dart';
 import '../../core/ble_manager.dart';
 import '../../core/activity_sample.dart';
 import '../../core/sleep_analysis.dart';
+import '../../core/sleep_analyzer.dart';
 import '../../core/sleep_audio_controller.dart';
 import '../../storage/snore_store.dart';
 import '../sleep_audio/snore_tracking_screen.dart';
@@ -815,8 +816,14 @@ class _StageHeader extends StatelessWidget {
       spacing: AppSpacing.md,
       runSpacing: AppSpacing.xs,
       children: [
-        chip(AppColors.sleepDeep, 'Deep', day.totalDeepMinutes),
-        chip(AppColors.sleepLight, 'Light', day.totalLightMinutes),
+        // No Deep chip while staging is quarantined. It would read "Deep 0m",
+        // which is a claim about the user's night rather than about the app's
+        // ability to measure it (findings-24).
+        if (SleepAnalyzer.kDeepStagingVerified)
+          chip(AppColors.sleepDeep, 'Deep', day.totalDeepMinutes),
+        chip(AppColors.sleepLight,
+            SleepAnalyzer.kDeepStagingVerified ? 'Light' : 'Asleep',
+            day.totalLightMinutes),
         if (day.totalRemMinutes > 0)
           chip(AppColors.sleepRem, 'REM', day.totalRemMinutes),
       ],
@@ -847,9 +854,12 @@ class _StageLegend extends StatelessWidget {
       runSpacing: AppSpacing.sm,
       children: [
         dot(AppColors.sleepAwake, 'Awake'),
-        dot(AppColors.sleepRem, 'REM'),
-        dot(AppColors.sleepLight, 'Light'),
-        dot(AppColors.sleepDeep, 'Deep'),
+        if (SleepAnalyzer.kDeepStagingVerified) ...[
+          dot(AppColors.sleepRem, 'REM'),
+          dot(AppColors.sleepLight, 'Light'),
+          dot(AppColors.sleepDeep, 'Deep'),
+        ] else
+          dot(AppColors.sleepLight, 'Asleep'),
       ],
     );
   }
@@ -866,22 +876,29 @@ class _HypnoPainter extends CustomPainter {
       case SleepStage.awake:
         return 0;
       case SleepStage.rem:
-        return 1;
+        return SleepAnalyzer.kDeepStagingVerified ? 1 : 1;
       case SleepStage.light:
       case SleepStage.nap:
-        return 2;
+        return SleepAnalyzer.kDeepStagingVerified ? 2 : 1;
       case SleepStage.deep:
-        return 3;
+        return SleepAnalyzer.kDeepStagingVerified ? 3 : 1;
     }
   }
 
-  static const _rowLabels = ['Awake', 'REM', 'Light', 'Deep'];
-  static final _rowColors = [
-    AppColors.sleepAwake,
-    AppColors.sleepRem,
-    AppColors.sleepLight,
-    AppColors.sleepDeep,
-  ];
+  // While deep staging is quarantined the chart has two lanes, not four.
+  // Empty "REM" and "Deep" rows label stages the app is not reporting, which
+  // reads as "you had none" rather than "this is not measured".
+  static List<String> get _rowLabels => SleepAnalyzer.kDeepStagingVerified
+      ? const ['Awake', 'REM', 'Light', 'Deep']
+      : const ['Awake', 'Asleep'];
+  static List<Color> get _rowColors => SleepAnalyzer.kDeepStagingVerified
+      ? [
+          AppColors.sleepAwake,
+          AppColors.sleepRem,
+          AppColors.sleepLight,
+          AppColors.sleepDeep,
+        ]
+      : [AppColors.sleepAwake, AppColors.sleepLight];
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -891,7 +908,7 @@ class _HypnoPainter extends CustomPainter {
     final spanMs = end.difference(start).inMilliseconds;
     if (spanMs <= 0 || plot.width <= 0) return;
 
-    const rows = 4;
+    final rows = _rowLabels.length;
     final rowH = plot.height / rows;
     double rowCenter(int lvl) => plot.top + rowH * lvl + rowH / 2;
     double xAt(DateTime t) =>
@@ -1013,8 +1030,14 @@ class _StageCaveat extends StatelessWidget {
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
-              'Estimated — this band reports deep vs light sleep but does not '
-              'track REM separately.',
+              SleepAnalyzer.kDeepStagingVerified
+                  ? 'Estimated — this band reports deep vs light sleep but '
+                      'does not track REM separately.'
+                  : 'Asleep and awake only. Deep and REM are not shown: this '
+                      'band cannot measure REM, and the deep-sleep estimate '
+                      'was withdrawn after it turned out to pick minutes '
+                      'spread evenly across the night, when real deep sleep '
+                      'is concentrated early.',
               style: AppText.caption.copyWith(color: AppColors.inkMuted),
             ),
           ),
@@ -1159,19 +1182,29 @@ class _StageRow extends StatelessWidget {
                     color: _color, borderRadius: BorderRadius.circular(4)),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Text('${stat.label} sleep', style: AppText.title),
+              // "Asleep" already reads as a stage name; "Light"/"Deep" need
+              // the noun. Appending it unconditionally produced "Asleep sleep".
+              Text(
+                  SleepAnalyzer.kDeepStagingVerified
+                      ? '${stat.label} sleep'
+                      : stat.label,
+                  style: AppText.title),
               const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: s.color.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
+              // No verdict chip on the all-sleep bucket. Its range is 0-100 by
+              // construction, so the chip would read "In range" every night —
+              // a judgement with nothing behind it.
+              if (SleepAnalyzer.kDeepStagingVerified)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: s.color.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(AppRadii.pill),
+                  ),
+                  child: Text(s.text,
+                      style: AppText.caption
+                          .copyWith(color: s.color, fontWeight: FontWeight.w700)),
                 ),
-                child: Text(s.text,
-                    style: AppText.caption
-                        .copyWith(color: s.color, fontWeight: FontWeight.w700)),
-              ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
@@ -1230,7 +1263,10 @@ class _StageRow extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text('Healthy: ${_SleepTabState.fmtMinutes(lowMin)}–${_SleepTabState.fmtMinutes(highMin)}',
+          // No healthy band on the all-sleep bucket: its range is 0-100% by
+          // construction, which renders as a meaningless "Healthy: 0m-<total>".
+          if (SleepAnalyzer.kDeepStagingVerified)
+            Text('Healthy: ${_SleepTabState.fmtMinutes(lowMin)}–${_SleepTabState.fmtMinutes(highMin)}',
               style: AppText.caption.copyWith(color: AppColors.inkFaint)),
         ],
       ),

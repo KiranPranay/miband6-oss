@@ -700,10 +700,17 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         return;
       }
 
-      final authKeyHex =
-          authKeyBytes.map((e) => e.toRadixString(16).padLeft(2, '0')).join();
-      _logger.d("Auth key (hex): $authKeyHex");
-      _logger.d("Auth key length: ${authKeyBytes.length} bytes");
+      // The key itself is never logged, at any level.
+      //
+      // It is the credential that proves ownership of the band: anyone holding
+      // it, in Bluetooth range, can talk to the device. It was being written in
+      // full hex to the in-app log buffer and to logcat, where any other app
+      // with READ_LOGS, an adb capture, or a bug report attached to an issue
+      // would carry it. `debug` level was not protection either — the buffer is
+      // shown in the Debug Console and is what users are asked to paste.
+      //
+      // The length alone is enough to diagnose a malformed key.
+      _logger.d("Auth key loaded: ${authKeyBytes.length} bytes");
 
       _authTimeoutTimer?.cancel();
       _authTimeoutTimer = Timer(const Duration(seconds: 20), () {
@@ -840,7 +847,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     // pairing time. This replaces the previous hard-coded writes (24 h time,
     // date display, a fixed 10 000-step goal) which silently overwrote whatever
     // the user had chosen.
-    await _setUserInfo();
+    // NOT called: `_setUserInfo` writes an invented profile. See its doc.
+    // await _setUserInfo();
     await bandConfig.applyAll(reason: 'post-auth');
 
     // Step 3: Subscriptions
@@ -1452,6 +1460,24 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   // Set User Info (0x4f to 0x0008)
   // ---------------------------------------------------------------------------
 
+  /// Writes a user profile to `fee0/0x0008`. **Not called.**
+  ///
+  /// Every value in it is invented: male, born 1990-01-01, 175 cm, 70 kg,
+  /// user id 12345678. The band uses sex, age, height and weight to derive
+  /// stride length, and from that the distance and calorie figures this app
+  /// displays — so the app was feeding the band made-up anthropometrics and
+  /// then presenting the results as measurements.
+  ///
+  /// Worse, it ran on every connection, overwriting whatever the user had
+  /// configured in Zepp Life. A user who set their real height and weight there
+  /// would have had it replaced by these constants the first time this app
+  /// connected, and every time after.
+  ///
+  /// Leaving it uncalled means the band keeps the profile it already has, so
+  /// distance and calories stay on whatever calibration the user set up. The
+  /// code is kept because writing a *real* profile is the right feature — it
+  /// needs a settings screen to collect one first (P12.1).
+  // ignore: unused_element
   Future<void> _setUserInfo() async {
     if (_device == null || !_device!.isConnected) return;
     try {

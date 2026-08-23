@@ -103,9 +103,17 @@ class BLELogger extends ChangeNotifier {
   }
 
   void _add(LogLevel level, String message) {
-    // Errors and info always reach logcat (hardware runs grep this); verbose
-    // debug lines only when explicitly enabled.
-    if (level != LogLevel.debug || _verbose) {
+    // logcat only in debug builds.
+    //
+    // Every INFO and ERROR line went to logcat unconditionally, including the
+    // band's MAC address and, until it was removed, its auth key. logcat is
+    // readable by adb, captured in bug reports, and on some devices reachable
+    // by other apps — none of which a release build should be feeding.
+    //
+    // The in-app ring buffer below is unaffected: the Debug Console still shows
+    // everything, so hardware runs and support requests lose nothing. The
+    // difference is that the user chooses when to share it.
+    if (kDebugMode && (level != LogLevel.debug || _verbose)) {
       debugPrint('[${level.name.toUpperCase()}] $message');
     }
     _entries.addLast(LogEntry(DateTime.now(), level, message));

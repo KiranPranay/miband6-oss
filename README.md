@@ -3,7 +3,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Flutter](https://img.shields.io/badge/Flutter-3.44%2B-02569B.svg?logo=flutter)](https://flutter.dev)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84.svg?logo=android)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/tests-281%20passing-brightgreen.svg)](test/)
 
 An independent Android companion for the **Xiaomi Mi Band 6**, built on a
 reverse-engineered protocol. No Xiaomi account, no cloud sync, no telemetry —
@@ -25,9 +25,14 @@ That is not a slogan; it is enforced. When the band's own stress stream turned
 out to decode as ordinary activity bytes, the feature was switched off and the
 screen now says so in plain words, rather than continuing to show a confident
 red "96 — High" built from a heart-rate byte
-([findings-23](docs/reverse-engineering/findings-23.md)). When a night's
-"time in bed" was found to be stitched together across two 70-minute gaps by
-three stray samples, the numbers moved and the history changed with them.
+([findings-23](docs/reverse-engineering/findings-23.md)).
+
+The same thing happened to deep sleep. Its share could be tuned anywhere from
+5% to 19% — comfortably inside the published healthy range — but the minutes it
+picked were spread evenly across the night, and real slow-wave sleep is
+front-loaded. A number that lands in the right range for the wrong reason is
+still a fabrication, so the stage was withdrawn rather than calibrated
+([findings-24](docs/reverse-engineering/findings-24.md)).
 
 Every metric is either measured, derived-and-labelled, or **absent**. Anything
 not yet confirmed on real hardware is listed as unconfirmed in
@@ -37,8 +42,8 @@ not yet confirmed on real hardware is listed as unconfirmed in
 
 ## Screenshots
 
-Real data from a real band — including a deep-sleep figure that is currently
-mis-calibrated and shown as such, because that is the honest state of it.
+Real data from a real band. These predate the deep-sleep quarantine, so the
+Sleep screen still shows a Deep figure the app no longer reports.
 
 | Today | Sleep | Heart |
 |---|---|---|
@@ -58,8 +63,9 @@ mis-calibrated and shown as such, because that is the honest state of it.
 | Realtime heart rate + history | ✅ hardware-verified |
 | Steps / distance / calories | ✅ hardware-verified |
 | Battery | ✅ hardware-verified |
-| SpO2 history | ✅ hardware-verified |
-| Sleep sessions, staging, efficiency | ✅ validated against 69k live samples — deep-sleep *calibration* open ([P10.2](docs/reverse-engineering/pending-hardware-verification.md)) |
+| SpO2 history | ⚠️ parser hardware-verified; only shown when actually measured that night |
+| Sleep sessions, duration, efficiency | ✅ validated against 81k live heart-rate readings |
+| Deep / light staging | ❌ **quarantined** — the detector's output is uniform across the night, so it is not finding slow-wave sleep ([findings-24](docs/reverse-engineering/findings-24.md)) |
 | Multi-round history sync (survives gaps in the band's buffer) | ✅ hardware-verified |
 | Band settings (HR interval, display, goals, DND…) | ✅ every command accepted on device |
 | Background connection + auto-reconnect | ✅ backoff observed live |
@@ -103,11 +109,11 @@ Omitted on purpose, each with a reason:
 ### Build and run
 
 ```bash
-git clone https://github.com/KiranPranay/miband.git
-cd miband
+git clone https://github.com/KiranPranay/miband6-oss.git
+cd miband6-oss
 flutter pub get
 flutter analyze          # expected: No issues found!
-flutter test             # expected: 262 passing
+flutter test             # expected: all green
 flutter run              # or: flutter build apk --release
 ```
 
@@ -155,6 +161,11 @@ Enter it as 32 hexadecimal characters. It is stored via `flutter_secure_storage`
 - Everything is stored on the device, in the app's private directory.
 - **No network permission is used for your health data.** There is no account,
   no sync, no analytics, no crash reporting.
+- **Android Auto Backup is switched off** (`allowBackup=false`, plus explicit
+  cloud-backup and device-transfer exclusions). Without that, the app's private
+  directory — months of per-minute data, and the keystore blob holding your
+  band's auth key — is eligible for upload to your Google account. The history
+  can be re-fetched from the band, so there is nothing worth backing up.
 - The auth key lives in the Android Keystore.
 - Snoring detection is opt-in and analyses microphone audio **in memory only**;
   no recording is ever saved or sent.

@@ -383,3 +383,21 @@ stores nothing from the band.
       36, 99) and 7 on a zero-step minute. Store it, walk a known distance, and
       check whether the running sum tracks calories or distance on the band's
       own screen and on `fee0/0x0007`. Display nothing until it does.
+
+- [ ] **P12.1 Collect a real user profile before writing one to the band.**
+      `_setUserInfo` is now uncalled: it wrote male / 1990-01-01 / 175 cm /
+      70 kg / id 12345678 on every connection, which the band turns into stride
+      length and therefore into the distance and calorie figures this app
+      displays — and it overwrote whatever the user had configured in Zepp Life.
+      The right fix is a profile screen that asks, then writes the real values.
+      Until then the band keeps its existing calibration.
+      *Probe:* set a distinctive height in Zepp Life, connect this app, confirm
+      the band's own step-to-distance ratio is unchanged.
+
+- [ ] **P12.2 Confirm the corrupt-transfer guard now actually fires.**
+      `fetchActivityData`/`fetchSpo2` re-read `_dataBuffer` instead of the value
+      `fetchRawData` returned, so `_streamValid == false` never discarded
+      anything for those two types. Fixed by parsing the returned buffer.
+      *Probe:* force a counter gap in a debug build and confirm the log shows
+      "transfer incomplete" **and** that zero samples are stored, with the
+      watermark unmoved.

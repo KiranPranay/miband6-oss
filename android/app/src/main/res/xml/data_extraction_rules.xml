@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Health data never leaves the device. That is the promise the README makes,
+  and Android Auto Backup was quietly breaking it: with no opt-out, the app's
+  private directory — two months of per-minute activity and heart rate, several
+  megabytes of it — was eligible for upload to the user's Google Drive, along
+  with the flutter_secure_storage blob holding the band's auth key.
+
+  Cloud backup and device-to-device transfer are both excluded. There is no
+  server-side component to this app, so there is nothing legitimate to back up:
+  the data can be re-fetched from the band, which holds about a week of history.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>
