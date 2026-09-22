@@ -49,11 +49,27 @@ class _SleepTabState extends State<SleepTab> {
   }
 
   static const _weekdayShort = [
-    'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun',
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
   ];
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   /// Sleep that ended this morning is "Last night" — never "Today".
@@ -152,10 +168,14 @@ class _SleepTabState extends State<SleepTab> {
     if (selected == null || selected.isNap) {
       final now = DateTime.now();
       final latestDay = SleepAnalyzer.sleepDayFor(now);
-      final candidates = [latestDay, latestDay.subtract(const Duration(days: 1))];
+      final candidates = [
+        latestDay,
+        latestDay.subtract(const Duration(days: 1))
+      ];
       for (final d in candidates) {
         restOnly = SleepAnalyzer.restOnlyNight(
-            store.samples, store.hrReadings, d, sessions: days);
+            store.samples, store.hrReadings, d,
+            sessions: days);
         if (restOnly != null) break;
       }
     }
@@ -206,7 +226,7 @@ class _SleepTabState extends State<SleepTab> {
                 const _AiAnalysisCard(),
                 const SizedBox(height: AppSpacing.lg),
                 _TimelineCard(day: selected),
-                                const SectionHeader('Sleep stages'),
+                const SectionHeader('Sleep stages'),
                 const _StageCaveat(),
                 if (!analysis.hasPersonalBaseline) ...[
                   const SizedBox(height: AppSpacing.sm),
@@ -214,20 +234,20 @@ class _SleepTabState extends State<SleepTab> {
                 ],
                 const SizedBox(height: AppSpacing.md),
                 _StageList(a: analysis),
-                                const SectionHeader('Metrics'),
+                const SectionHeader('Metrics'),
                 _MetricsGrid(a: analysis),
                 const SizedBox(height: AppSpacing.lg),
                 _RecommendationsCard(recs: analysis.recommendations),
-                                const SectionHeader('Sleep sounds'),
+                const SectionHeader('Sleep sounds'),
                 const _SnoringSection(),
-                                const SectionHeader('Sleep regularity'),
+                const SectionHeader('Sleep regularity'),
                 _RegularityCard(result: regularity),
-                                const SectionHeader('Recent nights'),
+                const SectionHeader('Recent nights'),
                 _WeeklySummary(a: analysis, nights: _perNight(days)),
                 const SizedBox(height: AppSpacing.sm),
                 _WeekChart(nights: _perNight(days)),
                 if (recent.length > 1) ...[
-                                    const SectionHeader('Sleep log'),
+                  const SectionHeader('Sleep log'),
                   _SessionsByDay(
                     sessions: recent,
                     selectedStart: selected.startTime,
@@ -316,7 +336,8 @@ class _RestOnlyCard extends StatelessWidget {
             'moved through most of it and the band flagged only '
             '${_SleepTabState.fmtMinutes(n.flaggedMinutes)} as sleep. '
             'That is not enough to call it sleep, so there is no score.',
-            style: AppText.body.copyWith(color: AppColors.inkMuted, height: 1.4),
+            style:
+                AppText.body.copyWith(color: AppColors.inkMuted, height: 1.4),
           ),
         ],
       ),
@@ -517,10 +538,11 @@ class _ScoreRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(c.label, style: AppText.label.copyWith(color: AppColors.ink)),
+              Text(c.label,
+                  style: AppText.label.copyWith(color: AppColors.ink)),
               Text('${(c.weight * 100).round()}% weight',
-                  style: AppText.caption.copyWith(
-                      color: AppColors.inkFaint, fontSize: 10)),
+                  style: AppText.caption
+                      .copyWith(color: AppColors.inkFaint, fontSize: 10)),
             ],
           ),
         ),
@@ -547,7 +569,8 @@ class _ScoreRow extends StatelessWidget {
                         width: ww,
                         decoration: BoxDecoration(
                             color: color,
-                            borderRadius: BorderRadius.circular(AppRadii.pill))),
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.pill))),
                   );
                 }),
               ]),
@@ -592,8 +615,8 @@ class _ScoreRing extends StatelessWidget {
                   CountUpText(score,
                       style: AppText.metric.copyWith(color: AppColors.ink)),
                   Text('/ 100',
-                      style: AppText.caption
-                          .copyWith(color: AppColors.inkFaint)),
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkFaint)),
                 ],
               ),
             ),
@@ -745,8 +768,7 @@ class _InsightsCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.lightbulb_rounded,
-                  size: 18, color: AppColors.primary),
+              Icon(Icons.lightbulb_rounded, size: 18, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Text('Insights', style: AppText.title),
             ],
@@ -762,9 +784,8 @@ class _InsightsCard extends StatelessWidget {
                       ? Icons.check_circle_rounded
                       : Icons.info_rounded,
                   size: 18,
-                  color: insights[i].good
-                      ? AppColors.success
-                      : AppColors.warning,
+                  color:
+                      insights[i].good ? AppColors.success : AppColors.warning,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
@@ -812,7 +833,8 @@ class _AiAnalysisCard extends StatelessWidget {
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(AppRadii.lg),
-            border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+            border:
+                Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
           ),
           child: Row(
             children: [
@@ -854,7 +876,8 @@ class _AiAnalysisCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       'Personalized summaries of your sleep trends — in development.',
-                      style: AppText.caption.copyWith(color: AppColors.inkMuted),
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkMuted),
                     ),
                   ],
                 ),
@@ -891,7 +914,8 @@ class _TimelineCard extends StatelessWidget {
               Text('Sleep timeline', style: AppText.title),
               const Spacer(),
               if (hasData)
-                Text('${_SleepTabState.clock(start)} – ${_SleepTabState.clock(end)}',
+                Text(
+                    '${_SleepTabState.clock(start)} – ${_SleepTabState.clock(end)}',
                     style: AppText.caption.copyWith(color: AppColors.inkMuted)),
             ],
           ),
@@ -942,13 +966,13 @@ class _StageHeader extends StatelessWidget {
             Container(
               width: 8,
               height: 8,
-              decoration:
-                  BoxDecoration(color: c, borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                  color: c, borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(width: 5),
             Text('$label ${_SleepTabState.fmtMinutes(m)}',
-                style: AppText.caption
-                    .copyWith(color: AppColors.ink, fontWeight: FontWeight.w700)),
+                style: AppText.caption.copyWith(
+                    color: AppColors.ink, fontWeight: FontWeight.w700)),
             const SizedBox(width: 3),
             Text('(${pct(m)}%)',
                 style: AppText.caption.copyWith(color: AppColors.inkMuted)),
@@ -965,8 +989,10 @@ class _StageHeader extends StatelessWidget {
         // SleepDay totals: a nap keeps its minutes in `totalNapMinutes`, so
         // the legend read "Light 0m" under a chart full of light-sleep blocks.
         if (SleepAnalyzer.kDeepStagingEnabled)
-          chip(AppColors.sleepDeep, 'Deep (est.)', _stageMinutes(day, SleepStage.deep)),
-        chip(AppColors.sleepLight,
+          chip(AppColors.sleepDeep, 'Deep (est.)',
+              _stageMinutes(day, SleepStage.deep)),
+        chip(
+            AppColors.sleepLight,
             SleepAnalyzer.kDeepStagingEnabled ? 'Light' : 'Asleep',
             _stageMinutes(day, SleepStage.light)),
         if (day.totalRemMinutes > 0)
@@ -991,8 +1017,8 @@ class _StageLegend extends StatelessWidget {
             Container(
               width: 11,
               height: 11,
-              decoration:
-                  BoxDecoration(color: c, borderRadius: BorderRadius.circular(3)),
+              decoration: BoxDecoration(
+                  color: c, borderRadius: BorderRadius.circular(3)),
             ),
             const SizedBox(width: 6),
             Text(l, style: AppText.caption.copyWith(color: AppColors.inkMuted)),
@@ -1018,7 +1044,8 @@ class _HypnoPainter extends CustomPainter {
   final List<SleepInterval> intervals;
   final DateTime start;
   final DateTime end;
-  _HypnoPainter({required this.intervals, required this.start, required this.end});
+  _HypnoPainter(
+      {required this.intervals, required this.start, required this.end});
 
   int _level(SleepStage s) {
     switch (s) {
@@ -1089,7 +1116,8 @@ class _HypnoPainter extends CustomPainter {
         final x = xAt(tick);
         // Skip a tick that would sit on top of the start or end label.
         if (x - plot.left > 28 && plot.right - x > 28) {
-          canvas.drawLine(Offset(x, plot.top), Offset(x, plot.bottom), hourPaint);
+          canvas.drawLine(
+              Offset(x, plot.top), Offset(x, plot.bottom), hourPaint);
           _text(canvas, _hourLabel(tick), Offset(x - 13, plot.bottom + 5),
               color: AppColors.inkFaint, size: 10);
           lastTickX = x;
@@ -1102,7 +1130,8 @@ class _HypnoPainter extends CustomPainter {
     _text(canvas, startLabel, Offset(plot.left - 6, plot.bottom + 5),
         color: AppColors.inkMuted, size: 10, weight: FontWeight.w700);
     if (lastTickX == null || plot.right - lastTickX > 40) {
-      _text(canvas, endLabel, Offset(plot.right - (shortSpan ? 44 : 32), plot.bottom + 5),
+      _text(canvas, endLabel,
+          Offset(plot.right - (shortSpan ? 44 : 32), plot.bottom + 5),
           color: AppColors.inkMuted, size: 10, weight: FontWeight.w700);
     }
 
@@ -1194,8 +1223,7 @@ class _StageCaveat extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline_rounded,
-              size: 15, color: AppColors.inkMuted),
+          Icon(Icons.info_outline_rounded, size: 15, color: AppColors.inkMuted),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
@@ -1242,8 +1270,7 @@ class _BaselineNote extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.insights_rounded,
-                  size: 15, color: AppColors.primary),
+              Icon(Icons.insights_rounded, size: 15, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text('Building your baseline · $n of $need nights',
@@ -1340,7 +1367,8 @@ class _StageRow extends StatelessWidget {
     final highMin = (totalMin * stat.normalHighPct / 100).round();
 
     return AppCard(
-      color: Color.alphaBlend(_color.withValues(alpha: 0.045), AppColors.surface),
+      color:
+          Color.alphaBlend(_color.withValues(alpha: 0.045), AppColors.surface),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1373,8 +1401,8 @@ class _StageRow extends StatelessWidget {
                     borderRadius: BorderRadius.circular(AppRadii.pill),
                   ),
                   child: Text(s.text,
-                      style: AppText.caption
-                          .copyWith(color: s.color, fontWeight: FontWeight.w700)),
+                      style: AppText.caption.copyWith(
+                          color: s.color, fontWeight: FontWeight.w700)),
                 ),
             ],
           ),
@@ -1437,8 +1465,9 @@ class _StageRow extends StatelessWidget {
           // No healthy band on the all-sleep bucket: its range is 0-100% by
           // construction, which renders as a meaningless "Healthy: 0m-<total>".
           if (SleepAnalyzer.kDeepStagingEnabled)
-            Text('Healthy: ${_SleepTabState.fmtMinutes(lowMin)}–${_SleepTabState.fmtMinutes(highMin)}',
-              style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+            Text(
+                'Healthy: ${_SleepTabState.fmtMinutes(lowMin)}–${_SleepTabState.fmtMinutes(highMin)}',
+                style: AppText.caption.copyWith(color: AppColors.inkFaint)),
         ],
       ),
     );
@@ -1667,14 +1696,30 @@ class _WeeklySummary extends StatelessWidget {
 
   String _weekdayLong(DateTime d) {
     const names = [
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
     ];
     return names[(d.weekday - 1).clamp(0, 6)];
   }
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   static String _shortDate(DateTime d) =>
@@ -1685,7 +1730,8 @@ class _WeeklySummary extends StatelessWidget {
   /// A weekday alone is ambiguous the moment the pool covers more than a week —
   /// "Best night: Friday" could be any of several Fridays.
   String? get _span {
-    final pool = nights.length <= 7 ? nights : nights.sublist(nights.length - 7);
+    final pool =
+        nights.length <= 7 ? nights : nights.sublist(nights.length - 7);
     if (pool.isEmpty) return null;
     final first = pool.first.date;
     final last = pool.last.date;
@@ -1838,7 +1884,8 @@ class _SleepDebtRow extends StatelessWidget {
           children: [
             Icon(Icons.account_balance_wallet_rounded, size: 18, color: color),
             const SizedBox(width: AppSpacing.sm),
-            Text('Sleep debt', style: AppText.label.copyWith(color: AppColors.ink)),
+            Text('Sleep debt',
+                style: AppText.label.copyWith(color: AppColors.ink)),
             const SizedBox(width: 6),
             Icon(Icons.info_outline_rounded,
                 size: 13, color: AppColors.inkFaint),
@@ -1874,8 +1921,8 @@ class _MiniStat extends StatelessWidget {
             const SizedBox(height: 2),
             Text(detail!,
                 textAlign: TextAlign.center,
-                style:
-                    AppText.caption.copyWith(color: AppColors.inkFaint, fontSize: 10)),
+                style: AppText.caption
+                    .copyWith(color: AppColors.inkFaint, fontSize: 10)),
           ],
         ],
       ),
@@ -2024,12 +2071,12 @@ class _SessionsByDay extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xs, AppSpacing.sm, 0, AppSpacing.sm),
             child: Text(headingFor(k),
-                style: AppText.label
-                    .copyWith(color: AppColors.inkMuted, fontWeight: FontWeight.w800)),
+                style: AppText.label.copyWith(
+                    color: AppColors.inkMuted, fontWeight: FontWeight.w800)),
           ),
           for (final s in (groups[k]!
-            ..sort((a, b) => (b.startTime ?? b.date)
-                .compareTo(a.startTime ?? a.date)))) ...[
+            ..sort((a, b) =>
+                (b.startTime ?? b.date).compareTo(a.startTime ?? a.date)))) ...[
             _SessionRow(
               day: s,
               selected: s.startTime == selectedStart,
@@ -2098,12 +2145,16 @@ class _SessionRow extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(nap ? 'Nap' : 'Night sleep',
-                      style: nap ? AppText.label.copyWith(color: AppColors.ink, fontWeight: FontWeight.w700) : AppText.title),
+                      style: nap
+                          ? AppText.label.copyWith(
+                              color: AppColors.ink, fontWeight: FontWeight.w700)
+                          : AppText.title),
                   const SizedBox(height: 2),
                   if (start != null && end != null)
                     Text(
                       '${_SleepTabState.clock(start)} – ${_SleepTabState.clock(end)}',
-                      style: AppText.caption.copyWith(color: AppColors.inkMuted),
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkMuted),
                     ),
                 ],
               ),
@@ -2162,8 +2213,7 @@ class _SnoreOptIn extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(Icons.mic_rounded,
-                color: AppColors.primary, size: 22),
+            child: Icon(Icons.mic_rounded, color: AppColors.primary, size: 22),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
@@ -2197,8 +2247,8 @@ class _SnoreListeningCard extends StatelessWidget {
           Container(
             width: 10,
             height: 10,
-            decoration: BoxDecoration(
-                color: AppColors.danger, shape: BoxShape.circle),
+            decoration:
+                BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
@@ -2233,8 +2283,8 @@ class _SnoreResult extends StatelessWidget {
                   color: AppColors.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: Icon(Icons.mic_rounded,
-                    color: AppColors.primary, size: 19),
+                child:
+                    Icon(Icons.mic_rounded, color: AppColors.primary, size: 19),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
@@ -2250,8 +2300,7 @@ class _SnoreResult extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onTrackAgain,
-                icon: Icon(Icons.refresh_rounded,
-                    color: AppColors.inkMuted),
+                icon: Icon(Icons.refresh_rounded, color: AppColors.inkMuted),
                 tooltip: 'Track again tonight',
               ),
             ],
@@ -2272,7 +2321,8 @@ class _SnoreResult extends StatelessWidget {
                   child: Text('min snoring', style: AppText.label),
                 ),
                 const Spacer(),
-                Text('${sum.eventCount} episode${sum.eventCount == 1 ? '' : 's'}',
+                Text(
+                    '${sum.eventCount} episode${sum.eventCount == 1 ? '' : 's'}',
                     style: AppText.label.copyWith(color: AppColors.inkMuted)),
               ],
             ),
@@ -2354,8 +2404,7 @@ class _RegularityCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Text(
-            r?.explanation ??
-                'Sleep regularity needs a few days of data.',
+            r?.explanation ?? 'Sleep regularity needs a few days of data.',
             style: AppText.caption.copyWith(color: AppColors.inkMuted),
           ),
         ),

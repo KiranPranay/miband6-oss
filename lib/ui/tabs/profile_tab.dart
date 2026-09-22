@@ -25,7 +25,8 @@ class ProfileTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final ble = context.watch<BLEManager>();
 
-    final connected = ble.isConnected && ble.authState == AuthState.authenticated;
+    final connected =
+        ble.isConnected && ble.authState == AuthState.authenticated;
     final deviceName = (ble.device?.platformName != null &&
             ble.device!.platformName.isNotEmpty)
         ? ble.device!.platformName
@@ -164,8 +165,7 @@ class ProfileTab extends StatelessWidget {
                             width: 38,
                             height: 38,
                             decoration: BoxDecoration(
-                              color:
-                                  AppColors.primary.withValues(alpha: 0.14),
+                              color: AppColors.primary.withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Icon(Icons.watch_rounded,
@@ -293,8 +293,7 @@ class _DeviceCard extends StatelessWidget {
           // Battery row
           Row(
             children: [
-              Icon(Icons.battery_full_rounded,
-                  size: 18, color: batteryColor),
+              Icon(Icons.battery_full_rounded, size: 18, color: batteryColor),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: ClipRRect(
@@ -305,8 +304,7 @@ class _DeviceCard extends StatelessWidget {
                         height: 8,
                         decoration: BoxDecoration(
                           color: AppColors.surfaceAlt,
-                          borderRadius:
-                              BorderRadius.circular(AppRadii.pill),
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
                         ),
                       ),
                       FractionallySizedBox(
@@ -315,8 +313,7 @@ class _DeviceCard extends StatelessWidget {
                           height: 8,
                           decoration: BoxDecoration(
                             color: batteryColor,
-                            borderRadius:
-                                BorderRadius.circular(AppRadii.pill),
+                            borderRadius: BorderRadius.circular(AppRadii.pill),
                           ),
                         ),
                       ),
@@ -336,8 +333,7 @@ class _DeviceCard extends StatelessWidget {
           // Last sync line
           Row(
             children: [
-              Icon(Icons.sync_rounded,
-                  size: 15, color: AppColors.inkFaint),
+              Icon(Icons.sync_rounded, size: 15, color: AppColors.inkFaint),
               const SizedBox(width: AppSpacing.sm),
               Text(
                 'Last sync ${_syncLabel(ble.lastSyncTime)}',
@@ -359,13 +355,13 @@ class _DeviceCard extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.danger,
                       side: BorderSide(color: AppColors.danger),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.md),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: AppSpacing.md),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadii.md),
                       ),
-                      textStyle: AppText.label
-                          .copyWith(fontWeight: FontWeight.w700),
+                      textStyle:
+                          AppText.label.copyWith(fontWeight: FontWeight.w700),
                     ),
                   )
                 : FilledButton.icon(
@@ -375,14 +371,13 @@ class _DeviceCard extends StatelessWidget {
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.md),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: AppSpacing.md),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadii.md),
                       ),
                       textStyle: AppText.label.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700),
+                          color: Colors.white, fontWeight: FontWeight.w700),
                     ),
                   ),
           ),
@@ -434,8 +429,7 @@ class _FeatureRow extends StatelessWidget {
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(child: Text(title, style: AppText.title)),
-          Icon(Icons.chevron_right,
-              color: AppColors.inkFaint, size: 22),
+          Icon(Icons.chevron_right, color: AppColors.inkFaint, size: 22),
         ],
       ),
     );

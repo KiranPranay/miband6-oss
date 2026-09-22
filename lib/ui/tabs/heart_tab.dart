@@ -48,8 +48,8 @@ class _HeartTabState extends State<HeartTab> {
           .toList();
     }
     final days = _range == 2 ? 29 : 6; // Week = last 7 days, Month = last 30
-    final cutoff = DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: days));
+    final cutoff =
+        DateTime(now.year, now.month, now.day).subtract(Duration(days: days));
     return all.where((r) => !r.timestamp.isBefore(cutoff)).toList();
   }
 
@@ -58,8 +58,8 @@ class _HeartTabState extends State<HeartTab> {
   List<String> _ranges(List<HeartRateReading> all) {
     if (all.isEmpty) return const ['Today', 'Week'];
     final now = DateTime.now();
-    final weekAgo =
-        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 7));
+    final weekAgo = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: 7));
     final hasOlder = all.any((r) => r.timestamp.isBefore(weekAgo));
     return hasOlder
         ? const ['Today', 'Week', 'Month']
@@ -110,7 +110,7 @@ class _HeartTabState extends State<HeartTab> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 _InsightsCard(insights: heart.insights),
-                                SectionHeader(
+                SectionHeader(
                   'Trend',
                   trailing: SegmentedToggle(
                     options: ranges,
@@ -140,12 +140,12 @@ class _HeartTabState extends State<HeartTab> {
                   _HighestCard(event: heart.highest!),
                 ],
                 if (_range == 1) ...[
-                                    const SectionHeader('This week'),
+                  const SectionHeader('This week'),
                   _WeekSummaryCard(heart: heart),
                 ],
-                                const SectionHeader('Recommendations'),
+                const SectionHeader('Recommendations'),
                 _RecommendationsCard(items: heart.recommendations),
-                                const SectionHeader('More heart metrics'),
+                const SectionHeader('More heart metrics'),
                 const _MoreMetricsCard(),
               ],
             ),
@@ -159,14 +159,13 @@ class _HeartTabState extends State<HeartTab> {
   Widget _buildAppBar(BLEManager ble) {
     final live = ble.heartRate;
     final store = ble.activityStore;
-    final bpm = live ??
-        (store.hrReadings.isEmpty ? null : store.hrReadings.last.value);
+    final bpm =
+        live ?? (store.hrReadings.isEmpty ? null : store.hrReadings.last.value);
     final isLive = live != null;
     return TabHeaderSliver(
       title: 'Heart',
-      subtitle: bpm == null
-          ? '-- BPM'
-          : (isLive ? '$bpm BPM now' : '$bpm BPM last'),
+      subtitle:
+          bpm == null ? '-- BPM' : (isLive ? '$bpm BPM now' : '$bpm BPM last'),
       subtitleIcon: Icons.favorite_rounded,
       subtitleIconColor: AppColors.heart,
     );
@@ -213,13 +212,29 @@ String _statusLabel(HrStatus s) {
 ({String text, IconData icon, Color color}) _trendChip(HrTrend t) {
   switch (t) {
     case HrTrend.stable:
-      return (text: 'Stable', icon: Icons.trending_flat_rounded, color: AppColors.sleep);
+      return (
+        text: 'Stable',
+        icon: Icons.trending_flat_rounded,
+        color: AppColors.sleep
+      );
     case HrTrend.rising:
-      return (text: 'Rising', icon: Icons.trending_up_rounded, color: AppColors.warning);
+      return (
+        text: 'Rising',
+        icon: Icons.trending_up_rounded,
+        color: AppColors.warning
+      );
     case HrTrend.falling:
-      return (text: 'Easing', icon: Icons.trending_down_rounded, color: AppColors.sleep);
+      return (
+        text: 'Easing',
+        icon: Icons.trending_down_rounded,
+        color: AppColors.sleep
+      );
     case HrTrend.unknown:
-      return (text: 'Building data', icon: Icons.more_horiz_rounded, color: AppColors.inkFaint);
+      return (
+        text: 'Building data',
+        icon: Icons.more_horiz_rounded,
+        color: AppColors.inkFaint
+      );
   }
 }
 
@@ -283,7 +298,8 @@ class _HeartHero extends StatelessWidget {
                       textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(cur != null && cur > 0 ? '$cur' : '--',
-                            style: AppText.metric.copyWith(color: AppColors.heart)),
+                            style: AppText.metric
+                                .copyWith(color: AppColors.heart)),
                         const SizedBox(width: 4),
                         Padding(
                           padding: const EdgeInsets.only(bottom: 3),
@@ -384,8 +400,8 @@ class _LiveBadge extends StatelessWidget {
           Container(
             width: 7,
             height: 7,
-            decoration: BoxDecoration(
-                color: AppColors.heart, shape: BoxShape.circle),
+            decoration:
+                BoxDecoration(color: AppColors.heart, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
           Text('LIVE',
@@ -476,8 +492,7 @@ class _InsightsCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.lightbulb_rounded,
-                  size: 18, color: AppColors.primary),
+              Icon(Icons.lightbulb_rounded, size: 18, color: AppColors.primary),
               const SizedBox(width: AppSpacing.sm),
               Text('Insights', style: AppText.title),
             ],
@@ -540,7 +555,13 @@ class _HeartRateChart extends StatelessWidget {
     // looked equally long. Plotting against the clock makes horizontal distance
     // mean elapsed time, which is the only reading of a trend line anyone
     // actually makes.
-    final t0 = readings.first.timestamp;
+    // Today is drawn on a fixed midnight-to-midnight axis, so the chart reads
+    // the same at 01:00 as at 23:00 and the eye learns where 6 a.m. is. Week
+    // and Month run from the start of their range with a tick per day.
+    final first = readings.first.timestamp;
+    final t0 = week
+        ? DateTime(first.year, first.month, first.day)
+        : DateTime(first.year, first.month, first.day);
     double x(DateTime t) => t.difference(t0).inSeconds / 60.0;
 
     // Don't draw a line across a stretch with no data — an interpolated segment
@@ -552,13 +573,16 @@ class _HeartRateChart extends StatelessWidget {
     var current = <FlSpot>[];
     for (var i = 0; i < readings.length; i++) {
       if (i > 0 &&
-          readings[i].timestamp.difference(readings[i - 1].timestamp).inMinutes >
+          readings[i]
+                  .timestamp
+                  .difference(readings[i - 1].timestamp)
+                  .inMinutes >
               gapMinutes) {
         if (current.isNotEmpty) segments.add(current);
         current = <FlSpot>[];
       }
-      current.add(
-          FlSpot(x(readings[i].timestamp), readings[i].value.toDouble()));
+      current
+          .add(FlSpot(x(readings[i].timestamp), readings[i].value.toDouble()));
     }
     if (current.isNotEmpty) segments.add(current);
 
@@ -566,13 +590,18 @@ class _HeartRateChart extends StatelessWidget {
     final rawMin = values.reduce((a, b) => a < b ? a : b).toDouble();
     final rawMax = values.reduce((a, b) => a > b ? a : b).toDouble();
     final avg = (values.reduce((a, b) => a + b) / values.length);
-    var minV = (rawMin - 8).clamp(0, double.infinity).toDouble();
-    var maxV = rawMax + 8;
-    if (maxV - minV < 20) maxV = minV + 20;
-    final yInterval = ((maxV - minV) / 3).clamp(1, double.infinity).toDouble();
-    final lastX = x(readings.last.timestamp);
-    final maxX = lastX <= 0 ? 1.0 : lastX;
-    final labelStep = maxX / 3;
+    // "Nice" y ticks: a step of 10 or 20 bpm, extents rounded to it, so the
+    // axis reads 50 · 60 · 70 rather than 52 · 81 · 102.
+    final span = (rawMax - rawMin).clamp(20.0, 300.0);
+    final yInterval = span > 90 ? 20.0 : 10.0;
+    final minV = ((rawMin - 5) / yInterval).floor() * yInterval;
+    final maxV = ((rawMax + 5) / yInterval).ceil() * yInterval;
+    // Today: full day. Week/Month: whole days from the range start.
+    final maxX =
+        week ? (x(readings.last.timestamp) / 1440).ceil() * 1440.0 : 1440.0;
+    final nowX = week ? null : x(DateTime.now());
+    // Today: 6-hour ticks. Week: daily. Month: every 5 days.
+    final labelStep = week ? (maxX > 10 * 1440 ? 5 * 1440.0 : 1440.0) : 360.0;
 
     // Labelled HR-zone bands, each clipped to the visible y-range so only the
     // zones the data actually touches are tinted.
@@ -584,7 +613,7 @@ class _HeartRateChart extends StatelessWidget {
       bands.add(HorizontalRangeAnnotation(
         y1: lo,
         y2: hi,
-        color: _zoneColor(z.label).withValues(alpha: 0.07),
+        color: _zoneColor(z.label).withValues(alpha: 0.11),
       ));
     }
 
@@ -595,10 +624,11 @@ class _HeartRateChart extends StatelessWidget {
           dashArray: const [4, 4],
           label: HorizontalLineLabel(
             show: true,
-            alignment: Alignment.topLeft,
-            padding: const EdgeInsets.only(left: 2, bottom: 2),
-            style: AppText.caption.copyWith(
-                color: c, fontSize: 9, fontWeight: FontWeight.w700),
+            // Right edge: on the left these sat on top of the y-axis labels.
+            alignment: Alignment.topRight,
+            padding: const EdgeInsets.only(right: 4, bottom: 2),
+            style: AppText.caption
+                .copyWith(color: c, fontSize: 9, fontWeight: FontWeight.w700),
             labelResolver: (_) => label,
           ),
         );
@@ -623,6 +653,22 @@ class _HeartRateChart extends StatelessWidget {
             marker(rawMin, AppColors.sleep, 'min'),
             marker(avg, AppColors.inkMuted, 'avg'),
             marker(rawMax, AppColors.heart, 'max'),
+          ],
+          verticalLines: [
+            if (nowX != null)
+              VerticalLine(
+                x: nowX,
+                color: AppColors.inkFaint.withValues(alpha: 0.7),
+                strokeWidth: 1,
+                dashArray: const [3, 3],
+                label: VerticalLineLabel(
+                  show: true,
+                  alignment: Alignment.topRight,
+                  style: AppText.caption
+                      .copyWith(color: AppColors.inkFaint, fontSize: 9),
+                  labelResolver: (_) => 'now',
+                ),
+              ),
           ],
         ),
         titlesData: FlTitlesData(
@@ -660,13 +706,18 @@ class _HeartRateChart extends StatelessWidget {
               reservedSize: 22,
               interval: labelStep <= 0 ? 1 : labelStep,
               getTitlesWidget: (value, meta) {
-                // x is minutes from the first reading, so a label is just that
-                // offset added back onto the first timestamp.
+                // x is minutes from the axis origin (midnight, or the range
+                // start), so a label is that offset added back on.
                 final t = t0.add(Duration(seconds: (value * 60).round()));
-                final text = week
-                    ? '${t.day}/${t.month}'
-                    : '${t.hour.toString().padLeft(2, '0')}:'
-                        '${t.minute.toString().padLeft(2, '0')}';
+                String text;
+                if (week) {
+                  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                  text = maxX > 10 * 1440 ? '${t.day}' : wd[t.weekday - 1];
+                } else {
+                  // 12a · 6a · 12p · 6p · 12a
+                  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+                  text = '$h${t.hour < 12 ? 'a' : 'p'}';
+                }
                 return Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.xs),
                   child: Text(text,
@@ -928,7 +979,8 @@ class _WeekSummaryCard extends StatelessWidget {
       child: Column(
         children: [
           Row(children: [
-            Expanded(child: _CenterStat(label: 'Average', value: v(heart.weekAvg))),
+            Expanded(
+                child: _CenterStat(label: 'Average', value: v(heart.weekAvg))),
             Container(width: 1, height: 34, color: AppColors.divider),
             Expanded(
                 child: _CenterStat(
@@ -941,9 +993,11 @@ class _WeekSummaryCard extends StatelessWidget {
             child: Divider(height: 1, color: AppColors.divider),
           ),
           Row(children: [
-            Expanded(child: _CenterStat(label: 'Highest', value: v(heart.weekHigh))),
+            Expanded(
+                child: _CenterStat(label: 'Highest', value: v(heart.weekHigh))),
             Container(width: 1, height: 34, color: AppColors.divider),
-            Expanded(child: _CenterStat(label: 'Lowest', value: v(heart.weekLow))),
+            Expanded(
+                child: _CenterStat(label: 'Lowest', value: v(heart.weekLow))),
           ]),
           if (heart.vsLastWeekAvg != null) ...[
             Padding(
@@ -1021,8 +1075,7 @@ class _CenterStat extends StatelessWidget {
   final Color? accent;
   // `accent` can no longer default to a palette colour: those are getters now
   // (dark mode), so the default is resolved at build time instead.
-  const _CenterStat(
-      {required this.label, required this.value, this.accent});
+  const _CenterStat({required this.label, required this.value, this.accent});
 
   @override
   Widget build(BuildContext context) {
@@ -1036,8 +1089,8 @@ class _CenterStat extends StatelessWidget {
           textBaseline: TextBaseline.alphabetic,
           children: [
             Text(value,
-                style: AppText.title
-                    .copyWith(color: accent ?? AppColors.heart)),
+                style:
+                    AppText.title.copyWith(color: accent ?? AppColors.heart)),
             if (value != '—') ...[
               const SizedBox(width: 3),
               Text('bpm', style: AppText.unit),

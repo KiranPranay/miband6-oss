@@ -7,6 +7,7 @@ import '../../core/analysis_cache.dart';
 import '../../core/ble_manager.dart';
 import '../../core/daily_summary.dart';
 import '../../core/sleep_analysis.dart';
+import '../../core/sleep_analyzer.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
@@ -57,6 +58,7 @@ class _TodayTabState extends State<TodayTab> {
   }
 
   String _greeting(int hour) {
+    if (hour < 5) return 'Good night';
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
@@ -135,10 +137,27 @@ class _TodayTabState extends State<TodayTab> {
     // The results are memoised against the store revision, so a rebuild caused
     // by a live heart rate costs a map lookup rather than three full passes.
     final allDays = store.computeSleepDays();
-    final lastNight = _lastNight(allDays, now);
+    final lastNightAny = _lastNight(allDays, now);
+    // A nap is not last night. Feeding a 48-minute nap into the composite as
+    // "sleep 34 · Poor" scored the day against something that did not happen;
+    // with no night the composite re-normalises over activity and heart and
+    // says sleep is missing, which is the truth. The nap itself still shows
+    // in the summary rows below, labelled as a nap.
+    final lastNight =
+        (lastNightAny != null && lastNightAny.isNap) ? null : lastNightAny;
     final sleep = lastNight == null
         ? null
         : AnalysisCache.sleep(store, session: lastNight, allDays: allDays);
+    // What the band did record on a night it could not classify (findings-26).
+    RestOnlyNight? restOnly;
+    if (lastNight == null) {
+      final d = SleepAnalyzer.sleepDayFor(now);
+      restOnly = SleepAnalyzer.restOnlyNight(store.samples, store.hrReadings, d,
+              sessions: allDays) ??
+          SleepAnalyzer.restOnlyNight(store.samples, store.hrReadings,
+              d.subtract(const Duration(days: 1)),
+              sessions: allDays);
+    }
     final heart = AnalysisCache.heart(store, currentBpm: ble.heartRate);
     final activity = AnalysisCache.activity(
       store,
@@ -197,6 +216,12 @@ class _TodayTabState extends State<TodayTab> {
 
                   // --- Linked summary cards (salience-ordered) ---
                   const SectionHeader('Your day'),
+                  if (restOnly != null) ...[
+                    _RestOnlyRow(
+                        night: restOnly,
+                        onTap: () => widget.onNavigate?.call(_sleepTab)),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
                   _buildSummaryCards(summary.cards),
                   // Gated-trends note: personal comparisons need post-fix history.
                   if (!activity.hasPersonalBaseline) ...[
@@ -495,8 +520,7 @@ class _ComponentRow extends StatelessWidget {
               style: AppText.title.copyWith(color: color)),
           const SizedBox(width: AppSpacing.sm),
         ] else ...[
-          Text('—',
-              style: TextStyle(color: AppColors.inkFaint)),
+          Text('—', style: TextStyle(color: AppColors.inkFaint)),
           const SizedBox(width: AppSpacing.sm),
         ],
         Expanded(
@@ -572,8 +596,7 @@ class _SummaryCard extends StatelessWidget {
                           color: trendColor),
                       const SizedBox(width: 2),
                       Text(trend!,
-                          style:
-                              AppText.caption.copyWith(color: trendColor)),
+                          style: AppText.caption.copyWith(color: trendColor)),
                     ],
                   ),
                 ],
@@ -755,9 +778,8 @@ class _TodayInsightsCard extends StatelessWidget {
                       ? Icons.check_circle_rounded
                       : Icons.info_rounded,
                   size: 18,
-                  color: insights[i].good
-                      ? AppColors.success
-                      : AppColors.warning,
+                  color:
+                      insights[i].good ? AppColors.success : AppColors.warning,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
@@ -776,6 +798,59 @@ class _TodayInsightsCard extends StatelessWidget {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "Last night" when the band was worn but could not classify the night.
+/// Evidence, not a sleep figure — mirrors the card on the Sleep tab.
+class _RestOnlyRow extends StatelessWidget {
+  final RestOnlyNight night;
+  final VoidCallback onTap;
+  const _RestOnlyRow({required this.night, required this.onTap});
+
+  static String _clock(DateTime t) {
+    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    return '$h:${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = night;
+    final h = n.restMinutes ~/ 60, m = n.restMinutes % 60;
+    return AppCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.sleepSoft,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: Icon(Icons.nights_stay_outlined, color: AppColors.sleep),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Last night', style: AppText.label),
+                const SizedBox(height: 2),
+                Text('Restless · not staged', style: AppText.title),
+                const SizedBox(height: 2),
+                Text(
+                  '${h}h ${m}m at rest, ${_clock(n.start)}–${_clock(n.end)} · '
+                  'too much movement to call it sleep',
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: AppColors.inkFaint),
         ],
       ),
     );

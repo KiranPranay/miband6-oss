@@ -1239,28 +1239,46 @@ class SleepAnalyzer {
     }
     if (worn < window.length / 2 || rest.length < 120) return null;
 
-    // The rest span: from the first to the last rest minute, trimmed to the
-    // densest stretch by dropping leading/trailing hours with < 15 rest min.
+    // The rest span is the longest run of consecutive hours with at least
+    // half their minutes at rest. Trimming from the window edges was tried
+    // first and reported "8:00 PM to 12:00 PM" — this wearer's seated daytime
+    // pulse dips under the gate for 15-20 minutes of most hours, so nothing
+    // got trimmed. The night itself runs 30-45; half an hour separates them.
     final byHour = <DateTime, int>{};
     for (final t in rest) {
       final h = DateTime(t.year, t.month, t.day, t.hour);
       byHour[h] = (byHour[h] ?? 0) + 1;
     }
-    final hours = byHour.keys.toList()..sort();
-    var a = 0, b = hours.length - 1;
-    while (a < b && byHour[hours[a]]! < 15) {
-      a++;
+    DateTime? bestStart;
+    var bestLen = 0, bestMinutes = 0;
+    DateTime? runStart;
+    var runLen = 0, runMinutes = 0;
+    for (var h = DateTime(lo.year, lo.month, lo.day, lo.hour);
+        h.isBefore(hi);
+        h = h.add(const Duration(hours: 1))) {
+      final n = byHour[h] ?? 0;
+      if (n >= 30) {
+        runStart ??= h;
+        runLen++;
+        runMinutes += n;
+        if (runLen > bestLen) {
+          bestLen = runLen;
+          bestStart = runStart;
+          bestMinutes = runMinutes;
+        }
+      } else {
+        runStart = null;
+        runLen = 0;
+        runMinutes = 0;
+      }
     }
-    while (b > a && byHour[hours[b]]! < 15) {
-      b--;
-    }
-    if (b - a < 2) return null; // under three hours of rest — nothing to say
+    if (bestStart == null || bestLen < 3) return null; // under three hours
 
     return RestOnlyNight(
       date: d0,
-      start: hours[a],
-      end: hours[b].add(const Duration(hours: 1)),
-      restMinutes: rest.length,
+      start: bestStart,
+      end: bestStart.add(Duration(hours: bestLen)),
+      restMinutes: bestMinutes,
       wornMinutes: worn,
       hrCoveragePct: (withHr * 100 / worn).round(),
       flaggedMinutes: flagged,

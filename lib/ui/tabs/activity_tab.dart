@@ -55,8 +55,9 @@ class _ActivityTabState extends State<ActivityTab> {
   }
 
   /// The band's configured goal, falling back only until settings load.
-  static int _resolvedStepGoal(BLEManager ble) =>
-      ble.bandConfig.isLoaded ? ble.bandConfig.settings.stepGoal : _stepGoalFallback;
+  static int _resolvedStepGoal(BLEManager ble) => ble.bandConfig.isLoaded
+      ? ble.bandConfig.settings.stepGoal
+      : _stepGoalFallback;
 
   @override
   Widget build(BuildContext context) {
@@ -253,13 +254,13 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 // 6. Activity score (Today) — decomposed into real components.
                 if (range == 0 && activity.activityScore != null) ...[
-                                    const SectionHeader('Activity score'),
+                  const SectionHeader('Activity score'),
                   _ScoreCard(a: activity),
                 ],
 
                 // 7. Recommendations (Today) — action-oriented, non-medical.
                 if (range == 0 && activity.recommendations.isNotEmpty) ...[
-                                    const SectionHeader('Recommendations'),
+                  const SectionHeader('Recommendations'),
                   _RecommendationsCard(items: activity.recommendations),
                 ],
               ],
@@ -301,12 +302,10 @@ class _StepsHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final reduced = AppMotion.reduced(context);
     final isToday = range == 0;
-    final steps = range == 0
-        ? a.todaySteps
-        : (range == 1 ? a.weekSteps : a.monthSteps);
-    final goal = range == 0
-        ? a.dailyGoal
-        : (range == 1 ? a.weeklyGoal : a.monthlyGoal);
+    final steps =
+        range == 0 ? a.todaySteps : (range == 1 ? a.weekSteps : a.monthSteps);
+    final goal =
+        range == 0 ? a.dailyGoal : (range == 1 ? a.weeklyGoal : a.monthlyGoal);
     final pct = range == 0
         ? a.dailyGoalPct
         : (range == 1 ? a.weeklyGoalPct : a.monthlyGoalPct); // true, unclamped
@@ -493,7 +492,13 @@ String? _movementSummary(ActivityAnalysis a) {
 }
 
 const _weekdayNames = [
-  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
 ];
 
 /// One-line "highest day" summary shown above the week/month chart, computed
@@ -538,7 +543,8 @@ class _NoDataTile extends StatelessWidget {
             child: Icon(icon, color: color, size: 20),
           ),
           const SizedBox(height: AppSpacing.md),
-          Text('--', style: AppText.metricSm.copyWith(color: AppColors.inkFaint)),
+          Text('--',
+              style: AppText.metricSm.copyWith(color: AppColors.inkFaint)),
           const SizedBox(height: 2),
           Text(label, style: AppText.label),
         ],
@@ -668,8 +674,7 @@ class _BaselineNote extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.insights_rounded,
-                  size: 15, color: AppColors.activity),
+              Icon(Icons.insights_rounded, size: 15, color: AppColors.activity),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text('Building your baseline · $count of $needed days',
@@ -729,9 +734,8 @@ class _PeriodSummaryCard extends StatelessWidget {
             Expanded(
                 child: _CenterStat(
                     label: 'Daily average',
-                    value: a.weekAvgSteps != null
-                        ? _grp(a.weekAvgSteps!)
-                        : '—')),
+                    value:
+                        a.weekAvgSteps != null ? _grp(a.weekAvgSteps!) : '—')),
             Container(width: 1, height: 34, color: AppColors.divider),
             Expanded(
                 child: _CenterStat(
@@ -746,8 +750,7 @@ class _PeriodSummaryCard extends StatelessWidget {
               child: Divider(height: 1, color: AppColors.divider),
             ),
             Row(children: [
-              if (vs != null)
-                Expanded(child: _VsRow(delta: vs)),
+              if (vs != null) Expanded(child: _VsRow(delta: vs)),
               if (vs != null && a.activeStreakDays != null)
                 Container(width: 1, height: 24, color: AppColors.divider),
               if (a.activeStreakDays != null)
@@ -832,9 +835,8 @@ class _ScoreCard extends StatelessWidget {
   final ActivityAnalysis a;
   const _ScoreCard({required this.a});
 
-  String _band(int s) => s >= 85
-      ? 'Excellent'
-      : (s >= 70 ? 'Good' : (s >= 50 ? 'Fair' : 'Low'));
+  String _band(int s) =>
+      s >= 85 ? 'Excellent' : (s >= 70 ? 'Good' : (s >= 50 ? 'Fair' : 'Low'));
 
   @override
   Widget build(BuildContext context) {
@@ -860,16 +862,14 @@ class _ScoreCard extends StatelessWidget {
                     ],
                   ),
                   Text(_band(score),
-                      style: AppText.label
-                          .copyWith(color: AppColors.activity)),
+                      style: AppText.label.copyWith(color: AppColors.activity)),
                 ],
               ),
               const SizedBox(width: AppSpacing.lg),
               Expanded(
                 child: Text(
                   'Built from the parts below — no hidden inputs.',
-                  style:
-                      AppText.caption.copyWith(color: AppColors.inkMuted),
+                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
                 ),
               ),
             ],
@@ -1039,27 +1039,73 @@ class _HourlyStepsChart extends StatelessWidget {
 
     final maxSteps =
         hourly.map((h) => h.steps).fold<int>(0, (a, b) => math.max(a, b));
-    final maxY = (maxSteps * 1.2).ceilToDouble().clamp(10.0, double.infinity);
+    // A readable scale: a step of 100 / 250 / 500 / 1000 chosen so the axis
+    // carries 3-4 labels, and the top rounded up to it. Gridlines with no
+    // numbers on them told the reader nothing about the height of a bar.
+    final rawTop = math.max(maxSteps * 1.15, 100.0);
+    final step = rawTop > 3000
+        ? 1000.0
+        : rawTop > 1500
+            ? 500.0
+            : rawTop > 600
+                ? 250.0
+                : 100.0;
+    final maxY = (rawTop / step).ceil() * step;
+    final now = DateTime.now();
+    final nowX = now.hour + now.minute / 60.0;
 
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceBetween,
+        minY: 0,
         maxY: maxY,
         backgroundColor: Colors.transparent,
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
+          horizontalInterval: step,
           getDrawingHorizontalLine: (_) =>
               FlLine(color: AppColors.divider, strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
+        extraLinesData: ExtraLinesData(
+          verticalLines: [
+            VerticalLine(
+              x: nowX,
+              color: AppColors.inkFaint.withValues(alpha: 0.7),
+              strokeWidth: 1,
+              dashArray: const [3, 3],
+              label: VerticalLineLabel(
+                show: true,
+                alignment: Alignment.topRight,
+                style: AppText.caption
+                    .copyWith(color: AppColors.inkFaint, fontSize: 9),
+                labelResolver: (_) => 'now',
+              ),
+            ),
+          ],
+        ),
         titlesData: FlTitlesData(
           topTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 36,
+              interval: step,
+              getTitlesWidget: (value, meta) {
+                if (value == 0 || value > maxY) return const SizedBox.shrink();
+                final v = value.toInt();
+                final text = v >= 1000
+                    ? '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}k'
+                    : '$v';
+                return Text(text,
+                    style: AppText.caption.copyWith(color: AppColors.inkFaint));
+              },
+            ),
+          ),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -1068,11 +1114,19 @@ class _HourlyStepsChart extends StatelessWidget {
               getTitlesWidget: (value, meta) {
                 final h = value.toInt();
                 if (h % 6 != 0) return const SizedBox.shrink();
+                // 12a · 6a · 12p · 6p — clock labels, not bare integers.
+                final label = h == 0
+                    ? '12a'
+                    : h == 12
+                        ? '12p'
+                        : h < 12
+                            ? '${h}a'
+                            : '${h - 12}p';
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text('$h',
-                      style: AppText.caption
-                          .copyWith(color: AppColors.inkFaint)),
+                  child: Text(label,
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkFaint)),
                 );
               },
             ),
@@ -1084,8 +1138,8 @@ class _HourlyStepsChart extends StatelessWidget {
             tooltipRoundedRadius: 10,
             getTooltipItem: (group, _, rod, __) => BarTooltipItem(
               '${rod.toY.toInt()} steps\n',
-              AppText.label.copyWith(
-                  color: Colors.white, fontWeight: FontWeight.w800),
+              AppText.label
+                  .copyWith(color: Colors.white, fontWeight: FontWeight.w800),
               children: [
                 TextSpan(
                   text: '${group.x.toInt().toString().padLeft(2, '0')}:00',
@@ -1104,8 +1158,8 @@ class _HourlyStepsChart extends StatelessWidget {
                   toY: h.steps.toDouble(),
                   width: 6,
                   color: AppColors.activity,
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(4)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(4)),
                 ),
               ],
             ),
@@ -1151,8 +1205,9 @@ class _DailyStepsChart extends StatelessWidget {
 
     return BarChart(
       BarChartData(
-        alignment:
-            many ? BarChartAlignment.spaceBetween : BarChartAlignment.spaceAround,
+        alignment: many
+            ? BarChartAlignment.spaceBetween
+            : BarChartAlignment.spaceAround,
         maxY: maxY,
         backgroundColor: Colors.transparent,
         gridData: FlGridData(
@@ -1188,8 +1243,8 @@ class _DailyStepsChart extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(label,
-                      style: AppText.caption
-                          .copyWith(color: AppColors.inkFaint)),
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkFaint)),
                 );
               },
             ),
@@ -1203,8 +1258,8 @@ class _DailyStepsChart extends StatelessWidget {
               final d = days[group.x.toInt()];
               return BarTooltipItem(
                 '${rod.toY.toInt()} steps\n',
-                AppText.label.copyWith(
-                    color: Colors.white, fontWeight: FontWeight.w800),
+                AppText.label
+                    .copyWith(color: Colors.white, fontWeight: FontWeight.w800),
                 children: [
                   TextSpan(
                     text: '${d.day}/${d.month}',
@@ -1225,8 +1280,8 @@ class _DailyStepsChart extends StatelessWidget {
                     toY: totals[i].toDouble(),
                     width: barWidth,
                     color: AppColors.activity,
-                    borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(6)),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(6)),
                   ),
                 ],
               ),
