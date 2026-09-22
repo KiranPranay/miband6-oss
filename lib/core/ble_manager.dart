@@ -1711,7 +1711,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// Leaving it uncalled means the band keeps the profile it already has, so
   /// distance and calories stay on whatever calibration the user set up. The
   /// code is kept because writing a *real* profile is the right feature — it
-  /// needs a settings screen to collect one first (P12.1).
+  /// needs a settings screen to collect one first (P11.2).
   // ignore: unused_element
   Future<void> _setUserInfo() async {
     if (_device == null || !_device!.isConnected) return;
