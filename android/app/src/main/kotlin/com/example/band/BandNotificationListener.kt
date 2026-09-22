@@ -73,11 +73,29 @@ class BandNotificationListener : NotificationListenerService() {
                 pkg,
                 title.trim(),
                 text.trim(),
+                isCall,
             )
         } catch (e: Exception) {
             // Never crash the listener: an exception here gets the service
             // disabled by the system, which loses every future notification.
             Log.e(TAG, "onNotificationPosted failed", e)
+        }
+    }
+
+    /**
+     * A removed CATEGORY_CALL notification means the call ended, was answered,
+     * or was declined on the phone. The band's incoming-call screen does not
+     * clear itself, so tell Dart, which sends the ANS "stop" frame
+     * (protocol-mb6.md §4: `03 00` to 0x2A46).
+     */
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        try {
+            val n = sbn?.notification ?: return
+            if (n.category == Notification.CATEGORY_CALL) {
+                NotificationBridge.dispatchCallEnded(applicationContext, sbn.packageName ?: "")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "onNotificationRemoved failed", e)
         }
     }
 

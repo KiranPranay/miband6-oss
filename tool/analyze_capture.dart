@@ -93,11 +93,10 @@ void main(List<String> args) {
   void check(String label, bool ok, String detail) =>
       stdout.writeln('  ${ok ? "PASS" : "FAIL"}  $label — $detail');
 
-  // While deep staging is quarantined the expectation inverts: deep must never
-  // be reported at all, exactly like REM. Checking it against a healthy share
-  // would demand the app produce the very number findings-24 established it
-  // cannot produce honestly.
-  if (!SleepAnalyzer.kDeepStagingVerified) {
+  // Deep is an estimate (findings-25). While it is enabled it must look like
+  // slow-wave sleep — a minority share, front-loaded — or it is not one. If it
+  // is ever disabled again the expectation inverts and it must never appear.
+  if (!SleepAnalyzer.kDeepStagingEnabled) {
     final leaked = deepPcts.where((p) => p >= 1).length;
     check('deep never reported while quarantined', leaked == 0,
         '$leaked night(s) reported deep sleep (findings-24 — the detector is '

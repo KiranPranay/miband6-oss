@@ -50,6 +50,13 @@ class BandApplication : FlutterApplication() {
             )
             NotificationChannelHost.install(this, channel)
             NotificationBridge.attach(channel)
+
+            // Same reasoning for call control: the band's "reject" press has
+            // to hang the call up at 3 a.m. with no activity alive.
+            CallControlHost.install(
+                this,
+                MethodChannel(engine.dartExecutor.binaryMessenger, CallControlHost.CHANNEL),
+            )
             Log.i(TAG, "Warm FlutterEngine started and cached as '$ENGINE_ID'")
         } catch (e: Exception) {
             // Never take the app down over this: without the warm engine the app

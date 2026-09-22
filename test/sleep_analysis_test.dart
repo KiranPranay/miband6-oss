@@ -37,8 +37,8 @@ void main() {
       // 0-100 rather than topping out at 70.
       expect(
           a.scoreComponents.map((c) => c.label).toList(),
-          SleepAnalyzer.kDeepStagingVerified
-              ? ['Duration', 'Deep sleep', 'Efficiency']
+          SleepAnalyzer.kDeepStagingEnabled
+              ? ['Duration', 'Deep sleep (est.)', 'Efficiency']
               : ['Duration', 'Efficiency']);
 
       final totalWeight =
@@ -93,7 +93,7 @@ void main() {
   // describe how the deep term must behave *if* a valid detector is ever
   // wired up, so they are kept and skipped rather than deleted.
   group('score coherence (findings-21 follow-up)',
-      skip: SleepAnalyzer.kDeepStagingVerified
+      skip: SleepAnalyzer.kDeepStagingEnabled
           ? null
           : 'deep-sleep staging is quarantined — see findings-24', () {
     test('a deep-sleep shortfall scores proportionally, not generously', () {
@@ -104,7 +104,7 @@ void main() {
       final a = SleepAnalysis.compute(
           session: s, allDays: [s], hr: const [], spo2: const []);
 
-      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep');
+      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep (est.)');
       expect(deep.score, lessThan(75),
           reason: 'a below-range value must not score like a healthy one');
       expect(deep.score, greaterThan(0));
@@ -114,7 +114,7 @@ void main() {
       final s = _night(DateTime(2026, 8, 9), deep: 0, light: 420, rem: 0);
       final a = SleepAnalysis.compute(
           session: s, allDays: [s], hr: const [], spo2: const []);
-      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep');
+      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep (est.)');
       expect(deep.score, 0, reason: 'the old rule gave 48/100 for no deep sleep');
     });
 
@@ -123,7 +123,7 @@ void main() {
       final s = _night(DateTime(2026, 8, 9), deep: 71, light: 349, rem: 0);
       final a = SleepAnalysis.compute(
           session: s, allDays: [s], hr: const [], spo2: const []);
-      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep');
+      final deep = a.scoreComponents.firstWhere((c) => c.label == 'Deep sleep (est.)');
       expect(deep.score, 100);
     });
 

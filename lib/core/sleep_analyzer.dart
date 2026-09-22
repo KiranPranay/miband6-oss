@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'activity_sample.dart';
 
 /// Sleep-session detection and staging for Mi Band 6.
@@ -39,20 +41,25 @@ import 'activity_sample.dart';
 ///   published coefficients and kept for reference, but is **not** the default:
 ///   its weights are defined over ActiGraph counts, and converting our intensity
 ///   byte to those would be an invention. See [coleKripkeAwake].
-/// * **Deep sleep — withdrawn.** See [kDeepStagingVerified] and findings-24.
-///   The detrended heart-rate rule is still here, and still switched off: its
-///   output is spread uniformly across the night rather than front-loaded, so
-///   it is not finding slow-wave sleep, and no choice of constants changes
-///   that. Every minute of measured sleep is reported simply as *asleep*.
+/// * **Deep sleep — estimated, two-process model.** Heart rate dips during
+///   slow-wave sleep, but it also drifts down all night towards a circadian
+///   nadir, and a detector that compares each minute to its own neighbourhood
+///   finds dips everywhere (findings-24). The current rule subtracts a *slow*
+///   trend (±2 h) to remove the drift, then requires the residual dip to be
+///   deeper the later it is in the night — because slow-wave propensity
+///   (Borbély's Process S) decays from sleep onset. Front-loading is therefore
+///   a property of the model, not a coincidence of the data. See
+///   [_refineWithHeartRate] and findings-25.
 ///
 /// ## Honesty
 ///
-/// What this class can support is **asleep versus awake**, which is what
-/// Chinoy validated on this vendor's hardware. Multi-state staging is not:
-/// consumer wearables agree with polysomnography only 50-65 % of the time on
-/// it, and deep is among the weakest classes. Rather than publish a deep
-/// figure tuned until it looked healthy, the stage was removed —
-/// `tool/analyze_capture.dart` now asserts it is never reported.
+/// What this class can *validate* is **asleep versus awake**, which is what
+/// Chinoy checked on this vendor's hardware. Deep is an **estimate** and every
+/// surface that shows it says so. Consumer wearables agree with
+/// polysomnography only 50-65 % of the time on multi-state staging, and deep
+/// is among the weakest classes; this app does not claim to beat that. The
+/// harness checks the estimate is at least *shaped* like slow-wave sleep —
+/// front-loaded, and a minority of the night.
 class SleepAnalyzer {
   const SleepAnalyzer._();
 
@@ -171,42 +178,109 @@ class SleepAnalyzer {
     return k == kindNonWear || k == kindCharging;
   }
 
-  /// True when this sample is asleep, according to the band.
+
+  /// A minute that can anchor a sleep block: the band's own flag, **or**
+  /// Chinoy's actigraphy scorer saying "asleep" on a worn, step-free minute.
   ///
-  /// **This replaced a `sleep byte > 0` test that was measurably wrong.**
-  /// Against the band's own flag over 53 days of real data, `sleep > 0` marked
-  /// **10 831 extra samples** as asleep — concentrated at 20:00-00:00 (evening
-  /// stillness on the sofa), 580 of them with a non-zero step count. It
-  /// inflated reported sleep by roughly 30 % (median 1 005 vs 774 samples per
-  /// day). That is the "sleep numbers are wrong" bug.
+  /// The flag alone was not enough. On 2026-09-20 the band was worn all night
+  /// (0 % not-worn, 97 % heart-rate coverage) and flagged only 20 % of the
+  /// overnight minutes; on 09-22, 11 %. Both nights were reported as **no
+  /// sleep at all**, and the Sleep screen fell back to a 21-minute nap. The
+  /// flag is the band's determination and a strong signal when present, but
+  /// its absence is not evidence of wakefulness.
   ///
-  /// The `sleep` byte is not a boolean at all: during sleep it carries values
-  /// 56-62, during the day 0-2, so any `> 0` test was always going to leak.
-  static bool _isAsleepSample(ActivitySample s) {
-    // Steps in a minute rule it out regardless of any other signal (GB's rule,
-    // and it survives contact with the data).
+  /// Chinoy et al. validated the weighted-activity scorer at 90.3 % against
+  /// polysomnography on this vendor's minute-level intensity, so a run of
+  /// still, worn, step-free minutes is a legitimate anchor — *provided* the
+  /// session it produces is corroborated by heart rate (see the gate in
+  /// `_buildSession`). Without that gate this is exactly how findings-21's
+  /// 14-hour "nights" were made.
+  static bool _isAsleepSample(
+    ActivitySample s,
+    List<int> intensities,
+    int i, {
+    Map<int, int> hrByMinute = const {},
+    double? wakingHr,
+  }) {
     if (s.steps > 0) return false;
-    // A band that is off the wrist is not asleep, however it is flagged.
     if (isNotWorn(s)) return false;
-    // The band's own flag, and nothing else.
-    //
-    // There used to be a fallback here accepting low nibble 9 (light) or 11
-    // (deep) even when the high nibble said the band was NOT flagging sleep,
-    // justified by a comment claiming those codes "occur only inside flagged
-    // sleep on this firmware (628 light / 72 deep out of 60 404)". That is not
-    // true of the captured data: 207 of 823 kind-9/11 samples — a quarter —
-    // carry a non-0xF high nibble, their median HR is 73 against 65 for 0xF0,
-    // half of them have intensity ≥ 20, and 62 of them fall between 08:00 and
-    // 10:00. They are waking movement, not sleep. (findings-21 §9.1 had already
-    // retired kind 11 as "deep"; this extends the same verdict to kind 9.)
-    //
-    // The cost of keeping it was not marginal. Three such samples — 00:03
-    // c=0x9b at intensity 117, 07:03 and 07:19 c=0x79 — were the only thing
-    // holding the night of 2026-08-11 together across two wake gaps of 69 and
-    // 71 minutes, both well past `maxWakeGapMinutes`. That single stitch
-    // stretched "time in bed" from 6h29m to 8h41m and dropped the reported
-    // efficiency from 61% to 45%. See findings-23.
-    return kindFlags(s.category) == sleepFlagNibble;
+    if (kindFlags(s.category) == sleepFlagNibble) return true;
+    if (!kAnchorOnActigraphy) return false;
+    if (_weightedSumAwake(intensities, i)) return false;
+    // Corroborate *this minute*: still is not enough, the pulse has to be
+    // down too. A session-level median was tried first and let an evening on
+    // the sofa stitch onto the night — 10 "nights" over 12 h, one of 833 min,
+    // because the whole block's median was dragged down by the real sleep in
+    // it. Per-minute, a still minute at waking heart rate is simply awake.
+    if (wakingHr == null) return false;
+    final bpm = hrByMinute[s.timestamp.millisecondsSinceEpoch ~/ 60000];
+    return bpm != null && bpm <= wakingHr * (1 - restingDipFraction);
+  }
+
+  /// Median valid heart rate per minute, for the per-minute anchor check.
+  static Map<int, int> _hrByMinute(List<HeartRateReading> hr) {
+    final buckets = <int, List<int>>{};
+    for (final r in hr) {
+      if (!isValidHr(r.value)) continue;
+      (buckets[r.timestamp.millisecondsSinceEpoch ~/ 60000] ??= []).add(r.value);
+    }
+    return {
+      for (final e in buckets.entries)
+        e.key: (e.value..sort())[e.value.length ~/ 2],
+    };
+  }
+
+  /// Minutes of consecutive anchors needed before a block may open.
+  static const int minOnsetRunMinutes = 10;
+
+  /// True when [i] begins a run of at least [minOnsetRunMinutes] consecutive
+  /// anchored minutes (consecutive in time — a gap in the samples breaks it).
+  static bool _sustainedFrom(
+    List<ActivitySample> sorted,
+    List<int> intensities,
+    int i, {
+    required Map<int, int> hrByMinute,
+    required double? wakingHr,
+  }) {
+    var count = 0;
+    for (var j = i; j < sorted.length && count < minOnsetRunMinutes; j++) {
+      if (j > i &&
+          sorted[j].timestamp.difference(sorted[j - 1].timestamp).inMinutes > 1) {
+        return false;
+      }
+      if (!_isAsleepSample(sorted[j], intensities, j,
+          hrByMinute: hrByMinute, wakingHr: wakingHr)) {
+        return false;
+      }
+      count++;
+    }
+    return count >= minOnsetRunMinutes;
+  }
+
+  /// Whether movement-scored minutes may anchor a session (see
+  /// [_isAsleepSample]). Kept as a constant so the two behaviours can be
+  /// compared on the same capture.
+  static const bool kAnchorOnActigraphy = true;
+
+  /// For a block anchored on actigraphy: how far its median heart rate must
+  /// sit below the wearer's waking median. findings-21 measured a ~20 % dip
+  /// for flagged sleep; 8 % is a conservative gate that still rejects a still
+  /// evening at the desk, where heart rate stays at the waking level.
+  static const double restingDipFraction = 0.08;
+
+  /// Median of valid readings between 10:00 and 20:00 across the whole
+  /// capture — the wearer's own waking heart rate, used by the gate above.
+  static double? _wakingMedianHr(List<HeartRateReading> hr) {
+    final v = <int>[];
+    for (final r in hr) {
+      if (!isValidHr(r.value)) continue;
+      final h = r.timestamp.hour;
+      if (h >= 10 && h < 20) v.add(r.value);
+    }
+    if (v.length < 30) return null;
+    v.sort();
+    final mid = v.length ~/ 2;
+    return v.length.isOdd ? v[mid].toDouble() : (v[mid - 1] + v[mid]) / 2.0;
   }
 
   /// Heart rate is only meaningful within Gadgetbridge's validity band.
@@ -227,7 +301,9 @@ class SleepAnalyzer {
     if (samples.isEmpty) return const [];
 
     final sorted = _sortedUnique(samples);
-    final blocks = _rawBlocks(sorted);
+    final wakingHr = _wakingMedianHr(hr);
+    final hrByMinute = _hrByMinute(hr);
+    final blocks = _rawBlocks(sorted, hrByMinute: hrByMinute, wakingHr: wakingHr);
 
     final days = <SleepDay>[];
     // Sessions must not overlap.
@@ -244,7 +320,8 @@ class SleepAnalyzer {
     // session starting an hour before the first one ended.
     DateTime? prevEnd;
     for (final block in blocks) {
-      final day = _buildSession(block, sorted, hr, notBefore: prevEnd);
+      final day = _buildSession(block, sorted, hr,
+          notBefore: prevEnd, hrByMinute: hrByMinute, wakingHr: wakingHr);
       if (day != null) {
         days.add(day);
         final e = day.endTime;
@@ -283,7 +360,11 @@ class SleepAnalyzer {
   /// to end somewhere, and both a hard cap and the sleep-day boundary are
   /// needed, because a long enough chain of ≤60 min gaps can walk across a full
   /// day without ever tripping the gap rule.
-  static List<List<ActivitySample>> _rawBlocks(List<ActivitySample> sorted) {
+  static List<List<ActivitySample>> _rawBlocks(
+    List<ActivitySample> sorted, {
+    Map<int, int> hrByMinute = const {},
+    double? wakingHr,
+  }) {
     final blocks = <List<ActivitySample>>[];
     var current = <ActivitySample>[];
     DateTime? lastAsleep;
@@ -298,11 +379,25 @@ class SleepAnalyzer {
       blockStart = null;
     }
 
-    for (final s in sorted) {
-      if (!_isAsleepSample(s)) {
+    final intensities = sorted.map((s) => s.intensity).toList();
+    for (var i = 0; i < sorted.length; i++) {
+      final s = sorted[i];
+      if (!_isAsleepSample(s, intensities, i,
+          hrByMinute: hrByMinute, wakingHr: wakingHr)) {
         // Wake/nonwear samples never extend a block; whether the block survives
         // is decided by the gap to the next asleep sample below. Measuring the
         // wake time inside the session happens later, in _buildSession.
+        continue;
+      }
+
+      // A block *opens* only on a sustained run of anchored minutes. An
+      // isolated corroborated minute at 21:10 must not start a "night" that a
+      // chain of ≤60-minute gaps then carries through to morning — that is how
+      // 09-20 became an 809-minute span at 44 % efficiency. Once open, single
+      // anchors extend the block as before; sleep onset is the first run of
+      // continuous sleep, per the actigraphy convention.
+      if (lastAsleep == null && !_sustainedFrom(sorted, intensities, i,
+          hrByMinute: hrByMinute, wakingHr: wakingHr)) {
         continue;
       }
 
@@ -323,7 +418,56 @@ class SleepAnalyzer {
       lastAsleep = s.timestamp;
     }
     flush();
-    return blocks;
+    return _splitOverlong(blocks);
+  }
+
+  /// Longest span a single night may have before it is split at its longest
+  /// internal wake gap. The 99th percentile of adult time-in-bed is under
+  /// 12 h; anything longer is two things joined, not one night.
+  static const int maxNightSpanMinutes = 12 * 60;
+
+  /// Smallest internal gap worth splitting on. Below this a split would just
+  /// produce a fragment that fails [minSessionMinutes] anyway.
+  static const int _minSplitGapMinutes = 20;
+
+  /// Splits any block spanning more than [maxNightSpanMinutes] at its longest
+  /// internal gap between anchors, repeatedly, until every piece fits.
+  ///
+  /// This is the actigraphy convention for over-long rest periods, and it is
+  /// what separates "dozed on the sofa at 21:10, slept 00:30-07:00, lay in
+  /// until 10:39" into the three things it was. Without it 09-20 came out as
+  /// one 809-minute span at 41 % efficiency with 22 awakenings — every one of
+  /// those numbers true of the block and false of the night.
+  static List<List<ActivitySample>> _splitOverlong(
+      List<List<ActivitySample>> blocks) {
+    final out = <List<ActivitySample>>[];
+    final queue = List<List<ActivitySample>>.from(blocks);
+    while (queue.isNotEmpty) {
+      final b = queue.removeAt(0);
+      if (b.length < 2 ||
+          b.last.timestamp.difference(b.first.timestamp).inMinutes <=
+              maxNightSpanMinutes) {
+        out.add(b);
+        continue;
+      }
+      var bestGap = 0, bestAt = -1;
+      for (var i = 1; i < b.length; i++) {
+        final gap = b[i].timestamp.difference(b[i - 1].timestamp).inMinutes;
+        if (gap > bestGap) {
+          bestGap = gap;
+          bestAt = i;
+        }
+      }
+      if (bestAt < 0 || bestGap < _minSplitGapMinutes) {
+        // No usable seam; keep it and let the hard cap decide.
+        out.add(b);
+        continue;
+      }
+      queue.insert(0, b.sublist(bestAt));
+      queue.insert(0, b.sublist(0, bestAt));
+    }
+    out.sort((x, y) => x.first.timestamp.compareTo(y.first.timestamp));
+    return out;
   }
 
   /// Turns a candidate block into a [SleepDay], or null if it does not qualify.
@@ -335,6 +479,8 @@ class SleepAnalyzer {
     List<ActivitySample> allSorted,
     List<HeartRateReading> hr, {
     DateTime? notBefore,
+    Map<int, int> hrByMinute = const {},
+    double? wakingHr,
   }) {
     if (block.isEmpty) return null;
     final start = block.first.timestamp;
@@ -376,7 +522,8 @@ class SleepAnalyzer {
       return null;
     }
 
-    final stages = _classify(window, sessionHr);
+    final stages = _classify(window, sessionHr,
+        hrByMinute: hrByMinute, wakingHr: wakingHr);
     final intervals = _toIntervals(stages, end);
     if (intervals.isEmpty) return null;
 
@@ -458,7 +605,11 @@ class SleepAnalyzer {
 
   /// Per-sample stage for the whole window.
   static List<_Staged> _classify(
-      List<ActivitySample> window, List<HeartRateReading> sessionHr) {
+    List<ActivitySample> window,
+    List<HeartRateReading> sessionHr, {
+    Map<int, int> hrByMinute = const {},
+    double? wakingHr,
+  }) {
     final intensities = window.map((s) => s.intensity).toList();
     final baseline = _hrBaseline(sessionHr);
 
@@ -469,9 +620,26 @@ class SleepAnalyzer {
         out.add(_Staged(s.timestamp, SleepStage.awake));
         continue;
       }
-      if (!_isAsleepSample(s) || _weightedSumAwake(intensities, i)) {
+      // Inside a session a minute is awake if the wearer stepped or moved
+      // (Chinoy). An *unflagged* still minute is asleep only with the same
+      // per-minute corroboration the anchors need — heart rate present and
+      // below the waking gate. Without heart rate it stays awake, as before:
+      // the band said "not sleep", and stillness alone does not overrule that.
+      // On sparse-flag nights the corroborated minutes are what turn a real
+      // night from "mostly awake, discarded" into a session.
+      if (s.steps > 0 || _weightedSumAwake(intensities, i)) {
         out.add(_Staged(s.timestamp, SleepStage.awake));
         continue;
+      }
+      if (kindFlags(s.category) != sleepFlagNibble) {
+        final bpm = hrByMinute[s.timestamp.millisecondsSinceEpoch ~/ 60000];
+        final corroborated = wakingHr != null &&
+            bpm != null &&
+            bpm <= wakingHr * (1 - restingDipFraction);
+        if (!corroborated) {
+          out.add(_Staged(s.timestamp, SleepStage.awake));
+          continue;
+        }
       }
       // Every asleep minute starts as light; depth is decided from the heart
       // rate below, and only there.
@@ -487,43 +655,42 @@ class SleepAnalyzer {
       out.add(_Staged(s.timestamp, SleepStage.light));
     }
 
-    if (kDeepStagingVerified && baseline != null) {
-      _refineWithHeartRate(out, sessionHr, baseline);
+    if (kDeepStagingEnabled && baseline != null) {
+      final o = debugDeepOverride;
+      _refineWithHeartRate(out, sessionHr, baseline,
+          intensities: intensities,
+          dipBpm: o?.dipBpm ?? deepDipBpm,
+          tauMinutes: o?.tauMinutes ?? processSTauMinutes,
+          baselineHalfWindow: o?.baselineHalfWindow ?? _deepBaselineHalfWindow,
+          minRunMinutes: o?.minRunMinutes ?? _minDeepRunMinutes,
+          wFloor: o?.wFloor ?? processSFloor,
+          stillCeiling: o?.stillCeiling ?? deepStillCeiling);
     }
     return out;
   }
 
-  /// Whether deep-sleep staging is trustworthy enough to report.
+  /// Whether deep-sleep staging is presented, **as a labelled estimate**.
   ///
-  /// **False.** The detector does not find slow-wave sleep, and no choice of
-  /// constants can make it — see findings-24.
+  /// True. The user asked for deep sleep back after findings-24 withdrew it,
+  /// and that is their call — but the detector had to change first, because
+  /// the old one's output was uniform across the night and so was not finding
+  /// slow-wave sleep at all.
   ///
-  /// [_refineWithHeartRate] marks a minute deep when smoothed heart rate sits
-  /// [deepDipBpm] below a rolling median of itself. That rolling median is
-  /// centred on the data, so about half of all residuals are negative *by
-  /// construction*, spread evenly across the night. Measured on three real
-  /// nights, the minutes at residual ≤ −1 bpm split across night-thirds as
-  /// 219/205/211, 60/74/64 and 71/77/80 — uniform.
+  /// The replacement in [_refineWithHeartRate] builds front-loading into the
+  /// model itself via Borbély's two-process framework: the required heart-rate
+  /// dip grows as slow-wave propensity decays across the night. It also removes
+  /// the circadian drift with a slow trend instead of a cycle-scale rolling
+  /// median, which is what made the old residuals negative half the time by
+  /// construction.
   ///
-  /// Slow-wave sleep is front-loaded: it concentrates in the first cycles and
-  /// fades towards morning. A detector whose output is uniform is therefore not
-  /// detecting it, whatever the totals look like. The capture harness measures
-  /// mean deep position at 0.524 of the night, and that figure barely moves
-  /// across every parameter combination tried — 0.501 to 0.533 for run lengths
-  /// 8-12 min and baseline half-windows 45-120 min — while the reported share
-  /// swings from 5% to 19%.
-  ///
-  /// That last point is what settles it. The share can be tuned to sit inside
-  /// the published 13-23% band, and doing so would have made every plausibility
-  /// check pass. It would also have been meaningless: the same minutes, in the
-  /// same wrong places, relabelled until the total looked healthy. Tuning to
-  /// the norm was the documented method for choosing [deepDipBpm], and on this
-  /// evidence that method cannot be applied here.
-  ///
-  /// The code is kept, not deleted, so a better rule can be tested against the
-  /// same captures. Flipping this to true needs a method whose output is
-  /// front-loaded — the harness checks exactly that.
-  static const bool kDeepStagingVerified = false;
+  /// This is still an estimate from heart rate and stillness, not a
+  /// measurement. Every surface that shows Deep labels it "estimated", the
+  /// score weights it below the measured components, and
+  /// `tool/analyze_capture.dart` fails if its output stops being front-loaded.
+  static const bool kDeepStagingEnabled = true;
+
+  /// Parameter override for `tool/sweep_deep.dart`. Never set in the app.
+  static DeepParams? debugDeepOverride;
 
   /// Cole–Kripke sleep/wake scoring — the **published** coefficients.
   ///
@@ -709,6 +876,34 @@ class SleepAnalyzer {
   /// population norms, **not** a validation against polysomnography.
   static const double deepDipBpm = 1.0;
 
+  /// Time constant of slow-wave propensity decay across the night, in minutes.
+  ///
+  /// Borbély AA. "A two process model of sleep regulation." *Hum Neurobiol*
+  /// 1982;1(3):195-204. Process S — homeostatic sleep pressure, of which
+  /// slow-wave activity is the physiological marker — declines exponentially
+  /// during sleep. Empirically SWA roughly halves from one NREM cycle to the
+  /// next, which with ~90-minute cycles puts the time constant near 2-4 hours.
+  /// 240 minutes is the upper end of that range and the value the capture
+  /// sweep in findings-25 settled on: shorter constants suppressed genuine
+  /// late-cycle dips and pushed a third of nights to zero deep.
+  ///
+  /// It is applied as `requiredDip(t) = deepDipBpm / exp(-t / τ)`: at sleep
+  /// onset a minute needs the base dip; 2.5 h in it needs 2.7× that; 5 h in,
+  /// 7.4×. Late-night circadian troughs therefore cannot masquerade as deep
+  /// sleep unless they are dramatically deeper than anything earlier.
+  static const int processSTauMinutes = 240;
+
+  /// Lower bound on the Process-S weight, so the required dip never exceeds
+  /// `deepDipBpm / processSFloor`. Without a floor the exponential makes
+  /// late-night deep sleep literally impossible, and slow-wave rebound after a
+  /// mid-night awakening is real (Borbély's Process S rises again while awake).
+  static const double processSFloor = 0.25;
+
+  /// Movement at or below which a minute is still enough to be slow-wave
+  /// sleep. Separate from [restIntensityCeiling] (the rest-onset look-back)
+  /// because the two answer different questions.
+  static const int deepStillCeiling = 12;
+
   /// Furthest a staged minute may borrow a heart rate from.
   ///
   /// Beyond this the minute is left unstaged rather than filled in. Fabricating
@@ -741,8 +936,15 @@ class SleepAnalyzer {
   static void _refineWithHeartRate(
     List<_Staged> staged,
     List<HeartRateReading> hr,
-    double baseline,
-  ) {
+    double baseline, {
+    List<int>? intensities,
+    double dipBpm = deepDipBpm,
+    int tauMinutes = processSTauMinutes,
+    int baselineHalfWindow = _deepBaselineHalfWindow,
+    int minRunMinutes = _minDeepRunMinutes,
+    double wFloor = processSFloor,
+    int stillCeiling = deepStillCeiling,
+  }) {
     if (staged.isEmpty) return;
 
     // Align one smoothed heart rate to each staged minute.
@@ -751,34 +953,39 @@ class SleepAnalyzer {
       return; // too little heart rate to stage on
     }
 
-    // Detrend against a local baseline before thresholding.
+    // Remove the slow circadian trend, not the cycle-scale structure.
     //
-    // Heart rate does not merely dip during slow-wave sleep — it also falls
-    // steadily towards a circadian nadir at roughly 04:00-05:00, regardless of
-    // stage. Thresholding on the *whole night's* distribution therefore finds
-    // the circadian trough rather than the sleep cycles: on 13 captured nights
-    // it put the mean deep-sleep position at 0.617 of the night, when
-    // slow-wave sleep is known to concentrate in the first cycles.
-    //
-    // Subtracting a rolling median over about one sleep cycle removes that
-    // drift and leaves the cycle-scale dips, which is what SWS actually is.
-    final residual = _detrend(series, _deepBaselineHalfWindow);
+    // Heart rate falls steadily towards a nadir around 04:00-05:00 regardless
+    // of stage. Subtracting a wide (±2 h) rolling median takes that out while
+    // leaving the ~90-minute troughs that slow-wave sleep produces. A narrower
+    // window — the old ±45 min — removed the troughs too, and left residuals
+    // that were negative about half the time everywhere (findings-24).
+    final residual = baselineHalfWindow == 0
+        ? _detrendLinear(series)
+        : _detrend(series, baselineHalfWindow);
     if (residual.whereType<double>().length < 20) return;
 
-    // A fixed threshold on the detrended residual, not a percentile of it.
+    // Sleep onset for the time-of-night term: the first non-awake minute.
+    var onsetIdx = staged.indexWhere((m) => m.stage != SleepStage.awake);
+    if (onsetIdx < 0) onsetIdx = 0;
+    final onset = staged[onsetIdx].time;
+
+    // Two-process model: the dip a minute must show grows as Process S decays.
     //
-    // A percentile is the wrong tool here: deep sleep is a *minority* of the
-    // night by definition (13-23 %), so the 25th percentile of the residuals
-    // usually lands in the flat majority and the rule either catches nothing or
-    // — on a flat trace — catches everything. A fixed dip is also directly
-    // interpretable: "heart rate sustained [deepDipBpm] bpm below its own
-    // local baseline", which is the actual physiological claim.
-    const threshold = -deepDipBpm;
+    // requiredDip(t) = dipBpm / exp(-t / τ). This is what makes the estimate
+    // front-loaded *by construction* rather than by luck — and it is the same
+    // time-since-onset feature the published PPG stagers use (Walch et al.,
+    // Sleep 2019;42(12):zsz180, include a clock proxy for exactly this reason).
+    double requiredDip(DateTime t) {
+      final mins = t.difference(onset).inMinutes.clamp(0, 24 * 60);
+      final w = math.exp(-mins / tauMinutes);
+      return dipBpm / (w < wFloor ? wFloor : w);
+    }
 
     var runStart = -1;
     void closeRun(int endExclusive) {
       if (runStart < 0) return;
-      if (endExclusive - runStart >= _minDeepRunMinutes) {
+      if (endExclusive - runStart >= minRunMinutes) {
         for (var j = runStart; j < endExclusive; j++) {
           if (staged[j].stage != SleepStage.awake) {
             staged[j] = _Staged(staged[j].time, SleepStage.deep);
@@ -793,13 +1000,18 @@ class SleepAnalyzer {
         closeRun(i);
         continue;
       }
-      // Anything previously called deep reverts to light unless the heart-rate
-      // evidence below re-establishes it.
+      // Anything previously called deep reverts to light unless the evidence
+      // below re-establishes it.
       if (staged[i].stage == SleepStage.deep) {
         staged[i] = _Staged(staged[i].time, SleepStage.light);
       }
+      // Slow-wave sleep is motionless. A minute with any recorded movement is
+      // not a candidate, whatever its heart rate did.
+      final still = intensities == null ||
+          i >= intensities.length ||
+          intensities[i] <= stillCeiling;
       final v = residual[i];
-      if (v != null && v <= threshold) {
+      if (still && v != null && v <= -requiredDip(staged[i].time)) {
         if (runStart < 0) runStart = i;
       } else {
         closeRun(i);
@@ -808,11 +1020,53 @@ class SleepAnalyzer {
     closeRun(staged.length);
   }
 
-  /// Half-width of the rolling baseline used to detrend heart rate.
+  /// Baseline used to detrend heart rate before thresholding. **0 selects a
+  /// whole-session linear fit**, which is what ships.
   ///
-  /// A human sleep cycle is about 90 minutes, so a ±45-minute window tracks the
-  /// slow circadian fall while leaving cycle-scale dips intact.
-  static const int _deepBaselineHalfWindow = 45;
+  /// Every rolling-median width was tried and none worked, for two different
+  /// reasons. Narrow (±45 min, one cycle — the findings-24 detector) makes
+  /// about half of all residuals negative wherever you look, so its output is
+  /// uniform. Wide (±120-180 min) is biased at the edges: in the first hour
+  /// the window is clipped at session start and dominated by the following
+  /// two hours, which are *lower* as heart rate settles, so the residual there
+  /// is positive and the cycle-1 troughs — where slow-wave sleep is most
+  /// concentrated — are never seen. Measured: ±120 min gave 9.3% deep at
+  /// position 0.535; the same rule with a linear baseline gave 14.2% at 0.446.
+  ///
+  /// A least-squares line over the session has no edge and still removes the
+  /// monotone circadian drift towards the nadir. See [_detrendLinear].
+  static const int _deepBaselineHalfWindow = 0;
+
+  /// Returns `value − linearFit(value)` per minute: the residual against a
+  /// straight line fitted over the whole session by least squares.
+  ///
+  /// A rolling median is biased at the edges — in the first hour its window is
+  /// clipped at session start and dominated by the *following* two hours,
+  /// which are lower as heart rate settles, so the residual there comes out
+  /// positive and cycle-1 troughs (where slow-wave sleep is most concentrated)
+  /// are never seen. A single line has no edge and still removes the monotone
+  /// circadian drift towards the nadir.
+  static List<double?> _detrendLinear(List<double?> series) {
+    var n = 0;
+    double sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (var i = 0; i < series.length; i++) {
+      final v = series[i];
+      if (v == null) continue;
+      n++;
+      sx += i;
+      sy += v;
+      sxx += i * i.toDouble();
+      sxy += i * v;
+    }
+    if (n < 20) return List<double?>.filled(series.length, null);
+    final denom = n * sxx - sx * sx;
+    final b = denom == 0 ? 0.0 : (n * sxy - sx * sy) / denom;
+    final a = (sy - b * sx) / n;
+    return List<double?>.generate(series.length, (i) {
+      final v = series[i];
+      return v == null ? null : v - (a + b * i);
+    });
+  }
 
   /// Returns `value − rollingMedian(value)` per minute.
   ///
@@ -1038,4 +1292,26 @@ class SleepQuality {
       timeInBedMinutes: inBed,
     );
   }
+}
+
+/// Deep-sleep detector parameters, for the capture sweep only.
+class DeepParams {
+  const DeepParams({
+    required this.dipBpm,
+    required this.tauMinutes,
+    required this.baselineHalfWindow,
+    required this.minRunMinutes,
+    this.wFloor = SleepAnalyzer.processSFloor,
+    this.stillCeiling = SleepAnalyzer.deepStillCeiling,
+  });
+  final double dipBpm;
+  final int tauMinutes;
+  final int baselineHalfWindow;
+  final int minRunMinutes;
+  final double wFloor;
+  final int stillCeiling;
+
+  @override
+  String toString() =>
+      'dip=$dipBpm tau=${tauMinutes}m half=$baselineHalfWindow run=$minRunMinutes floor=$wFloor still=$stillCeiling';
 }

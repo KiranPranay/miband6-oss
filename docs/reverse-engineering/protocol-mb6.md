@@ -563,6 +563,198 @@ HRV fetch type `0x49` is likewise gated on `supportsHrvMeasurement()`, which onl
 The parser now logs loudly if RR intervals ever do appear, so the conclusion can
 be revisited rather than assumed permanent.
 
+## 12. Device events — the band talking to the phone (`fee0/0x0010`)
+
+The band pushes short event frames on **`00000010-0000-3512-2118-0009af100700`**
+(`UUID_CHARACTERISTIC_DEVICEEVENT`, **GB** `HuamiService.java:52`). This is
+how every band-side button — reject a call, find my phone, silent mode — reaches
+the app, and it also carries the band's *own* sleep-onset and wake-up
+determinations.
+
+**Subscribe only after authentication.** GB enables the CCCD in
+`enableFurtherNotifications` (**GB** `HuamiSupport.java:544-554`, line 549 for
+0x0010), which runs only on `AUTH_SUCCESS` (`InitOperation2021.java:160-173`,
+line 167). `enableNotifications` (pre-auth, `:533-542`) never touches it.
+
+Dispatch is on `value[0]` (**GB** `HuamiSupport.java:1705-1842`, switch at
+`:1711`). Constants from **GB** `HuamiDeviceEvent.java:20-38`, verbatim:
+
+| `value[0]` | Name | Payload | GB action (`HuamiSupport.java`) | Ours |
+|---|---|---|---|---|
+| `0x01` | FELL_ASLEEP | — | `SleepState.ASLEEP` (`:1741-1744`) | recorded as a sleep-boundary event |
+| `0x02` | WOKE_UP | — | `SleepState.AWAKE` (`:1745-1748`) | recorded as a sleep-boundary event |
+| `0x03` | STEPSGOAL_REACHED | — | log only (`:1749-1751`) | log |
+| `0x04` | BUTTON_PRESSED | — | `handleButtonEvent()` (`:1722-1725`) | log (no mapping yet) |
+| `0x06` | START_NONWEAR | — | `WearingState.NOT_WEARING` (`:1730-1733`) | recorded as wear event |
+| `0x07` | **CALL_REJECT** | — | `GBDeviceEventCallControl.REJECT` (`:1712-1716`) | end the call — §12.1 |
+| `0x08` | FIND_PHONE_START | — | ack + `FindPhone.START` (`:1755-1760`) | ack (§12.2) + ring the phone |
+| `0x09` | **CALL_IGNORE** | — | `CallControl.IGNORE` (`:1717-1721`) | silence the ringer — §12.1 |
+| `0x0a` | ALARM_TOGGLED | — | `requestAlarms` (`:1734-1740`) | log |
+| `0x0b` | BUTTON_PRESSED_LONG | — | `handleLongButtonEvent()` (`:1726-1729`) | log |
+| `0x0e` | TICK_30MIN | — | log only (`:1752-1754`), GB itself marks it "unsure" | log |
+| `0x0f` | FIND_PHONE_STOP | — | `FindPhone.STOP` (`:1761-1765`) | stop ringing |
+| `0x10` | SILENT_MODE | `value[1]`: 1 = on | echo to band (`:1766-1771`, `:2002-2006`) | log (phone DND needs a policy grant) |
+| `0x14` | WORKOUT_STARTING | `value[2]` needsGps, `value[3]` type | (`:1821-1838`) | log |
+| `0x16` | MTU_REQUEST | `value[1..2]` uint16 LE | (`:1807-1820`) | log |
+| `0x1a` | ALARM_CHANGED | — | `requestAlarms` (`:1734-1740`) | log |
+| `0xfe` | MUSIC_CONTROL | `value[1]`: 0 play, 1 pause, 3 next, 4 prev, 5 vol+, 6 vol−, 0xe0 app open, 0xe1 app closed (`:1776-1801`) | media keys | log (not wired) |
+
+Codes `0x05`, `0x0c`, `0x0d` are undefined. **There is no quick-reply / reply-index
+event on this characteristic** in GB — see §13.
+
+### 12.1 Call reject and ignore → phone
+
+GB maps `0x07` to `TelecomManager.endCall()` and `0x09` to a mute broadcast
+(**GB** `GBDeviceEventCallControl.java:43-57`, `GBCallControlReceiver.java:80-85`;
+`tm.endCall()` at `:83`; pre-API-28 reflective `ITelephony.endCall()` at `:53-73`).
+
+Ours: `CallControlHost.kt` — `endCall` via `TelecomManager.endCall()`
+(`ANSWER_PHONE_CALLS`, API 28+); `silenceRinger` via `TelecomManager.silenceRinger()`
+with a `STREAM_RING` mute fallback. Both return whether the action happened.
+
+### 12.2 Find-phone acknowledgement
+
+On `0x08` GB writes `COMMAND_ACK_FIND_PHONE_IN_PROGRESS` to `0x0003`
+(**GB** `HuamiSupport.java:1975-1984`, `AmazfitBipService.java:32`):
+
+```
+06 14 00 00        → fee0/0x0003   (ENDPOINT_DISPLAY=0x06, HuamiService.java:148)
+```
+
+GB's own comment on the call site reads `// FIXME: premature`. Ours sends the
+same bytes and starts ringing the phone; `0x0f` stops it.
+
+### 12.3 Silent-mode echo (spec only — not sent by us)
+
+```
+06 19 00 <00|01>   → fee0/0x0003   (HuamiSupport.java:2002-2006)
+```
+
+Toggling the phone's own DND from the band needs Notification Policy access,
+which this app does not request. Logged, not actioned.
+
+---
+
+## 13. Canned replies to rejected calls — **UNVERIFIED on Mi Band 6, off by default**
+
+Everything in this section is a documented *possibility*, not a verified path,
+and the app ships it behind a switch that defaults off with the word
+"experimental" on it. Reasons, all from **GB**:
+
+1. The only outbound implementation is `HuamiSupport.onSetCannedMessages`
+   (`HuamiSupport.java:1277-1305`), over the **chunked-2021** transport
+   (`writeToChunked2021`, `:3798-3800`), endpoint `0x0013`. This band does use
+   that transport for auth, so the bytes are *plausible*.
+2. The **only inbound path is hard-disabled upstream**:
+   `if (type == ZeppOsCannedMessagesService.ENDPOINT && false) { // unsafe for now, disabled`
+   (`HuamiSupport.java:3979`).
+3. `MiBand6Coordinator.getDeviceSpecificSettings` (`MiBand6Coordinator.java:106-145`)
+   does not add the canned-message preference, so GB never exposes it for MB6.
+
+### 13.1 Outbound — set the list (endpoint `0x0013`, chunked-2021, unencrypted)
+
+Delete all 16 slots, then create (**GB** `HuamiSupport.java:1282-1298`):
+
+```
+delete:  07 | handle(uint32 LE)                       5 bytes, ×16, handle from 0x12345678, +1 each
+create:  05 | handle(uint32 LE) | text bytes | 00     len+6 bytes, handle from 0x12345678, +1 each
+```
+
+`CMD_SET=0x05`, `CMD_DELETE=0x07` (**GB** `ZeppOsCannedMessagesService.java:52,54`).
+Text is `String.getBytes()` — platform default charset, i.e. UTF-8 on Android.
+**Note** the ZeppOS frame differs (`05 | index | len | 00 | text`, `:124-132`)
+and is not interchangeable.
+
+### 13.2 Inbound — the chosen reply (endpoint `0x0013`, on `0x0017`)
+
+From the disabled block (**GB** `HuamiSupport.java:3981-4011`):
+
+```
+0d                               → we reply  0e 01  (CMD_REPLY_SMS_ALLOW)
+0b | number ASCII | 00 | 4 unknown bytes | reply text | 1 trailing byte
+                                 → we reply  0c 01  (CMD_REPLY_SMS_ACK)
+```
+
+**The band sends the full reply text and the caller's number, not an index.**
+
+Ours, when the experimental switch is on: parse `0x0b`, end the call, send the
+SMS via `SmsManager` (`SEND_SMS`), ack with `0c 01`. Probe **P13.1** records the
+hardware outcome.
+
+### 13.3 Decline-with-text without the band (phone-side, always available)
+
+Independent of §13.1-13.2: on `0x07` CALL_REJECT, if the user has enabled
+"reply with a text when I decline from the band", the app ends the call and
+sends the preset message to the caller's number when the incoming-call
+notification carried one. No new band bytes are involved.
+
+---
+
+## 14. SpO2 — no phone-triggered measurement exists on this firmware path
+
+Searched for tonight's "periodic SpO2 trigger" request; recording the negative
+result so it is not searched for again.
+
+- **GB:** `grep -i spo2` over `HuamiSupport.java`, `MiBand6Support.java`,
+  `MiBand5Support.java` → zero matches. There is no `onSpo2Test` analogue to
+  `onHeartRateTest` (`HuamiSupport.java:1508-1523`). `MiBand6Coordinator` does
+  not override `supportsSpo2` (`DeviceCoordinator.java:319`, default false at
+  `AbstractDeviceCoordinator.java:764-767`), so GB neither triggers *nor fetches*
+  SpO2 for this band.
+- **NOTIFY:** the decompile references SpO2 only in UI resources and a data
+  model; no command builder targeting a band characteristic was found (§14.1
+  below records what was checked).
+- **What exists:** the *history* fetch, type `0x25` (`HuamiFetchDataType.java:28`),
+  `01 25 <time>` to `0x0004`, 65-byte records `ts(uint32) | spo2raw | 60 bytes`,
+  where bit 7 of `spo2raw` set = automatic (`FetchSpo2NormalOperation.java:82-83`).
+  We already fetch this; it returns whatever the user measures on the band.
+
+Conclusion: **a one-shot measurement cannot be triggered from the phone with any
+command this project can cite.** The app keeps fetching the band's own readings
+(P14.1 stays open for a trigger command).
+
+### 14.1 Probe — switch on the band's *automatic* SpO2 monitoring (P14.2)
+
+Not a trigger: a setting that asks the band to sample SpO2 on its own, which is
+what "periodic blood oxygen" would actually mean on this hardware. **Unverified
+on Mi Band 6; off by default; experimental.**
+
+Two independent sources agree on the setting's existence; neither proves the
+band honours it:
+
+- **NOTIFY** `h6/a.java:245` declares `SPO2_ALL_DAY_MONITORING` (code 49 =
+  `0x31`) and `x5/f.java:2988` sends it via a config writer alongside
+  `STRESS_MONITORING` and `SLEEP_BREATHING_QUALITY_MONITORING`. Whether that
+  code path is reached for a Mi Band 6 is not established (it sits behind a
+  device-capability lookup, `f22183r.b(10)`).
+- **GB** `ZeppOsConfigService.java:525` — `SPO2_ALL_DAY_MONITORING(HEALTH, BOOL,
+  0x31)`. GB only ever sends it to ZeppOS devices; `MiBand6Coordinator` does
+  not enable it.
+
+Frame, from **GB** `ZeppOsConfigService.encode` (`:940-955`), `ConfigGroup.HEALTH
+= (0x08, version 0x03)` (`:399`), `ConfigType.BOOL = 0x0b` (`:433`), `CMD_SET =
+0x05` (`:110`), endpoint `0x000a` (`:104`), **encrypted** (`:116`, `super(support,
+true)`; `AbstractZeppOsService.write` → `writeToChunked2021(..., isEncrypted())`):
+
+```
+05 08 03 00 01 31 0b 01    → chunked-2021 endpoint 0x000a, encrypted
+│  │  │  │  │  │  │  └─ value: 1 = on
+│  │  │  │  │  │  └──── type BOOL
+│  │  │  │  │  └─────── arg SPO2_ALL_DAY_MONITORING
+│  │  │  │  └────────── argument count
+│  │  │  └───────────── 0x00 (GB: "?")
+│  │  └──────────────── HEALTH group version
+│  └─────────────────── HEALTH group
+└────────────────────── CMD_SET
+```
+
+Expected reply on `0x0017`, endpoint `0x000a`: `06 …` (`CMD_ACK`, `:111`).
+
+Pass criterion for P14.2: the ack arrives **and** subsequent `0x25` fetches
+return records with bit 7 of `spo2raw` **set** (= automatic,
+`FetchSpo2NormalOperation.java:82`) at times the user did not measure by hand.
+Either half alone proves nothing.
+
 ---
 
 ## Appendix A — Huami-2021 chunked transport (NOT used by MB6; spec for completeness)

@@ -19,14 +19,27 @@ enum ConfigTarget {
 
   /// fee1 `00000020-…` old-chunked — display items, vibration patterns.
   chunked,
+
+  /// fee0 `00000016-…` chunked-2021 (ZeppOS-style endpoints over the same
+  /// transport the sign-key auth uses). [BandCommand.endpoint] names the
+  /// endpoint and [BandCommand.encrypt] whether the session key is applied.
+  /// Only the experimental probes in §13-14 use this.
+  chunked2021,
 }
 
 /// One built command: the bytes and where they go.
 class BandCommand {
-  const BandCommand(this.target, this.bytes, this.label);
+  const BandCommand(this.target, this.bytes, this.label,
+      {this.endpoint = 0, this.encrypt = false});
 
   final ConfigTarget target;
   final List<int> bytes;
+
+  /// Chunked-2021 endpoint (only for [ConfigTarget.chunked2021]).
+  final int endpoint;
+
+  /// Whether the chunked-2021 frame is encrypted with the session key.
+  final bool encrypt;
 
   /// Human-readable description for the log and for optimistic-UI rollback.
   final String label;
@@ -106,6 +119,45 @@ class BandTime {
 /// * **Hourly chime** — not sent for MB6.
 class BandCommands {
   const BandCommands._();
+
+  // ── Experimental probes over chunked-2021 (protocol-mb6.md §13-14) ────────
+
+  /// Asks the band to sample SpO2 automatically. **UNVERIFIED** on Mi Band 6 —
+  /// P14.2. Frame from GB `ZeppOsConfigService.encode`: CMD_SET, HEALTH group
+  /// (0x08, v3), 0x00, one argument, SPO2_ALL_DAY_MONITORING (0x31), BOOL (0x0b),
+  /// value. Endpoint 0x000a, encrypted (`super(support, true)`).
+  static BandCommand spo2AutoMonitoring(bool on) => BandCommand(
+        ConfigTarget.chunked2021,
+        [0x05, 0x08, 0x03, 0x00, 0x01, 0x31, 0x0b, on ? 0x01 : 0x00],
+        'SpO2 auto-monitoring ${on ? 'on' : 'off'} (experimental)',
+        endpoint: 0x000a,
+        encrypt: true,
+      );
+
+  /// Canned replies for rejected calls. **UNVERIFIED** on Mi Band 6 — P13.1.
+  /// Sixteen delete frames then one create per message, GB
+  /// `HuamiSupport.onSetCannedMessages` (`:1282-1298`): delete `07 | handle LE`,
+  /// create `05 | handle LE | utf8 | 00`, handles from 0x12345678. Endpoint
+  /// 0x0013, unencrypted (`writeToChunked2021(..., false)`).
+  static List<BandCommand> cannedReplies(List<String> messages) {
+    const base = 0x12345678;
+    List<int> le32(int v) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
+    final out = <BandCommand>[];
+    for (var i = 0; i < 16; i++) {
+      out.add(BandCommand(ConfigTarget.chunked2021, [0x07, ...le32(base + i)],
+          'Canned reply slot $i clear', endpoint: 0x0013));
+    }
+    for (var i = 0; i < messages.length && i < 16; i++) {
+      final text = messages[i].trim();
+      if (text.isEmpty) continue;
+      out.add(BandCommand(
+          ConfigTarget.chunked2021,
+          [0x05, ...le32(base + i), ...text.codeUnits.map((c) => c & 0xff), 0x00],
+          'Canned reply $i: "$text"',
+          endpoint: 0x0013));
+    }
+    return out;
+  }
 
   // ── Heart rate (Heart Rate Control Point 0x2A39) ─────────────────────────
 
@@ -438,6 +490,9 @@ class BandSettings {
     this.distanceUnit = DistanceUnit.metric,
     this.wearWrist = WearWrist.left,
     this.stepGoal = 10000,
+    this.spo2AutoMonitoring = false,
+    this.cannedRepliesEnabled = false,
+    this.cannedReplies = const ["Can't talk now, call you back.", 'In a meeting.', 'On my way.'],
     this.goalNotification = true,
     this.dnd = DndMode.off,
     this.dndStart = const BandTime(1, 0),
@@ -468,6 +523,12 @@ class BandSettings {
   final DistanceUnit distanceUnit;
   final WearWrist wearWrist;
   final int stepGoal;
+
+  /// Experimental probes (protocol-mb6.md §13-14). Off by default; each is
+  /// only sent while its switch is on, and the ledger records the outcome.
+  final bool spo2AutoMonitoring;
+  final bool cannedRepliesEnabled;
+  final List<String> cannedReplies;
   final bool goalNotification;
   final DndMode dnd;
   final BandTime dndStart;
@@ -492,6 +553,9 @@ class BandSettings {
         BandCommands.distanceUnit(distanceUnit),
         BandCommands.wearWrist(wearWrist),
         BandCommands.stepGoal(stepGoal),
+        // Experimental — sent only while switched on (P13.1, P14.2).
+        if (spo2AutoMonitoring) BandCommands.spo2AutoMonitoring(true),
+        if (cannedRepliesEnabled) ...BandCommands.cannedReplies(cannedReplies),
         BandCommands.goalNotification(goalNotification),
         BandCommands.liftWrist(
           liftWrist,
@@ -542,6 +606,9 @@ class BandSettings {
     DistanceUnit? distanceUnit,
     WearWrist? wearWrist,
     int? stepGoal,
+    bool? spo2AutoMonitoring,
+    bool? cannedRepliesEnabled,
+    List<String>? cannedReplies,
     bool? goalNotification,
     DndMode? dnd,
     BandTime? dndStart,
@@ -573,6 +640,9 @@ class BandSettings {
         distanceUnit: distanceUnit ?? this.distanceUnit,
         wearWrist: wearWrist ?? this.wearWrist,
         stepGoal: stepGoal ?? this.stepGoal,
+        spo2AutoMonitoring: spo2AutoMonitoring ?? this.spo2AutoMonitoring,
+        cannedRepliesEnabled: cannedRepliesEnabled ?? this.cannedRepliesEnabled,
+        cannedReplies: cannedReplies ?? this.cannedReplies,
         goalNotification: goalNotification ?? this.goalNotification,
         dnd: dnd ?? this.dnd,
         dndStart: dndStart ?? this.dndStart,
@@ -605,6 +675,9 @@ class BandSettings {
         'distanceUnit': distanceUnit.name,
         'wearWrist': wearWrist.name,
         'stepGoal': stepGoal,
+        'spo2AutoMonitoring': spo2AutoMonitoring,
+        'cannedRepliesEnabled': cannedRepliesEnabled,
+        'cannedReplies': cannedReplies,
         'goalNotification': goalNotification,
         'dnd': dnd.name,
         'dndStart': [dndStart.h, dndStart.m],
@@ -656,6 +729,11 @@ class BandSettings {
           _enumOf(DistanceUnit.values, j['distanceUnit'], d.distanceUnit),
       wearWrist: _enumOf(WearWrist.values, j['wearWrist'], d.wearWrist),
       stepGoal: (j['stepGoal'] as num?)?.toInt() ?? d.stepGoal,
+      spo2AutoMonitoring: j['spo2AutoMonitoring'] as bool? ?? d.spo2AutoMonitoring,
+      cannedRepliesEnabled:
+          j['cannedRepliesEnabled'] as bool? ?? d.cannedRepliesEnabled,
+      cannedReplies: (j['cannedReplies'] as List?)?.map((e) => e.toString()).toList() ??
+          d.cannedReplies,
       goalNotification: j['goalNotification'] as bool? ?? d.goalNotification,
       dnd: _enumOf(DndMode.values, j['dnd'], d.dnd),
       dndStart: _timeOf(j['dndStart'], d.dndStart),

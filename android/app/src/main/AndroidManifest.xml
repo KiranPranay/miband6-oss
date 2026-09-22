@@ -34,6 +34,15 @@
 
     <!-- Opt-in overnight snoring detection (phone microphone, on-device only).
          Audio is processed in memory and never recorded to disk or uploaded. -->
+    <!-- Call control from the band: decline/hang up (ANSWER_PHONE_CALLS, API 28+),
+         see whether a call is ringing (READ_PHONE_STATE), and decline-with-text
+         (SEND_SMS). All three are runtime permissions the user grants from
+         Settings > Band buttons, and the app works without them — the band's
+         buttons simply do nothing on the phone. -->
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 

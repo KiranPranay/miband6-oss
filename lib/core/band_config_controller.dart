@@ -203,6 +203,20 @@ class BandConfigController extends ChangeNotifier {
   Future<bool> setStressMonitoring(bool v) =>
       update(_settings.copyWith(stressMonitoring: v));
 
+  // ── Experimental probes (protocol-mb6.md §13-14) ───────────────────────────
+  //
+  // Each is sent only while on, and the outcome is recorded in the ledger
+  // (P13.1, P14.2). Off by default; the UI says "experimental".
+
+  Future<bool> setSpo2AutoMonitoring(bool v) =>
+      update(_settings.copyWith(spo2AutoMonitoring: v));
+
+  Future<bool> setCannedRepliesEnabled(bool v) =>
+      update(_settings.copyWith(cannedRepliesEnabled: v));
+
+  Future<bool> setCannedReplies(List<String> messages) => update(
+      _settings.copyWith(cannedReplies: messages.map((m) => m.trim()).where((m) => m.isNotEmpty).take(16).toList()));
+
   Future<bool> setHrAllDayMonitoring(bool v) =>
       update(_settings.copyWith(hrAllDayMonitoring: v));
 

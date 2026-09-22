@@ -213,12 +213,69 @@ extension Huami2021Auth on BLEManager {
   /// Data payloads (non-auth endpoints) arriving over the chunked channel.
   /// Logged for now; the post-auth path first tries the standard chars (full
   /// auth may unlock the 0x180D HR service / fee0 fetch that partial auth blocked).
+  /// Non-auth chunked-2021 payloads. Two endpoints are watched for the
+  /// experimental probes (protocol-mb6.md §13-14); everything else is logged
+  /// so an unexpected endpoint shows up in the Debug Console.
   void _handle2021Data(int type, Uint8List payload) {
     final hex = payload
         .take(16)
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join(' ');
-    _logger.d("2021 chunked data (type=0x${type.toRadixString(16)}): $hex");
+    switch (type) {
+      case 0x000a:
+        // ZeppOS config endpoint. `06` = CMD_ACK (GB ZeppOsConfigService:111).
+        // Half of the P14.2 pass criterion; the other half is automatic SpO2
+        // records appearing in the 0x25 fetch.
+        _logger.i(payload.isNotEmpty && payload[0] == 0x06
+            ? 'P14.2: band ACKed the SpO2 auto-monitoring config ($hex)'
+            : 'P14.2: config endpoint replied $hex (not an ack)');
+        break;
+      case 0x0013:
+        _onCannedReplyPayload(payload, hex);
+        break;
+      default:
+        _logger.i("2021 chunked data (type=0x${type.toRadixString(16)}): $hex");
+    }
+  }
+
+  /// Canned-reply endpoint, from the block GB ships disabled
+  /// (`HuamiSupport.java:3979-4011`, "unsafe for now"). §13.2.
+  ///
+  /// `06`/`08` are set/delete acks. `0d` asks whether SMS reply is allowed;
+  /// we answer `0e 01`. `0b` carries the caller's number and the chosen text:
+  /// `0b | number ASCII | 00 | 4 unknown | text | 1 trailing`.
+  Future<void> _onCannedReplyPayload(Uint8List p, String hex) async {
+    if (p.isEmpty) return;
+    switch (p[0]) {
+      case 0x06:
+        _logger.i('P13.1: band ACKed a canned-reply set ($hex)');
+        return;
+      case 0x08:
+        _logger.d('P13.1: canned-reply delete ack');
+        return;
+      case 0x0d:
+        _logger.i('P13.1: band asked if SMS reply is allowed — answering yes');
+        await _writeChunked(0x0013, Uint8List.fromList([0x0e, 0x01]), encrypt: false);
+        return;
+      case 0x0b:
+        final nul = p.indexOf(0, 1);
+        if (nul < 0 || p.length < nul + 6) {
+          _logger.e('P13.1: reply frame too short to parse: $hex');
+          return;
+        }
+        final number = String.fromCharCodes(p.sublist(1, nul));
+        final text = String.fromCharCodes(p.sublist(nul + 5, p.length - 1));
+        _logger.i('P13.1: band chose reply "$text" for ${number.length > 4 ? '${number.substring(0, 4)}…' : number}');
+        final ended = await callControl.endCall();
+        final sent = number.isNotEmpty && text.isNotEmpty
+            ? await callControl.sendSms(number, text)
+            : false;
+        _logger.i('P13.1: endCall=$ended sendSms=$sent');
+        await _writeChunked(0x0013, Uint8List.fromList([0x0c, 0x01]), encrypt: false);
+        return;
+      default:
+        _logger.i('P13.1: canned-reply endpoint sent $hex');
+    }
   }
 
   void _disposeChunked() {

@@ -9,6 +9,34 @@ second one matters to anyone whose history just moved.
 
 ## [Unreleased]
 
+### Added — overnight, 2026-09-23
+
+- **Deep sleep is back, as a labelled estimate.** The findings-24 detector was
+  withdrawn because its output was uniform across the night. The replacement
+  detrends heart rate with a whole-session line (no edge bias) and requires a
+  deeper dip the later it is, per Borbély's two-process model — so front-loading
+  is a property of the rule, not luck. On 53 real nights: 14.2% median share,
+  bout position 0.446, one empty night. Every surface says "est."; score weight
+  20%, below both measured components. See findings-25.
+- **The band's buttons now reach the phone** (protocol §12). Reject on the
+  wrist ends the call; ignore silences the ringer; find-my-phone rings it at full
+  volume until the band says stop. Needs the phone/SMS permissions, requested
+  from Band settings with the reason beside the button.
+- **Calls are routed as calls.** Incoming-call notifications were forwarded as
+  plain text, so the wrist had nothing to press. They now use the band's call
+  alert, and when the phone's call notification goes away the band's screen is
+  cleared too.
+- **Decline with a text.** Optional; phone-side; sends a preset SMS to the caller
+  when you decline from the band, if the call notification carried a number.
+- **The band's own sleep boundaries** (FELL_ASLEEP / WOKE_UP / off-wrist) are
+  recorded to `band_events.json`. Whether they should anchor session detection
+  is probe P12.3.
+- **Two experimental switches, off by default**, each a documented probe: ask
+  the band to sample SpO2 automatically (P14.2 — no phone-triggered
+  measurement exists on this firmware path, §14), and quick replies on the band
+  (P13.1 — the receive path is disabled upstream as "unsafe"). Both say
+  "unverified on Mi Band 6" on the switch.
+
 ### Fixed — after several weeks of real use
 
 An audit over the live capture (38 071 activity samples, 81 471 heart-rate

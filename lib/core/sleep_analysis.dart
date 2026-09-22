@@ -19,6 +19,11 @@ class StageStat {
   final MetricStatus status;
   final int deltaVsAvg; // signed minutes vs the wearer's recent average
 
+  /// True for a stage that is inferred rather than measured — deep sleep,
+  /// estimated from heart rate and stillness (findings-25). The UI appends
+  /// "est." wherever this is shown.
+  final bool estimated;
+
   const StageStat({
     required this.stage,
     required this.label,
@@ -29,6 +34,7 @@ class StageStat {
     required this.normalHighPct,
     required this.status,
     required this.deltaVsAvg,
+    this.estimated = false,
   });
 }
 
@@ -269,7 +275,8 @@ class SleepAnalysis {
       return (vals.reduce((a, b) => a + b) / vals.length).round();
     }
 
-    StageStat mk(SleepStage s, String label, int low, int high) {
+    StageStat mk(SleepStage s, String label, int low, int high,
+        {bool estimated = false}) {
       final m = _stageMin(session, s);
       final pct = total > 0 ? (m / total * 100).round() : 0;
       final target = (total * (low + high) / 2 / 100).round();
@@ -288,7 +295,8 @@ class SleepAnalysis {
         normalHighPct: high,
         status: status,
         deltaVsAvg: delta,
-      );
+                estimated: estimated,
+);
     }
 
     // REM is never presented: MB6 does not track it (findings-09).
@@ -297,20 +305,19 @@ class SleepAnalysis {
     // locate slow-wave sleep — its output is uniform across the night instead
     // of front-loaded, and no parameter choice changes that (findings-24) — so
     // a "Deep 12%" figure would be a number with nothing behind it. Light then
-    // covers all measured sleep, which is what the data actually supports:
-    // asleep versus awake.
-    // While deep is quarantined the "light" bucket holds *all* measured sleep,
-    // so the 60-87% healthy band for light sleep no longer applies to it —
-    // against that band it is trivially "Above range" every single night, which
-    // is a verdict with no meaning behind it. Give it the full 0-100 range so
-    // no judgement is rendered, and call it what it now is.
+    // Deep is an **estimate** from heart rate and stillness (findings-25) and
+    // is flagged as such so every surface that shows it can say so. Should it
+    // ever be disabled again, the "light" bucket holds *all* measured sleep and
+    // the 60-87% band no longer applies — it gets the full 0-100 range so no
+    // judgement is rendered on a number that means "asleep".
     final stages = [
-      if (SleepAnalyzer.kDeepStagingVerified) mk(SleepStage.deep, 'Deep', 13, 23),
-      SleepAnalyzer.kDeepStagingVerified
+      if (SleepAnalyzer.kDeepStagingEnabled)
+        mk(SleepStage.deep, 'Deep', 13, 23, estimated: true),
+      SleepAnalyzer.kDeepStagingEnabled
           ? mk(SleepStage.light, 'Light', 60, 87)
           : mk(SleepStage.light, 'Asleep', 0, 100),
     ];
-    final deepStage = SleepAnalyzer.kDeepStagingVerified ? stages[0] : null;
+    final deepStage = SleepAnalyzer.kDeepStagingEnabled ? stages[0] : null;
 
     // Score: duration (45%), deep band (25%), REM band (15%), efficiency (15%).
     // Sub-score for a percentage that has a healthy band.
@@ -342,36 +349,31 @@ class SleepAnalysis {
     final deepSub = band(stages[0].pct, 13, 23).round();
     final effSub = eff;
 
-    // Deep sleep is excluded while its staging is unverified.
+    // Weights: an estimate must not outweigh a measurement.
     //
-    // It used to carry 30% of this score. The detector behind it does not
-    // locate slow-wave sleep — its output is spread uniformly across the night
-    // rather than front-loaded, and no parameter choice changes that
-    // (findings-24, `SleepAnalyzer.kDeepStagingVerified`). Nearly a third of the
-    // headline number was therefore being set by noise.
-    //
-    // Dropping the component rather than scoring it zero matters: a zero would
-    // read as "you got no deep sleep", which is a claim about the user. The
-    // remaining weights are re-normalised so the score still spans 0-100 and
-    // stays comparable with the nights already in the user's history — those
-    // were computed with a deep term, so the two are not perfectly comparable,
-    // and the Sleep screen says as much.
+    // Duration and efficiency are measured (asleep-versus-awake is what Chinoy
+    // validated on this vendor's hardware). Deep is estimated — findings-25 —
+    // so it carries the smallest weight of the three, down from the 30% it had
+    // before it was withdrawn in findings-24. If it is ever disabled again the
+    // other two are re-normalised so the score still spans 0-100, and the
+    // component is *dropped* rather than scored zero: a zero would read as
+    // "you got no deep sleep", which is a claim about the user.
     final scoreComponents = <ScoreComponent>[
       ScoreComponent(
           label: 'Duration',
           score: durSub,
-          weight: SleepAnalyzer.kDeepStagingVerified ? 0.55 : 0.79,
+          weight: SleepAnalyzer.kDeepStagingEnabled ? 0.50 : 0.79,
           detail: '${_fmt(total)} of ${_fmt(goalMinutes)} goal'),
-      if (SleepAnalyzer.kDeepStagingVerified)
+      if (SleepAnalyzer.kDeepStagingEnabled)
         ScoreComponent(
-            label: 'Deep sleep',
+            label: 'Deep sleep (est.)',
             score: deepSub,
-            weight: 0.30,
-            detail: '${deepStage?.pct ?? 0}% of sleep'),
+            weight: 0.20,
+            detail: '${deepStage?.pct ?? 0}% of sleep · estimated'),
       ScoreComponent(
           label: 'Efficiency',
           score: effSub,
-          weight: SleepAnalyzer.kDeepStagingVerified ? 0.15 : 0.21,
+          weight: SleepAnalyzer.kDeepStagingEnabled ? 0.30 : 0.21,
           detail: '$eff% asleep while in bed'),
     ];
     final totalWeight =
@@ -447,24 +449,36 @@ class SleepAnalysis {
           ? SleepInsight(true, '${_fmt(vsYesterday)} more than the night before')
           : SleepInsight(false, '${_fmt(-vsYesterday)} less than the night before'));
     }
-    if (deepStage != null) {
+    // A nap is not a night. Goal shortfall, night-before comparison and stage
+    // verdicts are all defined against a full night's sleep; on a 21-minute
+    // nap they read "Slept 7h 39m under your 8h goal" and "deep sleep below
+    // the healthy range" — true statements about the wrong thing.
+    if (session.isNap) {
+      insights
+        ..clear()
+        ..add(SleepInsight(true, 'Nap · ${_fmt(total)} asleep'));
+    } else if (deepStage != null) {
       insights.add(deepStage.status == MetricStatus.below
-          ? const SleepInsight(false, 'Deep sleep below the healthy range')
-          : const SleepInsight(true, 'Healthy amount of deep sleep'));
+          ? const SleepInsight(
+              false, 'Estimated deep sleep below the healthy range')
+          : const SleepInsight(true, 'Estimated deep sleep in a healthy range'));
     }
     // 85 % is the classic normal cutoff for sleep efficiency; a 90 % bar
     // labelled a perfectly ordinary night "restless".
-    insights.add(eff >= 85
-        ? SleepInsight(true, 'Slept continuously · $eff% efficiency')
-        : SleepInsight(false, 'Restless night · $eff% efficiency'));
+    if (!session.isNap) {
+      insights.add(eff >= 85
+          ? SleepInsight(true, 'Slept continuously · $eff% efficiency')
+          : SleepInsight(false, 'Restless night · $eff% efficiency'));
+    }
 
     // Recommendations.
     final recs = <String>[];
-    if (total < goalMinutes) {
+    if (!session.isNap && total < goalMinutes) {
       recs.add('Get to bed about ${_fmt(((goalMinutes - total) / 2).round())} earlier tonight.');
     }
     if (deepStage != null && deepStage.status == MetricStatus.below) {
-      recs.add('Deep sleep was low — keep the room cool and avoid screens before bed.');
+      recs.add('Estimated deep sleep was low — keep the room cool and avoid '
+          'screens before bed.');
     }
     if (consistency != null && consistency < 70) {
       recs.add('Aim for a more consistent bedtime to steady your rhythm.');

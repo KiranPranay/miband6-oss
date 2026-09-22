@@ -74,6 +74,23 @@ class StorageManager {
     return await _storage.read(key: _lastDeviceKey);
   }
 
+  // ── Decline-with-text (protocol-mb6.md §13.3) ─────────────────────────────
+
+  static const _declineTextKey = 'decline_text_v1';
+
+  /// The SMS sent to a caller when the user declines from the band, or null
+  /// when the feature is off. Phone-side only; no band bytes involved.
+  Future<String?> getDeclineText() async =>
+      await _storage.read(key: _declineTextKey);
+
+  Future<void> setDeclineText(String? text) async {
+    if (text == null || text.trim().isEmpty) {
+      await _storage.delete(key: _declineTextKey);
+    } else {
+      await _storage.write(key: _declineTextKey, value: text.trim());
+    }
+  }
+
   /// Clears the saved device MAC (call on explicit user disconnect).
   Future<void> clearLastDeviceId() async {
     await _storage.delete(key: _lastDeviceKey);

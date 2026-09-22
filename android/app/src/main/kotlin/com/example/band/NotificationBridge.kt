@@ -32,7 +32,7 @@ object NotificationBridge {
     private var channel: MethodChannel? = null
 
     private val main = Handler(Looper.getMainLooper())
-    private val pending = ArrayDeque<Map<String, String>>()
+    private val pending = ArrayDeque<Map<String, Any>>()
 
     /** Called once the engine's channel exists; flushes anything buffered. */
     fun attach(newChannel: MethodChannel) {
@@ -53,8 +53,28 @@ object NotificationBridge {
         }
     }
 
-    fun dispatch(ctx: Context, pkg: String, title: String, text: String) {
+    /**
+     * The incoming-call notification went away: end the band's call alert.
+     * Not queued when the channel is absent — a stale "call ended" delivered
+     * minutes later would clear a *newer* call's screen.
+     */
+    fun dispatchCallEnded(ctx: Context, pkg: String) {
+        val target = channel ?: return
+        main.post {
+            try {
+                target.invokeMethod("onCallEnded", mapOf("package" to pkg))
+            } catch (e: Exception) {
+                Log.e(TAG, "invokeMethod(onCallEnded) failed", e)
+            }
+        }
+    }
+
+    fun dispatch(ctx: Context, pkg: String, title: String, text: String, isCall: Boolean = false) {
         val payload = mapOf(
+            // CATEGORY_CALL, so Dart can record the caller for decline-with-text
+            // (protocol-mb6.md §13.3) and route it as a call rather than a
+            // message.
+            "isCall" to isCall,
             "package" to pkg,
             "app" to appLabel(ctx, pkg),
             "title" to title,
@@ -74,7 +94,7 @@ object NotificationBridge {
 
     private fun flush() {
         val target = channel ?: return
-        val drained: List<Map<String, String>>
+        val drained: List<Map<String, Any>>
         synchronized(pending) {
             if (pending.isEmpty()) return
             drained = pending.toList()
@@ -84,7 +104,7 @@ object NotificationBridge {
         drained.forEach { post(target, it) }
     }
 
-    private fun post(target: MethodChannel, payload: Map<String, String>) {
+    private fun post(target: MethodChannel, payload: Map<String, Any>) {
         main.post {
             try {
                 target.invokeMethod("onNotification", payload)

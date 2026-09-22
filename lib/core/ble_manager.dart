@@ -6,6 +6,9 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'dart:math';
 import 'logger.dart';
 import 'reconnect_backoff.dart';
+import 'call_control.dart';
+import 'device_events.dart';
+import '../storage/band_event_store.dart';
 import 'encryption.dart';
 import '../storage/secure_storage.dart';
 import 'band_metrics.dart';
@@ -159,6 +162,33 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// was wrong for five days.
   DateTime? _lastSyncTime;
 
+  /// Phone-side actions for the band's buttons (protocol-mb6.md §12.1).
+  late final CallControl callControl = CallControl(_logger);
+
+  /// The band's own sleep/wear boundaries, persisted as evidence (§12).
+  final BandEventStore bandEvents = BandEventStore();
+
+  /// Set while the band has asked us to ring (§12.2), cleared on stop.
+  bool _findPhoneActive = false;
+
+  /// Decline-with-text message (§13.3), cached from storage; null = off.
+  String? _declineText;
+  String? get declineText => _declineText;
+  Future<void> setDeclineText(String? text) async {
+    _declineText = (text == null || text.trim().isEmpty) ? null : text.trim();
+    await _storage.setDeclineText(_declineText);
+    _emitChange();
+  }
+
+  /// The number from the most recent incoming-call notification, recorded by
+  /// the notification relay so a band-side decline can reply by SMS. Null when
+  /// the dialer's notification carried no number (a saved contact usually
+  /// shows a name instead).
+  String? lastIncomingCallNumber;
+
+  /// Most recent decoded device event, for the UI/debug console.
+  final ValueNotifier<BandEvent?> lastBandEvent = ValueNotifier(null);
+
   ActivityFetcher? _activityFetcher;
 
   /// The device [_activityFetcher] was built for, so a reconnection to a
@@ -199,6 +229,21 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
       _logger.d('BandConfig: skipped "${command.label}" — band not ready');
       return false;
     }
+    // Chunked-2021 goes through the framing encoder, not a bare
+    // characteristic write. Only the experimental probes use it (§13-14), and
+    // only after sign-key auth has established the encoder + session key.
+    if (command.target == ConfigTarget.chunked2021) {
+      if (_chunkedEncoder == null) {
+        _logger.e('BandConfig: chunked-2021 encoder not ready — '
+            'cannot write "${command.label}"');
+        return false;
+      }
+      await _writeChunked(command.endpoint, Uint8List.fromList(command.bytes),
+          encrypt: command.encrypt);
+      _logger.i('BandConfig: $command (endpoint 0x${command.endpoint.toRadixString(16)}'
+          '${command.encrypt ? ', encrypted' : ''})');
+      return true;
+    }
     final ch = await _characteristicFor(command.target);
     if (ch == null) {
       _logger.e('BandConfig: no characteristic for ${command.target.name} '
@@ -232,6 +277,8 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         return _findChar('1802', '2a06');
       case ConfigTarget.chunked:
         return _alertChar ?? await _findChar('fee0', '0020');
+      case ConfigTarget.chunked2021:
+        return null; // handled in writeBandCommand via the encoder
     }
   }
   bool _isFetchingActivity = false;
@@ -345,6 +392,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
 
   Future<void> _loadPersistedData() async {
     _userWantsHrStreaming = await _storage.getWantsHrStreaming();
+    _declineText = await _storage.getDeclineText();
     await activityStore.load();
     _lastSyncTime = activityStore.lastActivitySync;
     _emitChange();
@@ -908,6 +956,7 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
 
     // Step 3: Subscriptions
     await _subscribeToSteps();
+    await _subscribeDeviceEvents(); // 0x0010 — post-auth only, §12
     await _readBattery();
     // Realtime HR over the standard 0x180D service (0x2A37/0x2A39) with the
     // required ~14 s keep-alive ping. See protocol-mb6.md §3.
@@ -1468,6 +1517,27 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   // Missing Notifications from Gadgetbridge Phase2/3
   // ---------------------------------------------------------------------------
 
+  /// Subscribes to `fee0/0x0010` device events. Post-auth only — see §12.
+  Future<void> _subscribeDeviceEvents() async {
+    if (_device == null || !_device!.isConnected) return;
+    try {
+      final services = await _discoverServicesCached();
+      for (final svc in services) {
+        if (!svc.uuid.str.toLowerCase().contains('fee0')) continue;
+        for (final char in svc.characteristics) {
+          if (!char.uuid.str.toLowerCase().contains('0010')) continue;
+          await char.setNotifyValue(true);
+          _initCharSubs.add(char.onValueReceived.listen(_onDeviceEvent));
+          _logger.i('Device events: subscribed to 0x0010 (post-auth)');
+          return;
+        }
+      }
+      _logger.e('Device events: 0x0010 not found under fee0');
+    } catch (e) {
+      _logger.e('Device events: subscribe failed: $e');
+    }
+  }
+
   Future<void> _subscribeToMissingNotifications() async {
     if (_device == null || !_device!.isConnected) return;
     try {
@@ -1476,16 +1546,25 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
         if (svc.uuid.str.toLowerCase().contains('fee0')) {
           for (final char in svc.characteristics) {
             final cu = char.uuid.str.toLowerCase();
-            // Subscribing to 0x0003 (config), 0x0010 (device events), 0x000F (notifs)
-            if (cu.contains('0003') ||
-                cu.contains('000f') ||
-                cu.contains('0010')) {
+            // 0x0003 (config) and 0x000F (notifs) before auth, as before.
+            // 0x0010 (device events) is subscribed in [_subscribeDeviceEvents]
+            // *after* auth: GB only enables its CCCD in
+            // enableFurtherNotifications on AUTH_SUCCESS
+            // (HuamiSupport.java:549, InitOperation2021.java:167), and the
+            // band was not delivering events when it was armed early.
+            if (cu.contains('0003') || cu.contains('000f')) {
               _logger.i("Subscribing to init characteristic $cu...");
               await char.setNotifyValue(true);
-              _initCharSubs.add(char.onValueReceived.listen((data) {
-                _logger.d(
-                    "Init Char $cu data: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}");
-              }));
+              if (cu.contains('0010')) {
+                // Device events — the band's buttons and its own sleep/wear
+                // determinations. Dispatched, not just logged. §12.
+                _initCharSubs.add(char.onValueReceived.listen(_onDeviceEvent));
+              } else {
+                _initCharSubs.add(char.onValueReceived.listen((data) {
+                  _logger.d(
+                      "Init Char $cu data: ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}");
+                }));
+              }
             }
           }
         }
@@ -1493,6 +1572,104 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
     } catch (e) {
       _logger.e("Init chars subscription failed: $e");
     }
+  }
+
+  /// Handles one frame from `fee0/0x0010` — protocol-mb6.md §12.
+  ///
+  /// The mapping of each event to a phone action is the table in §12; the
+  /// codes and payload offsets are Gadgetbridge's `handleDeviceEvent`. Anything
+  /// this app does not act on is still logged in full, so an unexpected code
+  /// shows up in the Debug Console rather than vanishing.
+  Future<void> _onDeviceEvent(List<int> data) async {
+    final e = BandEvent.parse(data);
+    if (e == null) return;
+    _markPacket();
+    lastBandEvent.value = e;
+    _logger.i('Band event: ${e.kind.name} '
+        '[${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}]');
+
+    switch (e.kind) {
+      case BandEventKind.fellAsleep:
+      case BandEventKind.wokeUp:
+      case BandEventKind.startNonWear:
+        // Evidence for P12.3, not (yet) a driver of session detection.
+        await bandEvents.add(e);
+        break;
+
+      case BandEventKind.callReject:
+        // §12.1 — GB: GBDeviceEventCallControl.REJECT → TelecomManager.endCall()
+        final ok = await callControl.endCall();
+        _logger.i(ok ? 'Call declined from the band' : 'Band asked to decline the call but the phone refused (permission?)');
+        if (ok) await _declineWithTextIfEnabled();
+        break;
+
+      case BandEventKind.callIgnore:
+        // §12.1 — GB: CallControl.IGNORE → mute
+        final ok = await callControl.silenceRinger();
+        _logger.i(ok ? 'Ringer silenced from the band' : 'Could not silence the ringer');
+        break;
+
+      case BandEventKind.findPhoneStart:
+        // §12.2 — ack exactly as GB does, then ring.
+        await _writeConfig(kFindPhoneAck, 'find-phone ack');
+        _findPhoneActive = true;
+        await callControl.ringPhone();
+        break;
+
+      case BandEventKind.findPhoneStop:
+        if (_findPhoneActive) {
+          _findPhoneActive = false;
+          await callControl.stopRinging();
+        }
+        break;
+
+      case BandEventKind.silentMode:
+        // §12.3 — toggling phone DND needs Notification Policy access, which
+        // this app does not request. Logged only.
+        _logger.i('Band silent mode: ${e.silentModeOn == true ? 'on' : 'off'} (not applied to phone)');
+        break;
+
+      case BandEventKind.mtuRequest:
+        _logger.i('Band requests MTU ${e.mtu}');
+        break;
+
+      case BandEventKind.workoutStarting:
+        _logger.i('Band workout starting: type=${e.workoutType} gps=${e.workoutNeedsGps}');
+        break;
+
+      case BandEventKind.musicControl:
+        _logger.i('Band music control ${e.musicAction} (not wired)');
+        break;
+
+      case BandEventKind.buttonPressed:
+      case BandEventKind.buttonPressedLong:
+      case BandEventKind.stepsGoalReached:
+      case BandEventKind.alarmToggled:
+      case BandEventKind.alarmChanged:
+      case BandEventKind.tick30Min:
+        // Known, informational, nothing to do on the phone.
+        break;
+
+      case BandEventKind.unknown:
+        _logger.e('Band event: undocumented code 0x${data[0].toRadixString(16)} — '
+            'record it in protocol-mb6.md §12 before acting on it');
+        break;
+    }
+  }
+
+  /// §13.3 — phone-side decline-with-text. Needs the caller's number, which the
+  /// notification relay records when the dialer's incoming-call notification
+  /// carries one; if it did not, nothing is sent and the log says why.
+  Future<void> _declineWithTextIfEnabled() async {
+    final text = _declineText;
+    if (text == null || text.trim().isEmpty) return;
+    final number = lastIncomingCallNumber;
+    if (number == null || number.isEmpty) {
+      _logger.i('Decline-with-text: enabled, but no caller number was available');
+      return;
+    }
+    final ok = await callControl.sendSms(number, text);
+    _logger.i(ok ? 'Decline-with-text sent' : 'Decline-with-text failed (SEND_SMS?)');
   }
 
   Future<void> _writeConfig(List<int> cmd, String label) async {

@@ -821,20 +821,27 @@ class _StageHeader extends StatelessWidget {
       spacing: AppSpacing.md,
       runSpacing: AppSpacing.xs,
       children: [
-        // No Deep chip while staging is quarantined. It would read "Deep 0m",
-        // which is a claim about the user's night rather than about the app's
-        // ability to measure it (findings-24).
-        if (SleepAnalyzer.kDeepStagingVerified)
-          chip(AppColors.sleepDeep, 'Deep', day.totalDeepMinutes),
+        // Deep is an estimate (findings-25) and the chip says so. Were staging
+        // ever disabled again there is no chip at all: "Deep 0m" would be a
+        // claim about the user's night, not about what the app can measure.
+        // Summed from the intervals the timeline actually draws, not from the
+        // SleepDay totals: a nap keeps its minutes in `totalNapMinutes`, so
+        // the legend read "Light 0m" under a chart full of light-sleep blocks.
+        if (SleepAnalyzer.kDeepStagingEnabled)
+          chip(AppColors.sleepDeep, 'Deep (est.)', _stageMinutes(day, SleepStage.deep)),
         chip(AppColors.sleepLight,
-            SleepAnalyzer.kDeepStagingVerified ? 'Light' : 'Asleep',
-            day.totalLightMinutes),
+            SleepAnalyzer.kDeepStagingEnabled ? 'Light' : 'Asleep',
+            _stageMinutes(day, SleepStage.light)),
         if (day.totalRemMinutes > 0)
           chip(AppColors.sleepRem, 'REM', day.totalRemMinutes),
       ],
     );
   }
 }
+
+int _stageMinutes(SleepDay d, SleepStage st) => d.intervals
+    .where((i) => i.stage == st)
+    .fold<int>(0, (a, i) => a + i.durationMinutes);
 
 class _StageLegend extends StatelessWidget {
   const _StageLegend();
@@ -859,7 +866,7 @@ class _StageLegend extends StatelessWidget {
       runSpacing: AppSpacing.sm,
       children: [
         dot(AppColors.sleepAwake, 'Awake'),
-        if (SleepAnalyzer.kDeepStagingVerified) ...[
+        if (SleepAnalyzer.kDeepStagingEnabled) ...[
           dot(AppColors.sleepRem, 'REM'),
           dot(AppColors.sleepLight, 'Light'),
           dot(AppColors.sleepDeep, 'Deep'),
@@ -881,25 +888,26 @@ class _HypnoPainter extends CustomPainter {
       case SleepStage.awake:
         return 0;
       case SleepStage.rem:
-        return SleepAnalyzer.kDeepStagingVerified ? 1 : 1;
+        // Never reported on this band (findings-09); if a stray interval ever
+        // carried it, draw it in the light lane rather than invent a row.
+        return SleepAnalyzer.kDeepStagingEnabled ? 1 : 1;
       case SleepStage.light:
       case SleepStage.nap:
-        return SleepAnalyzer.kDeepStagingVerified ? 2 : 1;
+        return SleepAnalyzer.kDeepStagingEnabled ? 1 : 1;
       case SleepStage.deep:
-        return SleepAnalyzer.kDeepStagingVerified ? 3 : 1;
+        return SleepAnalyzer.kDeepStagingEnabled ? 2 : 1;
     }
   }
 
-  // While deep staging is quarantined the chart has two lanes, not four.
-  // Empty "REM" and "Deep" rows label stages the app is not reporting, which
-  // reads as "you had none" rather than "this is not measured".
-  static List<String> get _rowLabels => SleepAnalyzer.kDeepStagingVerified
-      ? const ['Awake', 'REM', 'Light', 'Deep']
+  // No REM lane: this band cannot measure it (findings-09), and an empty row
+  // labelled "REM" reads as "you had none" rather than "not measured". Three
+  // lanes with deep enabled, two without.
+  static List<String> get _rowLabels => SleepAnalyzer.kDeepStagingEnabled
+      ? const ['Awake', 'Light', 'Deep (est.)']
       : const ['Awake', 'Asleep'];
-  static List<Color> get _rowColors => SleepAnalyzer.kDeepStagingVerified
+  static List<Color> get _rowColors => SleepAnalyzer.kDeepStagingEnabled
       ? [
           AppColors.sleepAwake,
-          AppColors.sleepRem,
           AppColors.sleepLight,
           AppColors.sleepDeep,
         ]
@@ -929,23 +937,37 @@ class _HypnoPainter extends CustomPainter {
           color: _rowColors[i], size: 11, weight: FontWeight.w700);
     }
 
+    // Short spans (a nap) get minute-resolution labels; a 57-minute nap used
+    // to read "8p · 9p · 9p". Long spans keep hour ticks, every 2 h past 6 h.
+    final shortSpan = spanMs < 3 * 3600 * 1000;
     final stepHours = spanMs > 6 * 3600 * 1000 ? 2 : 1;
     final hourPaint = Paint()
       ..color = AppColors.divider.withValues(alpha: 0.6)
       ..strokeWidth = 1;
-    var tick = DateTime(start.year, start.month, start.day, start.hour)
-        .add(const Duration(hours: 1));
-    while (tick.isBefore(end)) {
-      final x = xAt(tick);
-      canvas.drawLine(Offset(x, plot.top), Offset(x, plot.bottom), hourPaint);
-      _text(canvas, _hourLabel(tick), Offset(x - 13, plot.bottom + 5),
-          color: AppColors.inkFaint, size: 10);
-      tick = tick.add(Duration(hours: stepHours));
+    double? lastTickX;
+    if (!shortSpan) {
+      var tick = DateTime(start.year, start.month, start.day, start.hour)
+          .add(const Duration(hours: 1));
+      while (tick.isBefore(end)) {
+        final x = xAt(tick);
+        // Skip a tick that would sit on top of the start or end label.
+        if (x - plot.left > 28 && plot.right - x > 28) {
+          canvas.drawLine(Offset(x, plot.top), Offset(x, plot.bottom), hourPaint);
+          _text(canvas, _hourLabel(tick), Offset(x - 13, plot.bottom + 5),
+              color: AppColors.inkFaint, size: 10);
+          lastTickX = x;
+        }
+        tick = tick.add(Duration(hours: stepHours));
+      }
     }
-    _text(canvas, _hourLabel(start), Offset(plot.left - 6, plot.bottom + 5),
+    final startLabel = shortSpan ? _clockLabel(start) : _hourLabel(start);
+    final endLabel = shortSpan ? _clockLabel(end) : _hourLabel(end);
+    _text(canvas, startLabel, Offset(plot.left - 6, plot.bottom + 5),
         color: AppColors.inkMuted, size: 10, weight: FontWeight.w700);
-    _text(canvas, _hourLabel(end), Offset(plot.right - 32, plot.bottom + 5),
-        color: AppColors.inkMuted, size: 10, weight: FontWeight.w700);
+    if (lastTickX == null || plot.right - lastTickX > 40) {
+      _text(canvas, endLabel, Offset(plot.right - (shortSpan ? 44 : 32), plot.bottom + 5),
+          color: AppColors.inkMuted, size: 10, weight: FontWeight.w700);
+    }
 
     final segH = rowH * 0.6;
     int? prevLvl;
@@ -992,6 +1014,11 @@ class _HypnoPainter extends CustomPainter {
     return '$h${t.hour < 12 ? 'a' : 'p'}';
   }
 
+  String _clockLabel(DateTime t) {
+    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    return '$h:${t.minute.toString().padLeft(2, '0')}${t.hour < 12 ? 'a' : 'p'}';
+  }
+
   void _text(Canvas canvas, String s, Offset at,
       {required Color color,
       required double size,
@@ -1035,9 +1062,11 @@ class _StageCaveat extends StatelessWidget {
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
-              SleepAnalyzer.kDeepStagingVerified
-                  ? 'Estimated — this band reports deep vs light sleep but '
-                      'does not track REM separately.'
+              SleepAnalyzer.kDeepStagingEnabled
+                  ? 'Deep sleep is estimated from heart-rate dips and '
+                      'stillness, weighted towards the early night the way '
+                      'slow-wave sleep is — not measured. REM is never shown: '
+                      'this band cannot track it.'
                   : 'Asleep and awake only. Deep and REM are not shown: this '
                       'band cannot measure REM, and the deep-sleep estimate '
                       'was withdrawn after it turned out to pick minutes '
@@ -1190,7 +1219,7 @@ class _StageRow extends StatelessWidget {
               // "Asleep" already reads as a stage name; "Light"/"Deep" need
               // the noun. Appending it unconditionally produced "Asleep sleep".
               Text(
-                  SleepAnalyzer.kDeepStagingVerified
+                  SleepAnalyzer.kDeepStagingEnabled
                       ? '${stat.label} sleep'
                       : stat.label,
                   style: AppText.title),
@@ -1198,7 +1227,7 @@ class _StageRow extends StatelessWidget {
               // No verdict chip on the all-sleep bucket. Its range is 0-100 by
               // construction, so the chip would read "In range" every night —
               // a judgement with nothing behind it.
-              if (SleepAnalyzer.kDeepStagingVerified)
+              if (SleepAnalyzer.kDeepStagingEnabled)
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1270,7 +1299,7 @@ class _StageRow extends StatelessWidget {
           const SizedBox(height: 6),
           // No healthy band on the all-sleep bucket: its range is 0-100% by
           // construction, which renders as a meaningless "Healthy: 0m-<total>".
-          if (SleepAnalyzer.kDeepStagingVerified)
+          if (SleepAnalyzer.kDeepStagingEnabled)
             Text('Healthy: ${_SleepTabState.fmtMinutes(lowMin)}–${_SleepTabState.fmtMinutes(highMin)}',
               style: AppText.caption.copyWith(color: AppColors.inkFaint)),
         ],

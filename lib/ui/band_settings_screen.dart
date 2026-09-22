@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../core/band_config.dart';
@@ -106,6 +107,40 @@ class _BandSettingsBody extends StatelessWidget {
                 ]),
                 // Mi Band 6 has no low-HR alert on this protocol path, so none
                 // is offered — see protocol-mb6.md §9.
+
+                _Section('Band buttons'),
+                _Card(children: [
+                  _PermissionsTile(),
+                  const Divider(height: 1),
+                  _DeclineTextTile(ble: ble),
+                ]),
+                // Reject/ignore on the wrist end or silence the call on the
+                // phone (§12.1); find-phone rings it (§12.2). Neither needs a
+                // switch — they work whenever the permissions above are granted.
+
+                _Section('Experimental'),
+                _Card(children: [
+                  _SwitchTile(
+                    title: 'Automatic blood oxygen',
+                    subtitle: 'Asks the band to sample SpO2 on its own. '
+                        'Unverified on Mi Band 6 — the band may ignore it. '
+                        'Readings, if any, appear on the Sleep screen.',
+                    value: s.spo2AutoMonitoring,
+                    onChanged: config.setSpo2AutoMonitoring,
+                  ),
+                  const Divider(height: 1),
+                  _SwitchTile(
+                    title: 'Quick replies on the band',
+                    subtitle: 'Offer canned texts when declining a call from '
+                        'the wrist. Unverified on Mi Band 6.',
+                    value: s.cannedRepliesEnabled,
+                    onChanged: config.setCannedRepliesEnabled,
+                  ),
+                  if (s.cannedRepliesEnabled) ...[
+                    const Divider(height: 1),
+                    _CannedRepliesTile(config: config),
+                  ],
+                ]),
 
                 _Section('Display'),
                 _Card(children: [
@@ -436,4 +471,153 @@ class _StepGoalTile extends StatelessWidget {
         labelOf: (v) => '$v steps',
         onChanged: onChanged,
       );
+}
+
+/// Phone permissions the band's buttons need. Requested here, on demand, with
+/// the reason next to the button — not at first launch.
+class _PermissionsTile extends StatefulWidget {
+  @override
+  State<_PermissionsTile> createState() => _PermissionsTileState();
+}
+
+class _PermissionsTileState extends State<_PermissionsTile> {
+  Map<String, bool> _granted = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final ble = context.read<BLEManager>();
+    final g = await ble.callControl.permissions();
+    if (mounted) setState(() => _granted = g);
+  }
+
+  Future<void> _request() async {
+    await [
+      Permission.phone,
+      Permission.sms,
+    ].request();
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final calls = _granted['answerPhoneCalls'] == true;
+    final sms = _granted['sendSms'] == true;
+    final all = calls && sms;
+    return ListTile(
+      title: Text('Phone permissions', style: AppText.body),
+      subtitle: Text(
+        all
+            ? 'Granted — the band can decline, silence and reply to calls'
+            : 'Needed for the band\'s call buttons to act on the phone: '
+                '${calls ? '' : 'phone calls'}'
+                '${!calls && !sms ? ', ' : ''}'
+                '${sms ? '' : 'SMS'}',
+        style: AppText.caption.copyWith(color: AppColors.inkMuted),
+      ),
+      trailing: all
+          ? Icon(Icons.check_circle_rounded, color: AppColors.success)
+          : TextButton(onPressed: _request, child: const Text('Grant')),
+    );
+  }
+}
+
+/// Decline-with-text (§13.3): phone-side, works today, no band bytes.
+class _DeclineTextTile extends StatelessWidget {
+  const _DeclineTextTile({required this.ble});
+  final BLEManager ble;
+
+  Future<void> _edit(BuildContext context) async {
+    final ctrl = TextEditingController(text: ble.declineText ?? '');
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reply when declining'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          maxLength: 160,
+          decoration: const InputDecoration(
+            hintText: "Can't talk now — I'll call you back.",
+            helperText: 'Sent by SMS to the caller when you decline from the '
+                'band. Leave empty to turn off.',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (result != null) await ble.setDeclineText(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = context.watch<BLEManager>().declineText;
+    return ListTile(
+      title: Text('Reply with a text when I decline', style: AppText.body),
+      subtitle: Text(
+        text == null
+            ? 'Off'
+            : '"$text" — sent only when the call notification showed a number',
+        style: AppText.caption.copyWith(color: AppColors.inkMuted),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Icon(Icons.chevron_right, color: AppColors.inkFaint),
+      onTap: () => _edit(context),
+    );
+  }
+}
+
+/// The canned replies sent to the band while the experimental switch is on.
+class _CannedRepliesTile extends StatelessWidget {
+  const _CannedRepliesTile({required this.config});
+  final BandConfigController config;
+
+  Future<void> _edit(BuildContext context) async {
+    final ctrl = TextEditingController(text: config.settings.cannedReplies.join('\n'));
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quick replies'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            helperText: 'One per line, up to 16. Sent to the band the next time '
+                'settings are applied.',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (result != null) {
+      await config.setCannedReplies(result.split('\n'));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = config.settings.cannedReplies;
+    return ListTile(
+      title: Text('Replies', style: AppText.body),
+      subtitle: Text(
+        list.isEmpty ? 'None' : list.join(' · '),
+        style: AppText.caption.copyWith(color: AppColors.inkMuted),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Icon(Icons.chevron_right, color: AppColors.inkFaint),
+      onTap: () => _edit(context),
+    );
+  }
 }

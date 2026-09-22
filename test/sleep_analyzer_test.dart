@@ -183,7 +183,7 @@ void main() {
   // night rather than front-loaded, so it is not finding slow-wave sleep. The
   // test is kept, and skipped, as the specification a replacement must meet.
   group('deep sleep from a sustained heart-rate dip',
-      skip: SleepAnalyzer.kDeepStagingVerified
+      skip: SleepAnalyzer.kDeepStagingEnabled
           ? null
           : 'deep-sleep staging is quarantined — see findings-24', () {
     test('a long low-HR run is marked deep', () {

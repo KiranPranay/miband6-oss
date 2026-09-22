@@ -401,3 +401,37 @@ stores nothing from the band.
       *Probe:* force a counter gap in a debug build and confirm the log shows
       "transfer incomplete" **and** that zero samples are stored, with the
       watermark unmoved.
+
+## P12 — Device events (`0x0010`), 2026-09-23
+
+- [ ] **P12.1 Call reject / ignore from the band reaches the phone.** Ring the
+      phone, press the band's reject button; expect `Band event: callReject`
+      then `CallControl.endCall -> true` and the call ends. Needs
+      `ANSWER_PHONE_CALLS` granted. Then ignore: expect the ringer to stop while
+      the call continues.
+- [ ] **P12.2 Find-phone.** Trigger find-phone on the band; expect
+      `06 14 00 00` written to `0x0003`, `CallControl.ringPhone -> true`, and
+      the phone ringing until the band sends `0x0f`.
+- [ ] **P12.3 Do the band's FELL_ASLEEP / WOKE_UP events line up with detected
+      sessions?** Compare `band_events.json` against `detectSessions` over a
+      week. If the band's boundaries are consistently within ±10 min of ours,
+      they should become the session anchors — they are the band's own
+      real-time determination, not a reconstruction. If they disagree, record
+      which way and why before choosing.
+
+## P13 — Canned replies, 2026-09-23
+
+- [ ] **P13.1 Does the band accept canned messages on endpoint `0x0013`?**
+      With the experimental switch on: write the delete×16 + create frames
+      after auth; expect no `10 xx 04`-style error and, on a rejected call, a
+      reply menu on the band. If the band shows a menu and sends `0b …` back on
+      `0x0017`, record the four unknown bytes GB could not name.
+
+## P14 — SpO2, 2026-09-23
+
+- [ ] **P14.1 A phone-triggered one-shot SpO2 measurement.** None found in GB
+      or Notify (§14). Stays open in case a Mi Fit command is located.
+- [ ] **P14.2 Automatic SpO2 via the ZeppOS config bit.** §14.1. With the
+      experimental switch on, send `05 08 03 00 01 31 0b 01` (encrypted,
+      endpoint `0x000a`) after auth. Pass only if the ack arrives AND later
+      `0x25` records carry bit 7 set at times the user did not measure.
