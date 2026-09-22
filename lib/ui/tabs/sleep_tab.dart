@@ -243,7 +243,8 @@ class _SleepTabState extends State<SleepTab> {
                 const SectionHeader('Metrics'),
                 _MetricsLedger(a: analysis, day: selected),
                 const SizedBox(height: AppSpacing.lg),
-                _RecommendationsCard(recs: analysis.recommendations),
+                if (analysis.recommendations.isNotEmpty)
+                  _RecommendationsCard(recs: analysis.recommendations),
                 const SizedBox(height: AppSpacing.lg),
                 const _AiAnalysisCard(),
                 const SectionHeader('Sleep sounds'),

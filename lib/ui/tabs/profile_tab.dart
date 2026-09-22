@@ -12,9 +12,7 @@ import '../widgets/tab_header.dart';
 
 import '../settings_screen.dart';
 import '../notifications_screen.dart';
-import '../debug_console.dart';
 import '../sleep_audio/snore_tracking_screen.dart';
-import '../widgets/coming_soon.dart';
 
 /// Profile / Device screen: identity header, the connected band's status +
 /// battery + sync, a list of feature shortcuts, and an about card.
@@ -113,33 +111,10 @@ class ProfileTab extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 _FeatureRow(
-                  icon: Icons.auto_awesome_rounded,
-                  color: AppColors.primary,
-                  title: 'AI Analysis',
-                  onTap: () => _push(
-                    context,
-                    ComingSoonScreen(
-                      title: 'AI Analysis',
-                      description:
-                          'Personalized AI insights from your health data — coming soon.',
-                      icon: Icons.auto_awesome_rounded,
-                      gradient: [AppColors.primary, AppColors.heart],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _FeatureRow(
                   icon: Icons.settings_rounded,
                   color: AppColors.inkMuted,
                   title: 'Settings',
                   onTap: () => _push(context, const SettingsScreen()),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _FeatureRow(
-                  icon: Icons.terminal_rounded,
-                  color: AppColors.inkMuted,
-                  title: 'Debug Console',
-                  onTap: () => _push(context, const DebugConsole()),
                 ),
               ],
             ),
