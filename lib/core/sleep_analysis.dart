@@ -471,19 +471,24 @@ class SleepAnalysis {
           : SleepInsight(false, 'Restless night · $eff% efficiency'));
     }
 
-    // Recommendations.
+    // Recommendations — none for a nap. Every rule below is about a night:
+    // goal shortfall, deep-sleep share, bedtime consistency, evening caffeine.
     final recs = <String>[];
-    if (!session.isNap && total < goalMinutes) {
+    if (session.isNap) {
+      // (fall through to the return with an empty list)
+    } else if (total < goalMinutes) {
       recs.add('Get to bed about ${_fmt(((goalMinutes - total) / 2).round())} earlier tonight.');
     }
-    if (deepStage != null && deepStage.status == MetricStatus.below) {
-      recs.add('Estimated deep sleep was low — keep the room cool and avoid '
-          'screens before bed.');
+    if (!session.isNap) {
+      if (deepStage != null && deepStage.status == MetricStatus.below) {
+        recs.add('Estimated deep sleep was low — keep the room cool and avoid '
+            'screens before bed.');
+      }
+      if (consistency != null && consistency < 70) {
+        recs.add('Aim for a more consistent bedtime to steady your rhythm.');
+      }
+      recs.add('Avoid caffeine after 6 PM — it shortens deep sleep.');
     }
-    if (consistency != null && consistency < 70) {
-      recs.add('Aim for a more consistent bedtime to steady your rhythm.');
-    }
-    recs.add('Avoid caffeine after 6 PM — it shortens deep sleep.');
 
     return SleepAnalysis._(
       session: session,

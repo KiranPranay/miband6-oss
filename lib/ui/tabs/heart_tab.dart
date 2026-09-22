@@ -135,11 +135,10 @@ class _HeartTabState extends State<HeartTab> {
                 const SizedBox(height: AppSpacing.sm),
                 const _ZoneLegend(),
                 const SizedBox(height: AppSpacing.lg),
-                _SummaryLedger(readings: readings, week: _range >= 1),
-                if (_range == 0 && heart.highest != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  _HighestCard(event: heart.highest!),
-                ],
+                _SummaryLedger(
+                    readings: readings,
+                    week: _range >= 1,
+                    highest: _range == 0 ? heart.highest : null),
                 if (_range == 1) ...[
                   const SectionHeader('This week'),
                   _WeekSummaryCard(heart: heart),
@@ -822,81 +821,24 @@ class _ZoneLegend extends StatelessWidget {
 // Highest reading today + activity context (real correlation)
 // ===========================================================================
 
-class _HighestCard extends StatelessWidget {
-  final HeartEvent event;
-  const _HighestCard({required this.event});
-
-  String _time(DateTime t) {
-    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-    final m = t.minute.toString().padLeft(2, '0');
-    final ap = t.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m $ap';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // "during activity" is honest context from the concurrent sample — never an
-    // invented exercise type. At rest, an elevated peak is worth a softer flag.
-    final active = event.duringActivity;
-    final contextLabel = active ? 'during activity' : 'while at rest';
-    final accent = active
-        ? AppColors.success
-        : (event.bpm > 100 ? AppColors.warning : AppColors.inkMuted);
-
-    return AppCard(
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.heart.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.arrow_upward_rounded,
-                color: AppColors.heart, size: 22),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Highest today', style: AppText.label),
-                const SizedBox(height: 2),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text('${event.bpm}',
-                        style:
-                            AppText.metricSm.copyWith(color: AppColors.heart)),
-                    const SizedBox(width: 3),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Text('bpm · ${_time(event.time)}',
-                          style: AppText.caption
-                              .copyWith(color: AppColors.inkMuted)),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          _Pill(text: contextLabel, color: accent),
-        ],
-      ),
-    );
-  }
-}
-
 // ===========================================================================
 // Min / Avg / Max
 // ===========================================================================
 
+String _clock(DateTime t) {
+  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  return '$h:${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
+}
+
 class _SummaryLedger extends StatelessWidget {
   final List<HeartRateReading> readings;
   final bool week;
-  const _SummaryLedger({required this.readings, required this.week});
+
+  /// Today's peak with its time and context; folded into the Highest row so
+  /// the number is not shown twice.
+  final HeartEvent? highest;
+  const _SummaryLedger(
+      {required this.readings, required this.week, this.highest});
 
   @override
   Widget build(BuildContext context) {
@@ -915,7 +857,15 @@ class _SummaryLedger extends StatelessWidget {
       rows: [
         LedgerRow(label: 'Lowest', value: minStr, unit: unit, color: AppColors.sleep),
         LedgerRow(label: 'Average', value: avgStr, unit: unit, color: AppColors.inkMuted),
-        LedgerRow(label: 'Highest', value: maxStr, unit: unit, color: AppColors.heart),
+        LedgerRow(
+            label: 'Highest',
+            value: maxStr,
+            unit: unit,
+            color: AppColors.heart,
+            note: highest == null
+                ? null
+                : '${_clock(highest!.time)}'
+                    '${highest!.duringActivity ? ' · during activity' : ' · at rest'}'),
       ],
       evidence: readings.isEmpty
           ? 'no readings in this range'

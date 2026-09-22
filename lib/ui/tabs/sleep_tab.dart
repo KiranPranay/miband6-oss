@@ -227,14 +227,19 @@ class _SleepTabState extends State<SleepTab> {
                 _TimelineCard(day: selected),
                 const SizedBox(height: AppSpacing.lg),
                 _InsightsCard(insights: analysis.insights),
-                const SectionHeader('Sleep stages'),
-                const _StageCaveat(),
-                if (!analysis.hasPersonalBaseline) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  _BaselineNote(a: analysis),
+                // Stages, ranges and "vs your average" are defined for a
+                // night. On a nap they rendered "Deep 0m · Below range ·
+                // Healthy 8m-14m", every part of which is meaningless.
+                if (!selected.isNap) ...[
+                  const SectionHeader('Sleep stages'),
+                  const _StageCaveat(),
+                  if (!analysis.hasPersonalBaseline) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    _BaselineNote(a: analysis),
+                  ],
+                  const SizedBox(height: AppSpacing.md),
+                  _StageList(a: analysis),
                 ],
-                const SizedBox(height: AppSpacing.md),
-                _StageList(a: analysis),
                 const SectionHeader('Metrics'),
                 _MetricsLedger(a: analysis, day: selected),
                 const SizedBox(height: AppSpacing.lg),
@@ -1032,10 +1037,10 @@ class _StageLegend extends StatelessWidget {
       runSpacing: AppSpacing.sm,
       children: [
         dot(AppColors.sleepAwake, 'Awake'),
+        // No REM: this band cannot measure it (findings-09).
         if (SleepAnalyzer.kDeepStagingEnabled) ...[
-          dot(AppColors.sleepRem, 'REM'),
           dot(AppColors.sleepLight, 'Light'),
-          dot(AppColors.sleepDeep, 'Deep'),
+          dot(AppColors.sleepDeep, 'Deep (est.)'),
         ] else
           dot(AppColors.sleepLight, 'Asleep'),
       ],
