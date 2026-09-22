@@ -19,6 +19,11 @@ On the same capture the new rule reports a median **14.2 %** deep share
 harness requires < 0.45), and **1 of 53** nights with no deep at all. The old
 rule, on the same nights, sat at 0.524.
 
+*Same night, findings-26 changed session detection (sparse-flag nights are
+now recovered), which changed the population: **56 nights, 20.2 % median
+share, position 0.434, 0 empty nights.** The constants were not retuned; the
+extra nights and the earlier, more accurate onsets moved the figures.*
+
 ## What was wrong with the old detector, precisely
 
 It compared each minute's heart rate to a rolling median centred on that
