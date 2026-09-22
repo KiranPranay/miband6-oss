@@ -69,6 +69,26 @@ Result:
   PASS  no impossible nights — 0 night(s) longer than 12 h; longest 712m
 ```
 
+**5. A looser movement ceiling on heart-rate-corroborated minutes.** With
+the pulse already below the gate, admit intensity ≤ 80 rather than requiring
+Chinoy still-ness — to recover 2026-09-21→22, where the band flagged nothing
+between 22:00 and 06:00, then flagged 07:00-11:00 *at waking heart rate*
+(its own call was wrong), while 00:00-06:00 showed 30-45 min/h of low pulse,
+worn, step-free minutes at intensities of 40-80.
+
+Result: that night came back at 301 min — and so did two **daytime**
+"sessions" at a desk (08:07→17:55, 08:01→17:45), six nights over 12 h, 76
+sessions in place of 56, and a deep-sleep position of 0.481. This wearer's
+seated pulse sits under an 8 % gate often enough that heart rate alone cannot
+carry the anchor. **Reverted.**
+
+The night of 21→22 therefore stays unclassified. What the app does instead
+is say what it measured: `SleepAnalyzer.restOnlyNight` describes a sleep-day
+that produced no session while the band was worn — the span of low pulse, the
+minutes at rest, and how little the band itself flagged — and the Sleep screen
+shows that in place of promoting a nap to the top. It feeds nothing: not
+duration, not efficiency, not the score.
+
 ## Inside a session
 
 The same per-minute rule applies to staging. A minute inside a session is

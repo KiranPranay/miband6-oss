@@ -206,15 +206,22 @@ class SleepAnalyzer {
     if (isNotWorn(s)) return false;
     if (kindFlags(s.category) == sleepFlagNibble) return true;
     if (!kAnchorOnActigraphy) return false;
-    if (_weightedSumAwake(intensities, i)) return false;
-    // Corroborate *this minute*: still is not enough, the pulse has to be
-    // down too. A session-level median was tried first and let an evening on
-    // the sofa stitch onto the night — 10 "nights" over 12 h, one of 833 min,
-    // because the whole block's median was dragged down by the real sleep in
-    // it. Per-minute, a still minute at waking heart rate is simply awake.
+    // Corroborate *this minute*: the pulse has to be down. A session-level
+    // median was tried first and let an evening on the sofa stitch onto the
+    // night — 10 "nights" over 12 h, one of 833 min, because the whole
+    // block's median was dragged down by the real sleep in it. Per-minute, a
+    // minute at waking heart rate is simply awake, however still.
     if (wakingHr == null) return false;
     final bpm = hrByMinute[s.timestamp.millisecondsSinceEpoch ~/ 60000];
-    return bpm != null && bpm <= wakingHr * (1 - restingDipFraction);
+    if (bpm == null || bpm > wakingHr * (1 - restingDipFraction)) return false;
+    // Still-ness is Chinoy's, and only Chinoy's. A looser movement ceiling
+    // (intensity ≤ 80 with the pulse down) was tried to recover a restless
+    // night the band did not flag; it also recovered two *daytime* sessions
+    // at a desk, six nights over 12 h and undid the deep-sleep front-loading —
+    // this wearer's seated pulse sits under the gate often enough. See
+    // findings-26. A night that is neither flagged nor still is reported as
+    // what it is, via [restOnlyNight], not as sleep.
+    return !_weightedSumAwake(intensities, i);
   }
 
   /// Median valid heart rate per minute, for the per-minute anchor check.
@@ -1182,9 +1189,116 @@ class SleepAnalyzer {
         : prev);
     return out;
   }
+
+  /// Describes a sleep-day that produced no session even though the band was
+  /// worn, so the screen can say "restless, unclassified" instead of showing
+  /// a nap. Returns null when a night exists for [sleepDay], when the band
+  /// was mostly off the wrist, or when there is too little rest to report.
+  ///
+  /// This is deliberately *not* a sleep session: nothing here feeds duration,
+  /// efficiency, staging or the score. On 2026-09-21→22 the band flagged no
+  /// sleep between 22:00 and 06:00 and heart rate sat below the waking gate
+  /// for 30-45 minutes of every hour while movement stayed at 40-80 — at rest,
+  /// restless, and not something this app can honestly call sleep.
+  static RestOnlyNight? restOnlyNight(
+    List<ActivitySample> samples,
+    List<HeartRateReading> hr,
+    DateTime sleepDay, {
+    List<SleepDay>? sessions,
+  }) {
+    final days = sessions ?? detectSessions(samples, hr: hr);
+    final d0 = DateTime(sleepDay.year, sleepDay.month, sleepDay.day);
+    final hasNight = days.any((d) =>
+        !d.isNap &&
+        DateTime(d.date.year, d.date.month, d.date.day) == d0);
+    if (hasNight) return null;
+
+    final lo = d0.subtract(const Duration(hours: 4)); // 20:00 the evening before
+    final hi = d0.add(const Duration(hours: 12));
+    final window = samples
+        .where((s) => !s.timestamp.isBefore(lo) && s.timestamp.isBefore(hi))
+        .toList();
+    if (window.length < 240) return null;
+
+    final wakingHr = _wakingMedianHr(hr);
+    if (wakingHr == null) return null;
+    final gate = wakingHr * (1 - restingDipFraction);
+    final hrByMinute = _hrByMinute(hr);
+
+    var worn = 0, withHr = 0, flagged = 0;
+    final rest = <DateTime>[];
+    for (final s in window) {
+      if (isNotWorn(s)) continue;
+      worn++;
+      final bpm = hrByMinute[s.timestamp.millisecondsSinceEpoch ~/ 60000];
+      if (bpm != null) withHr++;
+      if (kindFlags(s.category) == sleepFlagNibble) {
+        flagged++;
+      }
+      if (s.steps == 0 && bpm != null && bpm <= gate) rest.add(s.timestamp);
+    }
+    if (worn < window.length / 2 || rest.length < 120) return null;
+
+    // The rest span: from the first to the last rest minute, trimmed to the
+    // densest stretch by dropping leading/trailing hours with < 15 rest min.
+    final byHour = <DateTime, int>{};
+    for (final t in rest) {
+      final h = DateTime(t.year, t.month, t.day, t.hour);
+      byHour[h] = (byHour[h] ?? 0) + 1;
+    }
+    final hours = byHour.keys.toList()..sort();
+    var a = 0, b = hours.length - 1;
+    while (a < b && byHour[hours[a]]! < 15) {
+      a++;
+    }
+    while (b > a && byHour[hours[b]]! < 15) {
+      b--;
+    }
+    if (b - a < 2) return null; // under three hours of rest — nothing to say
+
+    return RestOnlyNight(
+      date: d0,
+      start: hours[a],
+      end: hours[b].add(const Duration(hours: 1)),
+      restMinutes: rest.length,
+      wornMinutes: worn,
+      hrCoveragePct: (withHr * 100 / worn).round(),
+      flaggedMinutes: flagged,
+    );
+  }
+
 }
 
 /// One minute with its assigned stage.
+/// A night the band could not classify as sleep, described by what *was*
+/// measured. See [SleepAnalyzer.restOnlyNight].
+class RestOnlyNight {
+  const RestOnlyNight({
+    required this.date,
+    required this.start,
+    required this.end,
+    required this.restMinutes,
+    required this.wornMinutes,
+    required this.hrCoveragePct,
+    required this.flaggedMinutes,
+  });
+
+  /// Sleep-day this belongs to (the morning's date).
+  final DateTime date;
+  final DateTime start;
+  final DateTime end;
+
+  /// Minutes in [start, end] with the band worn, no steps, and heart rate
+  /// below the waking gate — "at rest", regardless of movement.
+  final int restMinutes;
+  final int wornMinutes;
+  final int hrCoveragePct;
+
+  /// How many minutes the band itself flagged as sleep. Low here is the point.
+  final int flaggedMinutes;
+}
+
+
 class _Staged {
   const _Staged(this.time, this.stage);
   final DateTime time;

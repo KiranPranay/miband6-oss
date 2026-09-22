@@ -146,6 +146,20 @@ class _SleepTabState extends State<SleepTab> {
     }
     selected ??= _main(recent) ?? (days.isNotEmpty ? days.last : null);
 
+    // If the most recent sleep-day has no night, say what the band did record
+    // rather than promoting a nap to the top of the screen.
+    RestOnlyNight? restOnly;
+    if (selected == null || selected.isNap) {
+      final now = DateTime.now();
+      final latestDay = SleepAnalyzer.sleepDayFor(now);
+      final candidates = [latestDay, latestDay.subtract(const Duration(days: 1))];
+      for (final d in candidates) {
+        restOnly = SleepAnalyzer.restOnlyNight(
+            store.samples, store.hrReadings, d, sessions: days);
+        if (restOnly != null) break;
+      }
+    }
+
     // Computed once here, not inside the sliver list literal below — that
     // literal is built eagerly on every rebuild, so the call ran a full
     // whole-history sleep pass per frame while re-deriving sessions the memo on
@@ -175,7 +189,17 @@ class _SleepTabState extends State<SleepTab> {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 const SizedBox(height: AppSpacing.sm),
-                _ScoreHero(a: analysis),
+                // A nap gets a nap card: duration, efficiency and when — no
+                // score ring, no rating, no 8-hour goal bar. Scoring a
+                // 40-minute nap "Poor · 33/100 · 8% of goal" is a true sum
+                // over the wrong thing.
+                if (restOnly != null) ...[
+                  _RestOnlyCard(night: restOnly),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                selected.isNap
+                    ? _NapHero(a: analysis, day: selected)
+                    : _ScoreHero(a: analysis),
                 const SizedBox(height: AppSpacing.lg),
                 _InsightsCard(insights: analysis.insights),
                 const SizedBox(height: AppSpacing.lg),
@@ -259,6 +283,119 @@ class _SleepTabState extends State<SleepTab> {
 // ===========================================================================
 // Score hero
 // ===========================================================================
+
+/// A night the band was worn but could not classify. Nothing here is a
+/// sleep figure; it is the evidence, stated as evidence.
+class _RestOnlyCard extends StatelessWidget {
+  final RestOnlyNight night;
+  const _RestOnlyCard({required this.night});
+
+  @override
+  Widget build(BuildContext context) {
+    final n = night;
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.nights_stay_outlined, color: AppColors.sleep),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text('Last night — restless, not staged',
+                    style: AppText.title),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'The band was on your wrist and your heart rate was down from '
+            '${_SleepTabState.clock(n.start)} to ${_SleepTabState.clock(n.end)} '
+            '(${_SleepTabState.fmtMinutes(n.restMinutes)} at rest), but you '
+            'moved through most of it and the band flagged only '
+            '${_SleepTabState.fmtMinutes(n.flaggedMinutes)} as sleep. '
+            'That is not enough to call it sleep, so there is no score.',
+            style: AppText.body.copyWith(color: AppColors.inkMuted, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NapHero extends StatelessWidget {
+  final SleepAnalysis a;
+  final SleepDay day;
+  const _NapHero({required this.a, required this.day});
+
+  @override
+  Widget build(BuildContext context) {
+    final start = day.startTime, end = day.endTime;
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.sleepSoft,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                ),
+                child: Icon(Icons.wb_twilight_rounded, color: AppColors.sleep),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Nap',
+                        style: AppText.label.copyWith(
+                            color: AppColors.inkMuted,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(_SleepTabState.fmtMinutes(a.durationMin),
+                            style: AppText.metric),
+                        const SizedBox(width: 6),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text('asleep', style: AppText.label),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            [
+              if (start != null && end != null)
+                '${_SleepTabState.clock(start)} – ${_SleepTabState.clock(end)}',
+              '${a.efficiencyPct}% of the time in bed',
+            ].join(' · '),
+            style: AppText.caption.copyWith(color: AppColors.inkMuted),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Naps are not scored — the score, goal and stage ranges are '
+            'defined for a night.',
+            style: AppText.caption.copyWith(color: AppColors.inkFaint),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ScoreHero extends StatelessWidget {
   final SleepAnalysis a;
