@@ -318,11 +318,22 @@ class _DayChart extends StatelessWidget {
               showTitles: true,
               reservedSize: 22,
               interval: 6,
-              getTitlesWidget: (v, meta) => Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.xs),
-                child: Text('${v.round().toString().padLeft(2, '0')}:00',
-                    style: AppText.caption.copyWith(color: AppColors.inkFaint)),
-              ),
+              getTitlesWidget: (v, meta) {
+                // Same clock labels as the Heart and Activity charts.
+                final h = v.round();
+                final label = h % 24 == 0
+                    ? '12a'
+                    : h == 12
+                        ? '12p'
+                        : h < 12
+                            ? '${h}a'
+                            : '${h - 12}p';
+                return Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: Text(label,
+                      style: AppText.caption.copyWith(color: AppColors.inkFaint)),
+                );
+              },
             ),
           ),
         ),

@@ -27,12 +27,16 @@ screen now says so in plain words, rather than continuing to show a confident
 red "96 — High" built from a heart-rate byte
 ([findings-23](docs/reverse-engineering/findings-23.md)).
 
-The same thing happened to deep sleep. Its share could be tuned anywhere from
-5% to 19% — comfortably inside the published healthy range — but the minutes it
-picked were spread evenly across the night, and real slow-wave sleep is
-front-loaded. A number that lands in the right range for the wrong reason is
-still a fabrication, so the stage was withdrawn rather than calibrated
-([findings-24](docs/reverse-engineering/findings-24.md)).
+The same thing happened to deep sleep, twice. The first detector could be tuned
+anywhere from 5% to 19% — inside the published healthy range — but the minutes
+it picked were spread evenly across the night, and real slow-wave sleep is
+front-loaded; it was withdrawn rather than calibrated
+([findings-24](docs/reverse-engineering/findings-24.md)). It came back only
+with a rule whose front-loading is a property of the model, checked on 56 real
+nights, and it is labelled an estimate on every surface that shows it
+([findings-25](docs/reverse-engineering/findings-25.md)). A night the band
+cannot classify is reported as what was measured — hours at rest, movement
+throughout — not as sleep ([findings-26](docs/reverse-engineering/findings-26.md)).
 
 Every metric is either measured, derived-and-labelled, or **absent**. Anything
 not yet confirmed on real hardware is listed as unconfirmed in
@@ -42,8 +46,9 @@ not yet confirmed on real hardware is listed as unconfirmed in
 
 ## Screenshots
 
-Real data from a real band. These predate the deep-sleep quarantine, so the
-Sleep screen still shows a Deep figure the app no longer reports.
+Real data from a real band, dark mode. Every number is a monospace figure,
+metrics are ledger rows rather than tiles, and each group carries an evidence
+line saying where its numbers came from.
 
 | Today | Sleep | Heart |
 |---|---|---|
@@ -64,8 +69,12 @@ Sleep screen still shows a Deep figure the app no longer reports.
 | Steps / distance / calories | ✅ hardware-verified |
 | Battery | ✅ hardware-verified |
 | SpO2 history | ⚠️ parser hardware-verified; only shown when actually measured that night |
-| Sleep sessions, duration, efficiency | ✅ validated against 81k live heart-rate readings |
-| Deep / light staging | ❌ **quarantined** — the detector's output is uniform across the night, so it is not finding slow-wave sleep ([findings-24](docs/reverse-engineering/findings-24.md)) |
+| Sleep sessions, duration, efficiency | ✅ validated on 56 real nights; sessions anchor on the band's flag *or* corroborated stillness ([findings-26](docs/reverse-engineering/findings-26.md)) |
+| Deep sleep | ⚠️ **estimated** — two-process model, front-loaded by construction, labelled "est." everywhere ([findings-25](docs/reverse-engineering/findings-25.md)) |
+| Band buttons → phone (decline, silence, find my phone) | ✅ hardware-subscribed post-auth; needs phone permissions ([§12](docs/reverse-engineering/protocol-mb6.md)) |
+| Decline with a text | ✅ phone-side; sends when the call notification carried a number |
+| Automatic SpO2 (band samples on its own) | ⚠️ **experimental, off by default** — a config bit the band may ignore ([P14.2](docs/reverse-engineering/pending-hardware-verification.md)); no phone-triggered measurement exists on this firmware path |
+| Quick replies on the band | ⚠️ **experimental, off by default** — the receive path is disabled upstream as unsafe ([P13.1](docs/reverse-engineering/pending-hardware-verification.md)) |
 | Multi-round history sync (survives gaps in the band's buffer) | ✅ hardware-verified |
 | Band settings (HR interval, display, goals, DND…) | ✅ every command accepted on device |
 | Background connection + auto-reconnect | ✅ backoff observed live |

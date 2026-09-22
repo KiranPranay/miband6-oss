@@ -214,6 +214,12 @@ class _SleepTabState extends State<SleepTab> {
                 // score ring, no rating, no 8-hour goal bar. Scoring a
                 // 40-minute nap "Poor · 33/100 · 8% of goal" is a true sum
                 // over the wrong thing.
+                _NightNav(
+                  days: days,
+                  selected: selected,
+                  onSelect: (d) => setState(() => _selectedStart = d.startTime),
+                ),
+                const SizedBox(height: AppSpacing.sm),
                 if (restOnly != null) ...[
                   _RestOnlyCard(night: restOnly),
                   const SizedBox(height: AppSpacing.lg),
@@ -312,6 +318,60 @@ class _SleepTabState extends State<SleepTab> {
 // ===========================================================================
 // Score hero
 // ===========================================================================
+
+/// Step between recorded sessions without scrolling to the log.
+///
+/// The only way to look at a different night used to be to scroll to the
+/// bottom of the screen and tap it in the list, then scroll back up. Two
+/// chevrons and the night's name, at the top, next to the number they change.
+class _NightNav extends StatelessWidget {
+  final List<SleepDay> days;
+  final SleepDay selected;
+  final ValueChanged<SleepDay> onSelect;
+  const _NightNav(
+      {required this.days, required this.selected, required this.onSelect});
+
+  static const _wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const _mo = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = [...days]
+      ..sort((a, b) => (a.startTime ?? a.date).compareTo(b.startTime ?? b.date));
+    final i = sorted.indexWhere((d) => d.startTime == selected.startTime);
+    final prev = i > 0 ? sorted[i - 1] : null;
+    final next = i >= 0 && i < sorted.length - 1 ? sorted[i + 1] : null;
+    final t = selected.startTime ?? selected.date;
+    final label =
+        '${_wd[t.weekday - 1]} ${t.day} ${_mo[t.month - 1]}'
+        '${selected.isNap ? ' · nap' : ''}';
+    return Row(
+      children: [
+        IconButton(
+          onPressed: prev == null ? null : () => onSelect(prev),
+          icon: const Icon(Icons.chevron_left_rounded),
+          tooltip: 'Earlier',
+          color: AppColors.inkMuted,
+        ),
+        Expanded(
+          child: Text(label,
+              textAlign: TextAlign.center,
+              style: AppText.label.copyWith(
+                  color: AppColors.ink, fontWeight: FontWeight.w700)),
+        ),
+        IconButton(
+          onPressed: next == null ? null : () => onSelect(next),
+          icon: const Icon(Icons.chevron_right_rounded),
+          tooltip: 'Later',
+          color: AppColors.inkMuted,
+        ),
+      ],
+    );
+  }
+}
 
 /// A night the band was worn but could not classify. Nothing here is a
 /// sleep figure; it is the evidence, stated as evidence.

@@ -31,6 +31,20 @@ second one matters to anyone whose history just moved.
 - **The band's own sleep boundaries** (FELL_ASLEEP / WOKE_UP / off-wrist) are
   recorded to `band_events.json`. Whether they should anchor session detection
   is probe P12.3.
+- **Sessions no longer depend on the band's flag alone.** A night worn
+  end-to-end at 97% heart-rate coverage produced nothing because the band
+  flagged 20% of its minutes; Chinoy actigraphy now anchors too, corroborated
+  per minute by heart rate below the waking median, with sustained onset and a
+  12-hour split. A night that still cannot be classified is shown as what was
+  measured — "restless, not staged" — never as sleep, and never as a nap
+  standing in for last night. See findings-26.
+- **Charts you can read.** Round axis ticks, clock labels (12a · 6a · 12p ·
+  6p), a "now" marker, a numbered scale on the hourly steps chart, no REM lane.
+- **The ledger.** Every number is a monospace tabular figure; metric grids
+  became ledger rows with dotted leaders and one-line notes; each group and the
+  Today score carry an evidence line — "1 440 samples today · synced 3m ago".
+  The chart comes first on each detail tab. Naps get a nap card, not a night's
+  score. The Sleep tab steps between nights with chevrons.
 - **Two experimental switches, off by default**, each a documented probe: ask
   the band to sample SpO2 automatically (P14.2 — no phone-triggered
   measurement exists on this firmware path, §14), and quick replies on the band
