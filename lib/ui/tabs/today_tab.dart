@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
+import '../widgets/ledger.dart';
 import '../widgets/section_header.dart';
 import '../widgets/tab_header.dart';
 
@@ -200,6 +201,12 @@ class _TodayTabState extends State<TodayTab> {
 
                   // --- Composite Health Score (real sub-scores, breakdown shown) ---
                   _HealthHero(summary: summary),
+                  const SizedBox(height: AppSpacing.sm),
+                  EvidenceLine(
+                    '${fmtThousands(store.samplesForDate(today).length)} activity samples · '
+                    '${fmtThousands(store.hrReadings.where((r) => !r.timestamp.isBefore(today)).length)} heart-rate readings today · '
+                    'synced ${_relativeSync(ble.lastSyncTime)}',
+                  ),
                   const SizedBox(height: AppSpacing.lg),
 
                   // --- Today's aggregated insights ---
@@ -222,7 +229,13 @@ class _TodayTabState extends State<TodayTab> {
                         onTap: () => widget.onNavigate?.call(_sleepTab)),
                     const SizedBox(height: AppSpacing.md),
                   ],
-                  _buildSummaryCards(summary.cards),
+                  // The rest-only row above already *is* last night; the
+                  // summary's "Not recorded" sleep card would say it twice.
+                  _buildSummaryCards(restOnly == null
+                      ? summary.cards
+                      : summary.cards
+                          .where((c) => c.domain != TodayDomain.sleep)
+                          .toList()),
                   // Gated-trends note: personal comparisons need post-fix history.
                   if (!activity.hasPersonalBaseline) ...[
                     const SizedBox(height: AppSpacing.md),

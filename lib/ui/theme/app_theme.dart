@@ -95,33 +95,68 @@ class AppTheme {
   }
 }
 
-/// Named text styles for consistent hierarchy. Big friendly metric numbers,
-/// quiet labels.
+/// Named text styles for consistent hierarchy.
+///
+/// Two families, on purpose. Prose is Manrope. **Every number is JetBrains
+/// Mono with tabular figures.** This is the single most visible decision in
+/// the app's look: proportional rounded numerals are what every wellness app
+/// uses, and they also misalign in columns — a "1" is narrower than an "8", so
+/// a ledger of values never lines up. Monospace figures read as an instrument,
+/// which is what this app is, and they align by construction.
 class AppText {
   AppText._();
 
-  static TextStyle get metricHero => GoogleFonts.manrope(
+  static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
+
+  static TextStyle get metricHero => GoogleFonts.jetBrainsMono(
         fontSize: 52,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w700,
         height: 1.0,
         color: AppColors.ink,
-        letterSpacing: -1.5,
+        letterSpacing: -2.0,
+        fontFeatures: _tabular,
       );
 
-  static TextStyle get metric => GoogleFonts.manrope(
+  static TextStyle get metric => GoogleFonts.jetBrainsMono(
         fontSize: 30,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w700,
         height: 1.0,
         color: AppColors.ink,
-        letterSpacing: -0.8,
+        letterSpacing: -1.0,
+        fontFeatures: _tabular,
       );
 
-  static TextStyle get metricSm => GoogleFonts.manrope(
+  static TextStyle get metricSm => GoogleFonts.jetBrainsMono(
         fontSize: 22,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w700,
         height: 1.05,
         color: AppColors.ink,
-        letterSpacing: -0.4,
+        letterSpacing: -0.6,
+        fontFeatures: _tabular,
+      );
+
+  /// A number inline with prose or in a ledger row — same family, body size.
+  static TextStyle get figure => GoogleFonts.jetBrainsMono(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: AppColors.ink,
+        fontFeatures: _tabular,
+      );
+
+  /// Tiny monospace for evidence lines ("412 samples · synced 3m ago").
+  static TextStyle get mono => GoogleFonts.jetBrainsMono(
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        color: AppColors.inkFaint,
+        fontFeatures: _tabular,
+      );
+
+  /// Small tracked-out uppercase label above a group — the ledger heading.
+  static TextStyle get overline => GoogleFonts.manrope(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: AppColors.inkFaint,
+        letterSpacing: 1.2,
       );
 
   static TextStyle get h1 => GoogleFonts.manrope(

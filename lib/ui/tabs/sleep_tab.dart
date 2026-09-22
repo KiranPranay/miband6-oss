@@ -17,6 +17,7 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
+import '../widgets/ledger.dart';
 import '../widgets/tab_header.dart';
 
 /// The Sleep screen — coaches rather than just reports: a sleep score with
@@ -221,11 +222,11 @@ class _SleepTabState extends State<SleepTab> {
                     ? _NapHero(a: analysis, day: selected)
                     : _ScoreHero(a: analysis),
                 const SizedBox(height: AppSpacing.lg),
-                _InsightsCard(insights: analysis.insights),
-                const SizedBox(height: AppSpacing.lg),
-                const _AiAnalysisCard(),
-                const SizedBox(height: AppSpacing.lg),
+                // The night itself, right under the number — the timeline is
+                // the evidence for everything above it and everything below.
                 _TimelineCard(day: selected),
+                const SizedBox(height: AppSpacing.lg),
+                _InsightsCard(insights: analysis.insights),
                 const SectionHeader('Sleep stages'),
                 const _StageCaveat(),
                 if (!analysis.hasPersonalBaseline) ...[
@@ -235,9 +236,11 @@ class _SleepTabState extends State<SleepTab> {
                 const SizedBox(height: AppSpacing.md),
                 _StageList(a: analysis),
                 const SectionHeader('Metrics'),
-                _MetricsGrid(a: analysis),
+                _MetricsLedger(a: analysis, day: selected),
                 const SizedBox(height: AppSpacing.lg),
                 _RecommendationsCard(recs: analysis.recommendations),
+                const SizedBox(height: AppSpacing.lg),
+                const _AiAnalysisCard(),
                 const SectionHeader('Sleep sounds'),
                 const _SnoringSection(),
                 const SectionHeader('Sleep regularity'),
@@ -1478,146 +1481,49 @@ class _StageRow extends StatelessWidget {
 // Metrics grid (only what the band actually measures)
 // ===========================================================================
 
-class _MetricsGrid extends StatelessWidget {
+class _MetricsLedger extends StatelessWidget {
   final SleepAnalysis a;
-  const _MetricsGrid({required this.a});
-
-  // Honest *population*-normal qualifiers (not personal baselines — those are
-  // gated on post-fix history, see docs/sleep-baseline.md).
-  static String _hrQual(int? v) => v == null
-      ? 'no data'
-      : (v < 40 ? 'Low' : (v <= 100 ? 'Normal' : 'Elevated'));
-  static String _spo2Qual(int? v) => v == null
-      ? 'no data'
-      : (v >= 95 ? 'Normal' : (v >= 90 ? 'Low-normal' : 'Low'));
-  static String _effQual(int v) =>
-      v >= 85 ? 'Excellent' : (v >= 75 ? 'Good' : 'Fair');
+  final SleepDay day;
+  const _MetricsLedger({required this.a, required this.day});
 
   @override
   Widget build(BuildContext context) {
-    final cells = <Widget>[
-      _MetricTile(
-        icon: Icons.speed_rounded,
-        color: AppColors.activity,
-        label: 'Efficiency',
-        value: '${a.efficiencyPct}%',
-        sub: _effQual(a.efficiencyPct),
-      ),
-      _MetricTile(
-        icon: Icons.favorite_rounded,
-        color: AppColors.heart,
-        label: 'Avg heart rate',
-        value: a.avgHr != null ? '${a.avgHr} bpm' : '—',
-        sub: _hrQual(a.avgHr),
-      ),
-      _MetricTile(
-        icon: Icons.water_drop_rounded,
-        color: AppColors.spo2,
-        label: 'Blood oxygen',
-        value: a.avgSpo2 != null ? '${a.avgSpo2}%' : '—',
-        sub: _spo2Qual(a.avgSpo2),
-      ),
-      _MetricTile(
-        icon: Icons.hotel_rounded,
-        color: AppColors.sleep,
-        label: 'Time in bed',
-        value: _SleepTabState.fmtMinutes(a.timeInBedMin),
-        sub: 'total',
-      ),
-      _MetricTile(
-        icon: Icons.bedtime_off_rounded,
-        color: AppColors.warning,
-        label: 'Wake-ups',
-        value: '${a.wakeCount}',
-        sub: a.wakeCount == 0 ? 'undisturbed' : 'times',
-      ),
-      _MetricTile(
-        icon: Icons.monitor_heart_rounded,
-        color: AppColors.heart,
-        label: 'Resting HR',
-        value: a.restingHr != null ? '${a.restingHr} bpm' : '—',
-        sub: _hrQual(a.restingHr),
-      ),
-    ];
-    return Column(
-      children: [
-        Row(children: [
-          Expanded(child: cells[0]),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(child: cells[1]),
-        ]),
-        const SizedBox(height: AppSpacing.md),
-        Row(children: [
-          Expanded(child: cells[2]),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(child: cells[3]),
-        ]),
-        const SizedBox(height: AppSpacing.md),
-        Row(children: [
-          Expanded(child: cells[4]),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(child: cells[5]),
-        ]),
+    final samples = day.intervals.fold<int>(0, (n, i) => n + i.durationMinutes);
+    return LedgerGroup(
+      rows: [
+        LedgerRow(
+            label: 'Efficiency',
+            value: '${a.efficiencyPct}',
+            unit: '%',
+            color: AppColors.activity,
+            note: 'asleep while in bed'),
+        LedgerRow(
+            label: 'Time in bed',
+            value: _SleepTabState.fmtMinutes(a.timeInBedMin),
+            color: AppColors.sleep),
+        LedgerRow(
+            label: 'Wake-ups',
+            value: '${a.wakeCount}',
+            color: AppColors.sleepAwake,
+            note: 'episodes of 5 minutes or more'),
+        LedgerRow(
+            label: 'Average heart rate',
+            value: a.avgHr != null ? '${a.avgHr}' : '—',
+            unit: a.avgHr != null ? 'bpm' : null,
+            color: AppColors.heart),
+        LedgerRow(
+            label: 'Resting heart rate',
+            value: a.restingHr != null ? '${a.restingHr}' : '—',
+            unit: a.restingHr != null ? 'bpm' : null,
+            color: AppColors.heart),
+        LedgerRow(
+            label: 'Blood oxygen',
+            value: a.avgSpo2 != null ? '${a.avgSpo2}' : '—',
+            unit: a.avgSpo2 != null ? '%' : null,
+            color: AppColors.spo2,
+            note: a.avgSpo2 == null ? 'no reading during this session' : null),
       ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String label;
-  final String value;
-  final String sub;
-  const _MetricTile({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.value,
-    required this.sub,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: color, size: 18),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(label,
-                    style: AppText.caption.copyWith(color: AppColors.inkMuted)),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(value, style: AppText.metricSm),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(sub,
-                    style: AppText.caption.copyWith(color: AppColors.inkFaint)),
-              ),
-            ],
-          ),
-        ],
-      ),
+      evidence: '${fmtThousands(samples)} one-minute samples in this session',
     );
   }
 }
@@ -2308,7 +2214,7 @@ class _SnoreResult extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           if (none)
             Text('No snoring detected',
-                style: AppText.metricSm.copyWith(color: AppColors.success))
+                style: AppText.sectionTitle.copyWith(color: AppColors.success))
           else
             Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,

@@ -13,6 +13,7 @@ import '../widgets/app_card.dart';
 import '../widgets/chart_card.dart';
 import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
+import '../widgets/ledger.dart';
 import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 
@@ -134,7 +135,7 @@ class _HeartTabState extends State<HeartTab> {
                 const SizedBox(height: AppSpacing.sm),
                 const _ZoneLegend(),
                 const SizedBox(height: AppSpacing.lg),
-                _SummaryRow(readings: readings),
+                _SummaryLedger(readings: readings, week: _range >= 1),
                 if (_range == 0 && heart.highest != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   _HighestCard(event: heart.highest!),
@@ -892,13 +893,14 @@ class _HighestCard extends StatelessWidget {
 // Min / Avg / Max
 // ===========================================================================
 
-class _SummaryRow extends StatelessWidget {
+class _SummaryLedger extends StatelessWidget {
   final List<HeartRateReading> readings;
-  const _SummaryRow({required this.readings});
+  final bool week;
+  const _SummaryLedger({required this.readings, required this.week});
 
   @override
   Widget build(BuildContext context) {
-    String minStr = '--', avgStr = '--', maxStr = '--';
+    String minStr = '—', avgStr = '—', maxStr = '—';
     if (readings.isNotEmpty) {
       final values = readings.map((r) => r.value).toList();
       final minV = values.reduce((a, b) => a < b ? a : b);
@@ -908,61 +910,21 @@ class _SummaryRow extends StatelessWidget {
       avgStr = '$avgV';
       maxStr = '$maxV';
     }
-    return Row(
-      children: [
-        Expanded(child: _MiniStat(label: 'Min', value: minStr)),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(child: _MiniStat(label: 'Avg', value: avgStr)),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(child: _MiniStat(label: 'Max', value: maxStr)),
+    final unit = readings.isEmpty ? null : 'bpm';
+    return LedgerGroup(
+      rows: [
+        LedgerRow(label: 'Lowest', value: minStr, unit: unit, color: AppColors.sleep),
+        LedgerRow(label: 'Average', value: avgStr, unit: unit, color: AppColors.inkMuted),
+        LedgerRow(label: 'Highest', value: maxStr, unit: unit, color: AppColors.heart),
       ],
+      evidence: readings.isEmpty
+          ? 'no readings in this range'
+          : '${fmtThousands(readings.length)} readings '
+              '${week ? 'in range' : 'today'} · one per minute from the band, '
+              'plus live streaming',
     );
   }
 }
-
-class _MiniStat extends StatelessWidget {
-  final String label;
-  final String value;
-  const _MiniStat({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.symmetric(
-          vertical: AppSpacing.lg, horizontal: AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(value,
-                    style: AppText.metricSm.copyWith(color: AppColors.heart),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ),
-              if (value != '--') ...[
-                const SizedBox(width: 3),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text('bpm', style: AppText.unit),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(label, style: AppText.label),
-        ],
-      ),
-    );
-  }
-}
-
-// ===========================================================================
-// Weekly summary (gated personal stats + vs last week)
-// ===========================================================================
 
 class _WeekSummaryCard extends StatelessWidget {
   final HeartAnalysis heart;

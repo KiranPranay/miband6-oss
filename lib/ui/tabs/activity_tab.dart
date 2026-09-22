@@ -17,7 +17,7 @@ import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
 import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
-import '../widgets/stat_card.dart';
+import '../widgets/ledger.dart';
 
 /// The Activity screen: a steps hero ring, a Today/Week steps chart, and a grid
 /// of supporting metrics (distance, calories, active minutes, average HR).
@@ -130,24 +130,6 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 const SizedBox(height: AppSpacing.lg),
 
-                // 2b. Insights (rule-based, labelled).
-                _InsightsCard(insights: activity.insights),
-
-                // 2c. Building-baseline note — explains why comparisons/streaks
-                //     aren't shown yet (Today view only, until the gate passes).
-                if (range == 0 && !activity.hasPersonalBaseline) ...[
-                  _BaselineNote(
-                      count: activity.baselineDayCount,
-                      needed: activity.baselineDaysNeeded),
-                  const SizedBox(height: AppSpacing.lg),
-                ],
-
-                // 2d. Sedentary analysis — today's longest waking inactive run.
-                if (range == 0 && todaySamples.any((s) => !s.isSleep)) ...[
-                  _SedentaryCard(a: activity),
-                  const SizedBox(height: AppSpacing.lg),
-                ],
-
                 // 3. Section header with Today/Week/Month toggle.
                 SectionHeader(
                   'Steps',
@@ -175,6 +157,24 @@ class _ActivityTabState extends State<ActivityTab> {
 
                 const SizedBox(height: AppSpacing.lg),
 
+                // 2b. Insights (rule-based, labelled).
+                _InsightsCard(insights: activity.insights),
+
+                // 2c. Building-baseline note — explains why comparisons/streaks
+                //     aren't shown yet (Today view only, until the gate passes).
+                if (range == 0 && !activity.hasPersonalBaseline) ...[
+                  _BaselineNote(
+                      count: activity.baselineDayCount,
+                      needed: activity.baselineDaysNeeded),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+
+                // 2d. Sedentary analysis — today's longest waking inactive run.
+                if (range == 0 && todaySamples.any((s) => !s.isSleep)) ...[
+                  _SedentaryCard(a: activity),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+
                 // 4b. Gated weekly summary (Week view).
                 if (range == 1) ...[
                   const SectionHeader('This week'),
@@ -185,72 +185,60 @@ class _ActivityTabState extends State<ActivityTab> {
                 // 5. Supporting metrics grid (today). Distance & calories are
                 //    today-only (no historical source); HR is the average during
                 //    walking minutes, shown "--" when there is none.
-                _MetricGrid(children: [
-                  // Distance and calories come from the band's own live
-                  // counter. Until a packet has arrived they are unknown, not
-                  // zero — showing "0.00 km" as today's distance is a claim the
-                  // app cannot support.
-                  ble.hasLiveMetrics
-                      ? StatCard(
-                          icon: Icons.straighten_rounded,
-                          color: AppColors.distance,
-                          value: distanceKm,
-                          decimals: 2,
-                          unit: 'km',
-                          label: 'Distance',
-                        )
-                      : _NoDataTile(
-                          icon: Icons.straighten_rounded,
-                          color: AppColors.distance,
-                          label: 'Distance',
-                        ),
-                  StatCard(
-                    icon: Icons.directions_walk_rounded,
-                    color: AppColors.activity,
-                    value: activity.activeMinutes,
-                    unit: 'min',
-                    label: 'Active',
-                  ),
-                  StatCard(
-                    icon: Icons.bolt_rounded,
-                    color: AppColors.warning,
-                    value: activity.briskMinutes,
-                    unit: 'min',
-                    label: 'Brisk',
-                  ),
-                  ble.hasLiveMetrics
-                      ? StatCard(
-                          icon: Icons.local_fire_department_rounded,
-                          color: AppColors.calories,
-                          value: ble.metrics.calories,
-                          unit: 'kcal',
-                          label: 'Calories',
-                        )
-                      : _NoDataTile(
-                          icon: Icons.local_fire_department_rounded,
-                          color: AppColors.calories,
-                          label: 'Calories',
-                        ),
-                  activity.avgActiveHr != null
-                      ? StatCard(
-                          icon: Icons.favorite_rounded,
-                          color: AppColors.heart,
-                          value: activity.avgActiveHr!,
-                          unit: 'bpm',
-                          label: 'Activity HR',
-                        )
-                      : _NoDataTile(
-                          icon: Icons.favorite_rounded,
-                          color: AppColors.heart,
-                          label: 'Activity HR',
-                        ),
-                  StatCard(
-                    icon: Icons.directions_walk_rounded,
-                    color: AppColors.primary,
-                    value: activity.todaySteps,
-                    label: 'Steps',
-                  ),
-                ]),
+                LedgerGroup(
+                  title: 'Today',
+                  rows: [
+                    LedgerRow(
+                        label: 'Steps',
+                        value: fmtThousands(activity.todaySteps),
+                        color: AppColors.primary),
+                    LedgerRow(
+                        label: 'Distance',
+                        value: ble.hasLiveMetrics
+                            ? distanceKm.toStringAsFixed(2)
+                            : '—',
+                        unit: ble.hasLiveMetrics ? 'km' : null,
+                        color: AppColors.distance,
+                        note: ble.hasLiveMetrics
+                            ? null
+                            : 'no reading from the band yet'),
+                    LedgerRow(
+                        label: 'Active',
+                        value: '${activity.activeMinutes}',
+                        unit: 'min',
+                        color: AppColors.activity),
+                    LedgerRow(
+                        label: 'Brisk',
+                        value: '${activity.briskMinutes}',
+                        unit: 'min',
+                        color: AppColors.warning,
+                        note: '≥ 60 steps a minute'),
+                    LedgerRow(
+                        label: 'Calories',
+                        value: ble.hasLiveMetrics
+                            ? '${ble.metrics.calories}'
+                            : '—',
+                        unit: ble.hasLiveMetrics ? 'kcal' : null,
+                        color: AppColors.calories,
+                        note: ble.hasLiveMetrics
+                            ? "the band's own estimate"
+                            : 'no reading from the band yet'),
+                    LedgerRow(
+                        label: 'Heart rate while walking',
+                        value: activity.avgActiveHr != null
+                            ? '${activity.avgActiveHr}'
+                            : '—',
+                        unit: activity.avgActiveHr != null ? 'bpm' : null,
+                        color: AppColors.heart,
+                        note: activity.avgActiveHr == null
+                            ? 'no walking minutes with a pulse yet'
+                            : null),
+                  ],
+                  evidence:
+                      '${fmtThousands(todaySamples.length)} samples today · '
+                      'synced ${_relative(ble.lastSyncTime)}',
+                ),
+                const SizedBox(height: AppSpacing.lg),
 
                 // 6. Activity score (Today) — decomposed into real components.
                 if (range == 0 && activity.activityScore != null) ...[
@@ -503,6 +491,15 @@ const _weekdayNames = [
 
 /// One-line "highest day" summary shown above the week/month chart, computed
 /// from the corrected per-day totals so it matches the bars.
+String _relative(DateTime? t) {
+  if (t == null) return 'never';
+  final d = DateTime.now().difference(t);
+  if (d.inSeconds < 45) return 'just now';
+  if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+  if (d.inHours < 24) return '${d.inHours}h ago';
+  return '${d.inDays}d ago';
+}
+
 String? _highestDaySummary(List<DateTime> days, ActivityStore store) {
   var best = 0;
   DateTime? bd;
@@ -517,42 +514,6 @@ String? _highestDaySummary(List<DateTime> days, ActivityStore store) {
   final name = _weekdayNames[(bd.weekday - 1).clamp(0, 6)];
   return 'Highest day: $name · ${_grp(best)}';
 }
-
-/// Mirrors StatCard's shape but shows "--" — used when a metric has no data
-/// (e.g. no HR during active minutes) so we never display a fake 0.
-class _NoDataTile extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String label;
-  const _NoDataTile(
-      {required this.icon, required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text('--',
-              style: AppText.metricSm.copyWith(color: AppColors.inkFaint)),
-          const SizedBox(height: 2),
-          Text(label, style: AppText.label),
-        ],
-      ),
-    );
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Sedentary analysis — longest continuous waking inactive stretch (real).
 // ─────────────────────────────────────────────────────────────────────────
@@ -987,37 +948,6 @@ class _RecommendationsCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────
 // Metric grid — two-column wrap of StatCards.
 // ─────────────────────────────────────────────────────────────────────────
-
-class _MetricGrid extends StatelessWidget {
-  final List<Widget> children;
-  const _MetricGrid({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    // Lay out children two-per-row with Row/Expanded — flex handles the width
-    // division safely, avoiding the manual (maxWidth - gap)/2 math that could go
-    // negative under transient layout constraints and crash.
-    const gap = AppSpacing.md;
-    final rows = <Widget>[];
-    for (var i = 0; i < children.length; i += 2) {
-      if (i > 0) rows.add(const SizedBox(height: gap));
-      rows.add(Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: children[i]),
-          const SizedBox(width: gap),
-          Expanded(
-            child: i + 1 < children.length
-                ? children[i + 1]
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ));
-    }
-    return Column(children: rows);
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Charts
 // ─────────────────────────────────────────────────────────────────────────
