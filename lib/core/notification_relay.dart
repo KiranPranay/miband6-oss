@@ -52,7 +52,8 @@ class NotificationRelay extends ChangeNotifier {
   /// Bound on the dedup table so a long uptime cannot grow it without limit.
   static const int _maxDedupEntries = 64;
 
-  final BLEManager _ble;
+  /// Null only for [NotificationRelay.detached].
+  final BLEManager? _ble;
   final BLELogger _logger;
 
   bool _enabled = false;
@@ -70,9 +71,33 @@ class NotificationRelay extends ChangeNotifier {
   String? _lastDecisionApp;
   DateTime? _lastDecisionAt;
 
-  NotificationRelay(this._ble, this._logger) {
+  NotificationRelay(BLEManager ble, this._logger) : _ble = ble {
     _channel.setMethodCallHandler(_onCall);
     _load();
+  }
+
+  /// A relay with no band and no platform channel behind it, pre-filled with
+  /// [apps]. Lets the picker screen be pumped in a widget test without
+  /// standing up Bluetooth, secure storage or the notification listener.
+  @visibleForTesting
+  NotificationRelay.detached(
+    this._logger, {
+    List<AppInfo> apps = const [],
+    bool accessGranted = false,
+    bool enabled = false,
+    Set<String> selected = const {},
+  }) : _ble = null {
+    _installedApps = apps;
+    _accessGranted = accessGranted;
+    _enabled = enabled;
+    _packages = {...selected};
+  }
+
+  /// Connected and authenticated — the only state in which a write to the
+  /// band's alert characteristic means anything.
+  bool get _bandReady {
+    final b = _ble;
+    return b != null && b.isConnected && b.authState == AuthState.authenticated;
   }
 
   bool get enabled => _enabled;
@@ -102,10 +127,10 @@ class NotificationRelay extends ChangeNotifier {
     } else if (call.method == 'onCallEnded') {
       // The phone's call notification is gone — answered, ended or declined
       // there. Clear the band's call screen (§4 `03 00`) and forget the number.
-      _ble.lastIncomingCallNumber = null;
-      if (_ble.isConnected && _ble.authState == AuthState.authenticated) {
+      _ble?.lastIncomingCallNumber = null;
+      if (_bandReady) {
         _logger.i('Notif relay: call ended on the phone — clearing the band');
-        await _ble.alertManager.stopCall();
+        await _ble!.alertManager.stopCall();
       }
     }
     return null;
@@ -137,15 +162,13 @@ class NotificationRelay extends ChangeNotifier {
     // is being rung wants to know, whichever dialer produced the notification.
     if (isCall) {
       final number = _extractNumber(title) ?? _extractNumber(text);
-      _ble.lastIncomingCallNumber = number;
+      _ble?.lastIncomingCallNumber = number;
       if (!_enabled) return _record(RelayDecision.relayDisabled, label);
-      if (!_ble.isConnected || _ble.authState != AuthState.authenticated) {
-        return _record(RelayDecision.bandNotReady, label);
-      }
+      if (!_bandReady) return _record(RelayDecision.bandNotReady, label);
       final caller = title.isNotEmpty ? title : (number ?? 'Incoming call');
       _logger.i('Notif relay: incoming call from "$caller"'
           '${number != null ? ' (number captured)' : ' (no number in notification)'}');
-      await _ble.alertManager.sendIncomingCall(caller);
+      await _ble!.alertManager.sendIncomingCall(caller);
       return _record(RelayDecision.forwarded, label);
     }
 
@@ -160,7 +183,7 @@ class NotificationRelay extends ChangeNotifier {
       final body = _privacyMode ? '' : text;
       _logger.i('Notif relay: forwarding "$label" — $title'
           '${_privacyMode ? ' (privacy: title only)' : ''}');
-      await _ble.alertManager.sendAppNotification(
+      await _ble!.alertManager.sendAppNotification(
         label,
         title,
         body,
@@ -196,7 +219,7 @@ class NotificationRelay extends ChangeNotifier {
     if (!_enabled) return RelayDecision.relayDisabled;
     if (!_packages.contains(package)) return RelayDecision.appNotSelected;
 
-    if (!_ble.isConnected || _ble.authState != AuthState.authenticated) {
+    if (!_bandReady) {
       // Deliberately dropped rather than queued: a notification delivered ten
       // minutes late is noise, not information.
       return RelayDecision.bandNotReady;
@@ -213,7 +236,8 @@ class NotificationRelay extends ChangeNotifier {
 
   /// True when the same app/title/body was forwarded within [dedupWindow].
   bool _isDuplicate(String package, String title, String text) {
-    final key = '$package $title $text';
+    // NUL separators — as escapes, so the file stays plain text for tooling.
+    final key = '$package\u0000$title\u0000$text';
     final now = DateTime.now();
     _recentlySent.removeWhere((_, at) => now.difference(at) > dedupWindow);
     if (_recentlySent.containsKey(key)) return true;
@@ -345,5 +369,5 @@ class NotificationRelay extends ChangeNotifier {
   /// Send a sample notification to the band (developer/test). Bypasses the
   /// listener entirely, so it isolates the BLE half of the path from the
   /// Android half.
-  void sendTest() => _ble.alertManager.sendTest();
+  void sendTest() => _ble?.alertManager.sendTest();
 }

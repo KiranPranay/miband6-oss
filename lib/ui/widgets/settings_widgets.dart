@@ -24,21 +24,30 @@ class GroupCard extends StatelessWidget {
   const GroupCard({super.key, required this.children});
   final List<Widget> children;
 
+  /// The surface is a [Material], not a coloured box. A ListTile paints its
+  /// ink on the nearest Material ancestor; with a coloured DecoratedBox in
+  /// between, the splash lands *under* the card fill and never shows — the
+  /// framework logs "ink splashes may be invisible" for every tappable row.
+  /// The outer box carries only the shadow, so nothing sits between a row and
+  /// the surface it splashes on.
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
-          color: AppColors.surface,
           borderRadius: BorderRadius.circular(AppRadii.lg),
           boxShadow: AppShadows.card,
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          children: [
-            for (var i = 0; i < children.length; i++) ...[
-              if (i > 0) Divider(height: 1, color: AppColors.divider),
-              children[i],
+        child: Material(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0) Divider(height: 1, color: AppColors.divider),
+                children[i],
+              ],
             ],
-          ],
+          ),
         ),
       );
 }

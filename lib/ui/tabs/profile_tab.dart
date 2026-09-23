@@ -35,7 +35,10 @@ class ProfileTab extends StatelessWidget {
         // 1. Header --------------------------------------------------------
         TabHeaderSliver(
           title: 'Your Band',
-          subtitle: deviceName,
+          // The card right below already names the band, its state and its
+          // battery. The header line says the one thing the card does not:
+          // how far back the record goes.
+          subtitle: _recordSpan(ble),
           leading: Container(
             width: 44,
             height: 44,
@@ -168,6 +171,22 @@ class ProfileTab extends StatelessWidget {
         const SliverNavClearance(),
       ],
     );
+  }
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  /// "Recording since 28 Jul" — samples are kept sorted ascending, so the
+  /// first one is the oldest thing the band ever handed over.
+  static String _recordSpan(BLEManager ble) {
+    final samples = ble.activityStore.samples;
+    if (samples.isEmpty) return 'Nothing recorded yet';
+    final t = samples.first.timestamp;
+    final now = DateTime.now();
+    final year = t.year == now.year ? '' : ' ${t.year}';
+    return 'Recording since ${t.day} ${_months[t.month - 1]}$year';
   }
 
   static void _push(BuildContext context, Widget page) {

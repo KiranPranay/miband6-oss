@@ -236,11 +236,14 @@ class HeartAnalysis {
           : const HeartInsight(true, 'No unusual spikes at rest today'));
     }
     if (hasBaseline && vsLastWeek != null) {
-      insights.add(vsLastWeek <= 0
-          ? HeartInsight(true,
-              'Average HR ${vsLastWeek.abs()} bpm lower than last week')
-          : HeartInsight(false,
-              'Average HR $vsLastWeek bpm higher than last week'));
+      // A zero delta used to print "0 bpm lower" — a number that says nothing.
+      insights.add(vsLastWeek == 0
+          ? const HeartInsight(true, 'Average HR unchanged from last week')
+          : vsLastWeek < 0
+              ? HeartInsight(true,
+                  'Average HR ${vsLastWeek.abs()} bpm lower than last week')
+              : HeartInsight(false,
+                  'Average HR $vsLastWeek bpm higher than last week'));
     }
     if (trend == HrTrend.stable) {
       insights.add(const HeartInsight(true, 'Heart rate steady recently'));

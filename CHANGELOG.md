@@ -51,6 +51,32 @@ second one matters to anyone whose history just moved.
   (P13.1 — the receive path is disabled upstream as "unsafe"). Both say
   "unverified on Mi Band 6" on the switch.
 
+### Fixed — the second look, 2026-09-23
+
+Walking the phone after the design pass, with the screens side by side.
+
+- **Notifications spoke a different dialect.** Reached from Settings, it had
+  a bold sans title, two hand-rolled cards and a bare checkbox list. It now
+  uses the same overline labels, group surfaces and rows as Settings, and the
+  app list sits on one surface too. Search takes the screen over: the setting
+  groups fold away while you type so the matches sit under the field, above
+  the keyboard; the count reads "3 matches · 18 selected"; no match reads the
+  query back; a clear button restores the groups. Six widget tests pump it at
+  phone size, with a keyboard up, and at a very short viewport.
+- **Tap ink was invisible on every grouped row.** A ListTile paints its ink on
+  the nearest Material, and GroupCard put a coloured box in between, so
+  Settings logged "ink splashes may be invisible" for every tappable row. The
+  group surface is a Material now; the outer box carries only the shadow.
+- **"Average HR 0 bpm lower than last week"** is now "unchanged from last
+  week". A zero dressed as a comparison said nothing.
+- **Profile named the band twice** — in the header and in the card beneath.
+  The header line now says the one thing the card does not: how far back the
+  record goes ("Recording since 28 Jul").
+- **The relay's source file was binary to every tool.** Its dedup key was
+  written with literal NUL bytes; grep skipped the file and `file` called it
+  data. Same key, as escapes.
+- **The scanner's spinner was white on white** in light mode.
+
 ### Fixed — after several weeks of real use
 
 An audit over the live capture (38 071 activity samples, 81 471 heart-rate

@@ -110,7 +110,6 @@ class _DeviceScanScreenState extends State<DeviceScanScreen> {
               padding: EdgeInsets.only(right: 16.0),
               child: Center(
                 child: CircularProgressIndicator(
-                  color: Colors.white,
                   strokeWidth: 2,
                 ),
               ),
