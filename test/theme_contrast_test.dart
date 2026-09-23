@@ -30,6 +30,7 @@ double contrast(Color a, Color b) {
 }
 
 void main() {
+  _tooltipContrast();
   for (final entry in {
     'light': AppPalette.light,
     'dark': AppPalette.dark,
@@ -132,4 +133,19 @@ void main() {
       }
     });
   });
+}
+
+// Chart tooltips draw on an `ink` background with `scaffold`-coloured text —
+// the two ends of each palette. They used to use `Colors.white`, which on the
+// dark palette's near-white ink was invisible: tap a chart, see nothing.
+double _ratio(Color a, Color b) => contrast(a, b);
+
+void _tooltipContrast() {
+  for (final p in [AppPalette.light, AppPalette.dark]) {
+    test('tooltip text is legible on its background (${p.brightness.name})', () {
+      final ratio = _ratio(p.scaffold, p.ink);
+      expect(ratio, greaterThanOrEqualTo(7.0),
+          reason: 'scaffold on ink must clear AAA; got ${ratio.toStringAsFixed(1)}');
+    });
+  }
 }

@@ -209,6 +209,10 @@ class AppSpacing {
   static const double xl = 20;
   static const double xxl = 24;
   static const double xxxl = 32;
+
+  /// Gap between sections. Deliberately generous: the space between groups is
+  /// what lets a screen full of numbers feel light instead of dense.
+  static const double section = 44;
 }
 
 /// Layout constants shared between the shell and everything that scrolls under

@@ -69,10 +69,15 @@ class ChartCard extends StatelessWidget {
 class ChartEmpty extends StatelessWidget {
   final String message;
   final IconData icon;
+
+  /// A drawn illustration in place of the icon (see `illustrations.dart`).
+  final Widget? illustration;
+
   const ChartEmpty({
     super.key,
     this.message = 'No data yet',
     this.icon = Icons.show_chart_rounded,
+    this.illustration,
   });
 
   @override
@@ -81,8 +86,8 @@ class ChartEmpty extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 32, color: AppColors.inkFaint),
-          const SizedBox(height: AppSpacing.sm),
+          illustration ?? Icon(icon, size: 32, color: AppColors.inkFaint),
+          const SizedBox(height: AppSpacing.md),
           Text(message,
               style: AppText.label.copyWith(color: AppColors.inkFaint)),
         ],

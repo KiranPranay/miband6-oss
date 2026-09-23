@@ -344,7 +344,7 @@ class _DayChart extends StatelessWidget {
                 .map((s) => LineTooltipItem(
                       '${s.y.round()} · ${StressAnalyzer.bandLabel(s.y.round())}',
                       AppText.label.copyWith(
-                          color: Colors.white, fontWeight: FontWeight.w700),
+                          color: AppColors.scaffold, fontWeight: FontWeight.w700),
                     ))
                 .toList(),
           ),
@@ -459,7 +459,7 @@ class _TrendChart extends StatelessWidget {
             getTooltipItem: (g, gi, rod, ri) => BarTooltipItem(
               '${rod.toY.round()} · ${StressAnalyzer.bandLabel(rod.toY.round())}\n'
               '${days[gi].coveredHours} h measured',
-              AppText.caption.copyWith(color: Colors.white),
+              AppText.caption.copyWith(color: AppColors.scaffold),
             ),
           ),
         ),

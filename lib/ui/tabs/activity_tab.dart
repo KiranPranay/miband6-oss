@@ -18,6 +18,7 @@ import '../widgets/section_header.dart';
 import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 import '../widgets/ledger.dart';
+import '../widgets/illustrations.dart';
 
 /// The Activity screen: a steps hero ring, a Today/Week steps chart, and a grid
 /// of supporting metrics (distance, calories, active minutes, average HR).
@@ -304,9 +305,12 @@ class _StepsHero extends StatelessWidget {
     final over = steps - goal;
     final st = _statusStyle(a.status);
 
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
         children: [
           SizedBox(
             width: 132,
@@ -377,6 +381,12 @@ class _StepsHero extends StatelessWidget {
               ],
             ),
           ),
+        ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          // The trail fills as the goal does — the same fraction as the ring,
+          // told a second way that reads at a glance from across a room.
+          StepTrail(progress: sweep),
         ],
       ),
     );
@@ -963,7 +973,7 @@ class _HourlyStepsChart extends StatelessWidget {
     if (total == 0) {
       return const ChartEmpty(
         message: 'No steps recorded today',
-        icon: Icons.directions_walk_rounded,
+        illustration: StepTrail(progress: 0, height: 36),
       );
     }
 
@@ -1069,11 +1079,11 @@ class _HourlyStepsChart extends StatelessWidget {
             getTooltipItem: (group, _, rod, __) => BarTooltipItem(
               '${rod.toY.toInt()} steps\n',
               AppText.label
-                  .copyWith(color: Colors.white, fontWeight: FontWeight.w800),
+                  .copyWith(color: AppColors.scaffold, fontWeight: FontWeight.w800),
               children: [
                 TextSpan(
                   text: '${group.x.toInt().toString().padLeft(2, '0')}:00',
-                  style: AppText.caption.copyWith(color: Colors.white70),
+                  style: AppText.caption.copyWith(color: AppColors.scaffold.withValues(alpha: 0.7)),
                 ),
               ],
             ),
@@ -1189,11 +1199,11 @@ class _DailyStepsChart extends StatelessWidget {
               return BarTooltipItem(
                 '${rod.toY.toInt()} steps\n',
                 AppText.label
-                    .copyWith(color: Colors.white, fontWeight: FontWeight.w800),
+                    .copyWith(color: AppColors.scaffold, fontWeight: FontWeight.w800),
                 children: [
                   TextSpan(
                     text: '${d.day}/${d.month}',
-                    style: AppText.caption.copyWith(color: Colors.white70),
+                    style: AppText.caption.copyWith(color: AppColors.scaffold.withValues(alpha: 0.7)),
                   ),
                 ],
               );

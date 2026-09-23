@@ -14,6 +14,7 @@ import '../widgets/chart_card.dart';
 import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
 import '../widgets/ledger.dart';
+import '../widgets/illustrations.dart';
 import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 
@@ -268,15 +269,18 @@ class _HeartHero extends StatelessWidget {
     final recordedAt = heart.lastRecordedAt;
     final tc = _trendChip(heart.trend);
 
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.xl),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // One beat, drawn at the current rate — the pulse you are reading.
+          PulseTrace(bpm: cur != null && cur > 0 ? cur : null),
+          const SizedBox(height: AppSpacing.lg),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              PulsingHeartRing(bpm: cur, size: 116, measuring: measuring),
+              PulsingHeartRing(bpm: cur, size: 104, measuring: measuring),
               const SizedBox(width: AppSpacing.lg),
               Expanded(
                 child: Column(
@@ -541,7 +545,7 @@ class _HeartRateChart extends StatelessWidget {
     if (readings.isEmpty) {
       return const ChartEmpty(
         message: 'No heart-rate history yet',
-        icon: Icons.favorite_border_rounded,
+        illustration: PulseTrace(bpm: null, height: 40),
       );
     }
 
@@ -735,7 +739,7 @@ class _HeartRateChart extends StatelessWidget {
                 .map((s) => LineTooltipItem(
                       '${s.y.round()} bpm',
                       AppText.label.copyWith(
-                          color: Colors.white, fontWeight: FontWeight.w700),
+                          color: AppColors.scaffold, fontWeight: FontWeight.w700),
                     ))
                 .toList(),
           ),

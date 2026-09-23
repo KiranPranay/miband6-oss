@@ -35,7 +35,7 @@ class AppTheme {
       error: p.danger,
     );
 
-    final textTheme = GoogleFonts.manropeTextTheme(base.textTheme).apply(
+    final textTheme = GoogleFonts.instrumentSansTextTheme(base.textTheme).apply(
       bodyColor: p.ink,
       displayColor: p.ink,
     );
@@ -51,10 +51,11 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         iconTheme: IconThemeData(color: p.ink),
-        titleTextStyle: TextStyle(
+        titleTextStyle: GoogleFonts.fraunces(
           color: p.ink,
-          fontSize: 20,
-          fontWeight: FontWeight.w800,
+          fontSize: 22,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.4,
         ),
       ),
       dividerColor: p.divider,
@@ -97,115 +98,124 @@ class AppTheme {
 
 /// Named text styles for consistent hierarchy.
 ///
-/// Two families, on purpose. Prose is Manrope. **Every number is JetBrains
-/// Mono with tabular figures.** This is the single most visible decision in
-/// the app's look: proportional rounded numerals are what every wellness app
-/// uses, and they also misalign in columns — a "1" is narrower than an "8", so
-/// a ledger of values never lines up. Monospace figures read as an instrument,
-/// which is what this app is, and they align by construction.
+/// Three voices, each with a job:
+///
+/// * **Fraunces** for display — headings and the hero figures. A soft serif
+///   with real character; at light weights and large sizes it reads as an
+///   editorial page rather than a dashboard, and it is the one thing that makes
+///   the app not look like every other health app.
+/// * **Instrument Sans** for everything you read — labels, body, captions —
+///   with tabular figures switched on so a column of values still aligns.
+/// * **DM Mono**, light, for the evidence lines only. The previous JetBrains
+///   Mono at 700 on every number was the heaviest thing on the screen; numbers
+///   now share the serif at the top and the sans in the rows.
+///
+/// Weights top out at 600. Nothing on a screen should shout.
 class AppText {
   AppText._();
 
   static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
 
-  static TextStyle get metricHero => GoogleFonts.jetBrainsMono(
-        fontSize: 52,
-        fontWeight: FontWeight.w700,
+  static TextStyle get metricHero => GoogleFonts.fraunces(
+        fontSize: 60,
+        fontWeight: FontWeight.w500,
         height: 1.0,
         color: AppColors.ink,
-        letterSpacing: -2.0,
+        letterSpacing: -2.4,
         fontFeatures: _tabular,
       );
 
-  static TextStyle get metric => GoogleFonts.jetBrainsMono(
-        fontSize: 30,
-        fontWeight: FontWeight.w700,
+  static TextStyle get metric => GoogleFonts.fraunces(
+        fontSize: 34,
+        fontWeight: FontWeight.w500,
         height: 1.0,
         color: AppColors.ink,
-        letterSpacing: -1.0,
+        letterSpacing: -1.2,
         fontFeatures: _tabular,
       );
 
-  static TextStyle get metricSm => GoogleFonts.jetBrainsMono(
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
+  static TextStyle get metricSm => GoogleFonts.fraunces(
+        fontSize: 24,
+        fontWeight: FontWeight.w500,
         height: 1.05,
         color: AppColors.ink,
         letterSpacing: -0.6,
         fontFeatures: _tabular,
       );
 
-  /// A number inline with prose or in a ledger row — same family, body size.
-  static TextStyle get figure => GoogleFonts.jetBrainsMono(
-        fontSize: 15,
+  /// A number in a ledger row or inline with prose.
+  static TextStyle get figure => GoogleFonts.instrumentSans(
+        fontSize: 16,
         fontWeight: FontWeight.w600,
         color: AppColors.ink,
         fontFeatures: _tabular,
       );
 
-  /// Tiny monospace for evidence lines ("412 samples · synced 3m ago").
-  static TextStyle get mono => GoogleFonts.jetBrainsMono(
+  /// Evidence lines ("412 samples · synced 3m ago").
+  static TextStyle get mono => GoogleFonts.dmMono(
         fontSize: 11,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w400,
         color: AppColors.inkFaint,
-        fontFeatures: _tabular,
+        letterSpacing: 0.1,
       );
 
-  /// Small tracked-out uppercase label above a group — the ledger heading.
-  static TextStyle get overline => GoogleFonts.manrope(
+  /// Tracked-out uppercase group label.
+  static TextStyle get overline => GoogleFonts.instrumentSans(
         fontSize: 11,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w600,
         color: AppColors.inkFaint,
-        letterSpacing: 1.2,
+        letterSpacing: 1.4,
       );
 
-  static TextStyle get h1 => GoogleFonts.manrope(
-        fontSize: 24,
-        fontWeight: FontWeight.w800,
+  static TextStyle get h1 => GoogleFonts.fraunces(
+        fontSize: 30,
+        fontWeight: FontWeight.w600,
+        color: AppColors.ink,
+        letterSpacing: -0.8,
+        height: 1.1,
+      );
+
+  /// Section header inside a screen — one level down from [h1].
+  static TextStyle get sectionTitle => GoogleFonts.fraunces(
+        fontSize: 21,
+        fontWeight: FontWeight.w600,
         color: AppColors.ink,
         letterSpacing: -0.4,
       );
 
-  /// Section header inside a screen — deliberately quieter than [h1].
-  ///
-  /// [h1] names the *screen*; a section names a group within it, so it has to
-  /// read as one level down. Both used to be h1 (24 px / w800), which left the
-  /// page with several equally loud titles and no hierarchy to follow.
-  static TextStyle get sectionTitle => GoogleFonts.manrope(
-        fontSize: 17,
-        fontWeight: FontWeight.w700,
-        color: AppColors.ink,
-        letterSpacing: -0.1,
-      );
-
-  static TextStyle get title => GoogleFonts.manrope(
+  static TextStyle get title => GoogleFonts.instrumentSans(
         fontSize: 16,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w600,
         color: AppColors.ink,
       );
 
-  static TextStyle get body => GoogleFonts.manrope(
-        fontSize: 14,
+  static TextStyle get body => GoogleFonts.instrumentSans(
+        fontSize: 15,
+        fontWeight: FontWeight.w400,
+        color: AppColors.ink,
+        height: 1.4,
+        fontFeatures: _tabular,
+      );
+
+  static TextStyle get label => GoogleFonts.instrumentSans(
+        fontSize: 13,
         fontWeight: FontWeight.w500,
-        color: AppColors.ink,
-      );
-
-  static TextStyle get label => GoogleFonts.manrope(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
         color: AppColors.inkMuted,
+        fontFeatures: _tabular,
       );
 
-  static TextStyle get caption => GoogleFonts.manrope(
-        fontSize: 11.5,
-        fontWeight: FontWeight.w600,
+  static TextStyle get caption => GoogleFonts.instrumentSans(
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
         color: AppColors.inkFaint,
-        letterSpacing: 0.2,
+        letterSpacing: 0.1,
+        height: 1.35,
+        fontFeatures: _tabular,
       );
 
-  static TextStyle get unit => GoogleFonts.manrope(
+  static TextStyle get unit => GoogleFonts.instrumentSans(
         fontSize: 13,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w500,
         color: AppColors.inkMuted,
       );
 }

@@ -13,6 +13,7 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/ledger.dart';
+import '../widgets/illustrations.dart';
 import '../widgets/section_header.dart';
 import '../widgets/tab_header.dart';
 
@@ -453,11 +454,22 @@ class _HealthHero extends StatelessWidget {
     }
 
     final bs = _bandStyle(summary.band!);
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.xl),
+    final now = DateTime.now();
+    final night = now.hour < 6 || now.hour >= 20;
+    // Day runs 06:00→20:00 across the arc; night 20:00→06:00.
+    final minutes = now.hour * 60 + now.minute;
+    final progress = night
+        ? ((minutes >= 20 * 60 ? minutes - 20 * 60 : minutes + 4 * 60) / 600)
+        : (minutes - 6 * 60) / 840;
+    // No card. The score sits on the page with the sky above it; the air
+    // around it is what makes a screen of numbers feel light.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          SkyArc(progress: progress, night: night),
+          const SizedBox(height: AppSpacing.lg),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

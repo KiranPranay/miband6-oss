@@ -29,7 +29,7 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(AppSpacing.xs,
-          leadingGap ? AppSpacing.xxl : 0, AppSpacing.xs, AppSpacing.md),
+          leadingGap ? AppSpacing.section : 0, AppSpacing.xs, AppSpacing.lg),
       child: Row(
         children: [
           Expanded(child: Text(title, style: AppText.sectionTitle)),

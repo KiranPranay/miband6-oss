@@ -18,6 +18,7 @@ import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
 import '../widgets/ledger.dart';
+import '../widgets/illustrations.dart';
 import '../widgets/tab_header.dart';
 
 /// The Sleep screen — coaches rather than just reports: a sleep score with
@@ -226,7 +227,7 @@ class _SleepTabState extends State<SleepTab> {
                 ],
                 selected.isNap
                     ? _NapHero(a: analysis, day: selected)
-                    : _ScoreHero(a: analysis),
+                    : _ScoreHero(a: analysis, day: selected),
                 const SizedBox(height: AppSpacing.lg),
                 // The night itself, right under the number — the timeline is
                 // the evidence for everything above it and everything below.
@@ -285,21 +286,13 @@ class _SleepTabState extends State<SleepTab> {
       sliver: SliverList(
         delegate: SliverChildListDelegate([
           const SizedBox(height: AppSpacing.sm),
-          AppCard(
+          Padding(
             padding: const EdgeInsets.all(AppSpacing.xxl),
             child: Column(
               children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: AppColors.sleep.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.nightlight_round,
-                      color: AppColors.sleep, size: 30),
-                ),
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.xl),
+                const MoonAndStars(size: 96),
+                const SizedBox(height: AppSpacing.xl),
                 Text('No sleep data yet',
                     style: AppText.title, textAlign: TextAlign.center),
                 const SizedBox(height: AppSpacing.sm),
@@ -489,7 +482,8 @@ class _NapHero extends StatelessWidget {
 
 class _ScoreHero extends StatelessWidget {
   final SleepAnalysis a;
-  const _ScoreHero({required this.a});
+  final SleepDay day;
+  const _ScoreHero({required this.a, required this.day});
 
   @override
   Widget build(BuildContext context) {
@@ -498,12 +492,28 @@ class _ScoreHero extends StatelessWidget {
     // distinct colour — so green no longer dominates the whole card.
     final ratingClr = _SleepTabState.ratingColor(a.score);
     final goalPct = a.goalPct.clamp(0, 100);
+    final start = day.startTime, end = day.endTime;
 
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.xl),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The night as an arc: bedtime at one horizon, waking at the other,
+          // the moon at the midpoint. It is the span, not decoration.
+          const SkyArc(progress: 0.5, night: true),
+          if (start != null && end != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(_SleepTabState.clock(start), style: AppText.caption),
+                  Text(_SleepTabState.clock(end), style: AppText.caption),
+                ],
+              ),
+            ),
+          const SizedBox(height: AppSpacing.lg),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
