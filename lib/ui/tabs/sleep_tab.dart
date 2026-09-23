@@ -19,6 +19,7 @@ import '../widgets/count_up_text.dart';
 import '../widgets/section_header.dart';
 import '../widgets/ledger.dart';
 import '../widgets/illustrations.dart';
+import '../widgets/data_art.dart';
 import '../widgets/tab_header.dart';
 
 /// The Sleep screen — coaches rather than just reports: a sleep score with
@@ -499,9 +500,9 @@ class _ScoreHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // The night as an arc: bedtime at one horizon, waking at the other,
-          // the moon at the midpoint. It is the span, not decoration.
-          const SkyArc(progress: 0.5, night: true),
+          // The night as an arc, and the arc as the hypnogram: bedtime at one
+          // horizon, waking at the other, every interval drawn in its stage.
+          NightArc(day: day),
           if (start != null && end != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2),

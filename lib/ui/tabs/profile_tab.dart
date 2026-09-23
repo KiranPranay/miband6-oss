@@ -9,9 +9,9 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/section_header.dart';
 import '../widgets/tab_header.dart';
+import '../widgets/settings_widgets.dart';
 
 import '../settings_screen.dart';
-import '../notifications_screen.dart';
 import '../sleep_audio/snore_tracking_screen.dart';
 
 /// Profile / Device screen: identity header, the connected band's status +
@@ -68,54 +68,43 @@ class ProfileTab extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SectionHeader('Features'),
-                _FeatureRow(
-                  icon: Icons.notifications_rounded,
-                  color: AppColors.primary,
-                  title: 'Notifications',
-                  onTap: () => _push(context, const NotificationsScreen()),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _FeatureRow(
-                  icon: Icons.mic_rounded,
-                  color: AppColors.sleep,
-                  title: 'Sleep sounds',
-                  onTap: () => _push(context, const SnoreTrackingScreen()),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                // Stress is implemented and measured by the band itself
-                // (fetch types 0x13/0x12, findings-20). This row still opened a
-                // "coming soon" screen long after the feature shipped.
-                _FeatureRow(
-                  icon: Icons.spa_rounded,
-                  color: AppColors.stress,
-                  title: 'Stress',
-                  onTap: () => _push(context, const StressScreen()),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                // Explicit sync, because band-recorded data (periodic heart
-                // rate, all-day stress, activity) only reaches the app when we
-                // fetch it. This now also runs automatically every 10 minutes.
-                _FeatureRow(
-                  icon: Icons.sync_rounded,
-                  color: AppColors.activity,
-                  title: 'Sync now',
-                  onTap: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    await ble.syncNow();
-                    messenger.showSnackBar(SnackBar(
-                      content: Text(ble.isConnected
-                          ? 'Synced with your band'
-                          : 'Band not connected'),
-                    ));
-                  },
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _FeatureRow(
-                  icon: Icons.settings_rounded,
-                  color: AppColors.inkMuted,
-                  title: 'Settings',
-                  onTap: () => _push(context, const SettingsScreen()),
-                ),
+                GroupCard(children: [
+                  NavTile(
+                    icon: Icons.mic_rounded,
+                    iconColor: AppColors.sleep,
+                    title: 'Sleep sounds',
+                    subtitle: 'Overnight snoring, from the phone microphone',
+                    onTap: () => _push(context, const SnoreTrackingScreen()),
+                  ),
+                  NavTile(
+                    icon: Icons.spa_rounded,
+                    iconColor: AppColors.stress,
+                    title: 'Stress',
+                    subtitle: 'Estimated from heart rate',
+                    onTap: () => _push(context, const StressScreen()),
+                  ),
+                  NavTile(
+                    icon: Icons.sync_rounded,
+                    iconColor: AppColors.activity,
+                    title: 'Sync now',
+                    subtitle: 'Pull everything the band has recorded',
+                    onTap: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      await ble.syncNow();
+                      messenger.showSnackBar(SnackBar(
+                        content: Text(ble.isConnected
+                            ? 'Synced with your band'
+                            : 'Band not connected'),
+                      ));
+                    },
+                  ),
+                  NavTile(
+                    icon: Icons.tune_rounded,
+                    title: 'Settings',
+                    subtitle: 'Connection, measurement, display, alerts',
+                    onTap: () => _push(context, const SettingsScreen()),
+                  ),
+                ]),
               ],
             ),
           ),
@@ -316,46 +305,6 @@ class _DeviceCard extends StatelessWidget {
               ),
             ],
           ),
-
-          const SizedBox(height: AppSpacing.lg),
-
-          // Action button
-          SizedBox(
-            width: double.infinity,
-            child: connected
-                ? OutlinedButton.icon(
-                    onPressed: () => ble.disconnect(),
-                    icon: const Icon(Icons.link_off_rounded, size: 18),
-                    label: const Text('Disconnect'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.danger,
-                      side: BorderSide(color: AppColors.danger),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadii.md),
-                      ),
-                      textStyle:
-                          AppText.label.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  )
-                : FilledButton.icon(
-                    onPressed: () => ble.tryAutoConnect(),
-                    icon: const Icon(Icons.bluetooth_rounded, size: 18),
-                    label: const Text('Connect'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding:
-                          const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadii.md),
-                      ),
-                      textStyle: AppText.label.copyWith(
-                          color: Colors.white, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-          ),
         ],
       ),
     );
@@ -368,45 +317,5 @@ class _DeviceCard extends StatelessWidget {
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
-  }
-}
-
-/// A tappable settings/feature row: tinted leading icon, title, trailing chevron.
-class _FeatureRow extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final VoidCallback onTap;
-
-  const _FeatureRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(child: Text(title, style: AppText.title)),
-          Icon(Icons.chevron_right, color: AppColors.inkFaint, size: 22),
-        ],
-      ),
-    );
   }
 }

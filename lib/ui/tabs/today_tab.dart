@@ -13,7 +13,7 @@ import '../theme/tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/count_up_text.dart';
 import '../widgets/ledger.dart';
-import '../widgets/illustrations.dart';
+import '../widgets/data_art.dart';
 import '../widgets/section_header.dart';
 import '../widgets/tab_header.dart';
 
@@ -201,7 +201,13 @@ class _TodayTabState extends State<TodayTab> {
                   const SizedBox(height: AppSpacing.sm),
 
                   // --- Composite Health Score (real sub-scores, breakdown shown) ---
-                  _HealthHero(summary: summary),
+                  _HealthHero(
+                    summary: summary,
+                    hourly: store.getStepsByHour(today),
+                    sleepStart: lastNight?.startTime,
+                    sleepEnd: lastNight?.endTime,
+                    now: now,
+                  ),
                   const SizedBox(height: AppSpacing.sm),
                   EvidenceLine(
                     '${fmtThousands(store.samplesForDate(today).length)} activity samples · '
@@ -420,7 +426,17 @@ Color _domainColor(TodayDomain d) {
 
 class _HealthHero extends StatelessWidget {
   final DailySummary summary;
-  const _HealthHero({required this.summary});
+  final List<HourlySteps> hourly;
+  final DateTime? sleepStart;
+  final DateTime? sleepEnd;
+  final DateTime now;
+  const _HealthHero({
+    required this.summary,
+    required this.hourly,
+    required this.now,
+    this.sleepStart,
+    this.sleepEnd,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -454,57 +470,51 @@ class _HealthHero extends StatelessWidget {
     }
 
     final bs = _bandStyle(summary.band!);
-    final now = DateTime.now();
-    final night = now.hour < 6 || now.hour >= 20;
-    // Day runs 06:00→20:00 across the arc; night 20:00→06:00.
-    final minutes = now.hour * 60 + now.minute;
-    final progress = night
-        ? ((minutes >= 20 * 60 ? minutes - 20 * 60 : minutes + 4 * 60) / 600)
-        : (minutes - 6 * 60) / 840;
-    // No card. The score sits on the page with the sky above it; the air
-    // around it is what makes a screen of numbers feel light.
+    // The day as a dial: last night's sleep as an arc, each hour's steps as
+    // a bar, a marker at now — and the score in the middle of all of it, which
+    // is where it belongs, since it is made of exactly those things.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SkyArc(progress: progress, night: night),
-          const SizedBox(height: AppSpacing.lg),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          Center(
+            child: DayDial(
+              hourly: hourly,
+              sleepStart: sleepStart,
+              sleepEnd: sleepEnd,
+              now: now,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('Today', style: AppText.label),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
                       CountUpText(score,
                           style: AppText.metricHero
-                              .copyWith(color: bs.color, fontSize: 46)),
-                      const SizedBox(width: 4),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text('/ 100', style: AppText.unit),
-                      ),
+                              .copyWith(color: bs.color, fontSize: 54)),
+                      const SizedBox(width: 3),
+                      Text('/100', style: AppText.unit),
                     ],
                   ),
+                  const SizedBox(height: 2),
                   Pill(bs.word, color: bs.color),
                 ],
               ),
-              const SizedBox(width: AppSpacing.lg),
-              Expanded(
-                child: Text(
-                  summary.missing.isEmpty
-                      ? 'Based on ${summary.basis.join(' + ')}.'
-                      : 'Based on ${summary.basis.join(' + ')} — '
-                          '${summary.missing.join(' & ')} not recorded.',
-                  style: AppText.caption.copyWith(color: AppColors.inkMuted),
-                ),
-              ),
-            ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Center(
+            child: Text(
+              summary.missing.isEmpty
+                  ? 'Based on ${summary.basis.join(' + ')}'
+                  : 'Based on ${summary.basis.join(' + ')} — '
+                      '${summary.missing.join(' & ')} not recorded',
+              style: AppText.caption.copyWith(color: AppColors.inkMuted),
+              textAlign: TextAlign.center,
+            ),
           ),
           const SizedBox(height: AppSpacing.lg),
           Divider(height: 1, color: AppColors.divider),

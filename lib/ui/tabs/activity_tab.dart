@@ -19,6 +19,7 @@ import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 import '../widgets/ledger.dart';
 import '../widgets/illustrations.dart';
+import '../widgets/data_art.dart';
 
 /// The Activity screen: a steps hero ring, a Today/Week steps chart, and a grid
 /// of supporting metrics (distance, calories, active minutes, average HR).
@@ -127,7 +128,10 @@ class _ActivityTabState extends State<ActivityTab> {
                 const SizedBox(height: AppSpacing.sm),
 
                 // 2. Steps hero ring with status + pace context.
-                _StepsHero(a: activity, range: range),
+                _StepsHero(
+                    a: activity,
+                    range: range,
+                    hourly: store.getStepsByHour(today)),
 
                 const SizedBox(height: AppSpacing.lg),
 
@@ -284,12 +288,12 @@ class _ActivityTabState extends State<ActivityTab> {
 class _StepsHero extends StatelessWidget {
   final ActivityAnalysis a;
   final int range; // 0=Today, 1=Week, 2=Month
+  final List<HourlySteps> hourly;
 
-  const _StepsHero({required this.a, required this.range});
+  const _StepsHero({required this.a, required this.range, required this.hourly});
 
   @override
   Widget build(BuildContext context) {
-    final reduced = AppMotion.reduced(context);
     final isToday = range == 0;
     final steps =
         range == 0 ? a.todaySteps : (range == 1 ? a.weekSteps : a.monthSteps);
@@ -312,36 +316,20 @@ class _StepsHero extends StatelessWidget {
         children: [
           Row(
         children: [
-          SizedBox(
-            width: 132,
-            height: 132,
-            child: Stack(
-              alignment: Alignment.center,
+          // The day as a clock: goal ring outside, one spoke per hour inside,
+          // length by steps. The shape of the day before any number.
+          ActivityClock(
+            hourly: isToday ? hourly : const [],
+            progress: sweep,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: sweep),
-                  duration: reduced ? Duration.zero : AppMotion.slow,
-                  curve: AppMotion.ease,
-                  builder: (context, v, _) => CustomPaint(
-                    size: const Size.square(132),
-                    painter: _RingPainter(
-                      progress: v,
-                      color: AppColors.activity,
-                      track: AppColors.activity.withValues(alpha: 0.12),
-                    ),
-                  ),
+                CountUpText(
+                  steps,
+                  style: AppText.metric.copyWith(fontSize: 28),
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CountUpText(
-                      steps,
-                      style: AppText.metric.copyWith(fontSize: 26),
-                    ),
-                    const SizedBox(height: 2),
-                    Text('steps', style: AppText.caption),
-                  ],
-                ),
+                const SizedBox(height: 2),
+                Text('steps', style: AppText.caption),
               ],
             ),
           ),
@@ -383,10 +371,6 @@ class _StepsHero extends StatelessWidget {
           ),
         ],
           ),
-          const SizedBox(height: AppSpacing.lg),
-          // The trail fills as the goal does — the same fraction as the ring,
-          // told a second way that reads at a glance from across a room.
-          StepTrail(progress: sweep),
         ],
       ),
     );
@@ -572,51 +556,6 @@ class _SedentaryCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RingPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-  final Color track;
-
-  _RingPainter({
-    required this.progress,
-    required this.color,
-    required this.track,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final radius = size.width / 2 - 9;
-    const stroke = 12.0;
-
-    final trackPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..color = track;
-    canvas.drawCircle(center, radius, trackPaint);
-
-    if (progress > 0) {
-      final rect = Rect.fromCircle(center: center, radius: radius);
-      final sweep = 2 * math.pi * progress;
-      final arc = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..strokeCap = StrokeCap.round
-        ..shader = SweepGradient(
-          startAngle: -math.pi / 2,
-          endAngle: -math.pi / 2 + sweep,
-          colors: [color.withValues(alpha: 0.4), color],
-        ).createShader(rect);
-      canvas.drawArc(rect, -math.pi / 2, sweep, false, arc);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RingPainter old) =>
-      old.progress != progress || old.color != color || old.track != track;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

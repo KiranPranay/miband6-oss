@@ -67,78 +67,91 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _AccessCard(relay: relay),
-          _EnableCard(relay: relay),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              style: AppText.body,
-              onChanged: (v) => setState(() => _query = v.toLowerCase()),
-              decoration: InputDecoration(
-                hintText: 'Search apps…',
-                hintStyle: TextStyle(color: AppColors.inkFaint),
-                prefixIcon: Icon(Icons.search, color: AppColors.inkFaint),
-                filled: true,
-                fillColor: AppColors.surface,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
-                  borderSide: BorderSide(color: AppColors.primary),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Row(
+      // A single scroll view, so a tall keyboard cannot push the list off the
+      // bottom of a fixed Column — which is what "search, and the bottom
+      // overflows" was. The cards and the search field scroll with the list.
+      body: CustomScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        slivers: [
+          SliverToBoxAdapter(
+            child: Column(
               children: [
-                Text('Apps to forward (${relay.selectedCount} selected)',
-                    style: AppText.caption),
+                _AccessCard(relay: relay),
+                _EnableCard(relay: relay),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    style: AppText.body,
+                    onChanged: (v) => setState(() => _query = v.toLowerCase()),
+                    decoration: InputDecoration(
+                      hintText: 'Search apps…',
+                      hintStyle: TextStyle(color: AppColors.inkFaint),
+                      prefixIcon: Icon(Icons.search, color: AppColors.inkFaint),
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                        borderSide: BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    children: [
+                      Text('Apps to forward (${relay.selectedCount} selected)',
+                          style: AppText.caption),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-          Expanded(
-            child: relay.isLoadingApps && apps.isEmpty
-                ? const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : ListView.builder(
-                    itemCount: apps.length,
-                    itemBuilder: (context, i) {
-                      final app = apps[i];
-                      final selected = relay.isAppSelected(app.package);
-                      return CheckboxListTile(
-                        value: selected,
-                        onChanged: relay.enabled
-                            ? (v) =>
-                                relay.setAppSelected(app.package, v ?? false)
-                            : null,
-                        activeColor: AppColors.primary,
-                        // The tick has to contrast with the fill. Dark mode's
-                        // primary is a light indigo, so a white tick on it is
-                        // barely there — same mistake the switches made.
-                        checkColor: AppColors.isDark
-                            ? const Color(0xFF10121A)
-                            : Colors.white,
-                        title: Text(app.name, style: AppText.body),
-                        subtitle: Text(app.package,
-                            style: AppText.caption
-                                .copyWith(color: AppColors.inkFaint)),
-                        controlAffinity: ListTileControlAffinity.trailing,
-                        dense: true,
-                      );
-                    },
-                  ),
+          if (relay.isLoadingApps && apps.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else
+            SliverList.builder(
+              itemCount: apps.length,
+              itemBuilder: (context, i) {
+                final app = apps[i];
+                final selected = relay.isAppSelected(app.package);
+                return CheckboxListTile(
+                  value: selected,
+                  onChanged: relay.enabled
+                      ? (v) => relay.setAppSelected(app.package, v ?? false)
+                      : null,
+                  activeColor: AppColors.primary,
+                  // The tick has to contrast with the fill. Dark mode's
+                  // primary is a light indigo, so a white tick on it is
+                  // barely there — same mistake the switches made.
+                  checkColor:
+                      AppColors.isDark ? const Color(0xFF10121A) : Colors.white,
+                  title: Text(app.name, style: AppText.body),
+                  subtitle: Text(app.package,
+                      style:
+                          AppText.caption.copyWith(color: AppColors.inkFaint)),
+                  controlAffinity: ListTileControlAffinity.trailing,
+                  dense: true,
+                );
+              },
+            ),
+          SliverPadding(
+            padding: EdgeInsets.only(
+                bottom: 24 + MediaQuery.viewPaddingOf(context).bottom),
           ),
         ],
       ),
@@ -180,8 +193,7 @@ class _AccessCard extends StatelessWidget {
                     granted
                         ? 'The app can read notifications to forward them.'
                         : 'Grant access so the app can read notifications.',
-                    style: AppText.caption
-                        .copyWith(color: AppColors.inkMuted)),
+                    style: AppText.caption.copyWith(color: AppColors.inkMuted)),
               ],
             ),
           ),
@@ -244,8 +256,7 @@ class _EnableCard extends StatelessWidget {
                   'Goes straight to the band, skipping Android — isolates '
                   'which half of the path is at fault',
                   style: AppText.caption.copyWith(color: AppColors.inkMuted)),
-              trailing:
-                  Icon(Icons.send_rounded, color: AppColors.primary),
+              trailing: Icon(Icons.send_rounded, color: AppColors.primary),
               onTap: () {
                 relay.sendTest();
                 ScaffoldMessenger.of(context).showSnackBar(

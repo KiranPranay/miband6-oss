@@ -15,6 +15,7 @@ import '../widgets/pulsing_heart_ring.dart';
 import '../widgets/section_header.dart';
 import '../widgets/ledger.dart';
 import '../widgets/illustrations.dart';
+import '../widgets/data_art.dart';
 import '../widgets/tab_header.dart';
 import '../widgets/segmented_toggle.dart';
 
@@ -337,6 +338,16 @@ class _HeartHero extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          // Today's lowest-to-highest laid on the zone scale, resting as a
+          // hollow ring, the current reading as a dot. Where the day sat.
+          HeartRange(
+            min: heart.todayMin,
+            max: heart.todayMax,
+            resting: heart.restingHr,
+            current: cur,
+            zones: heart.zones,
           ),
           const SizedBox(height: AppSpacing.lg),
           Divider(height: 1, color: AppColors.divider),

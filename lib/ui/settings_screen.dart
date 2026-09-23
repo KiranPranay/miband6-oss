@@ -11,6 +11,8 @@ import 'debug_console.dart';
 import 'device_scan_screen.dart';
 import 'notifications_screen.dart';
 import 'theme/app_theme.dart';
+import 'widgets/settings_widgets.dart';
+import 'widgets/confirm.dart';
 import 'theme/tokens.dart';
 
 /// Settings — one screen, not two.
@@ -66,13 +68,12 @@ class _BandSettingsBody extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(
             16, 8, 16, 32 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
-          _BandStatusCard(bleManager: ble),
           if (!connected) const _OfflineNotice(),
           if (config.lastError != null)
             _ErrorNotice(message: config.lastError!),
-          _Section('Connection'),
-          _Card(children: [
-            _NavTile(
+          SectionLabel('Connection'),
+          GroupCard(children: [
+            NavTile(
               icon: Icons.bluetooth_searching_rounded,
               title: 'Scan & connect',
               subtitle: ble.device != null
@@ -81,8 +82,7 @@ class _BandSettingsBody extends StatelessWidget {
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const DeviceScanScreen())),
             ),
-            const Divider(height: 1),
-            _NavTile(
+            NavTile(
               icon: Icons.key_rounded,
               title: 'Auth key',
               subtitle: auth.hasKey ? 'Set' : 'Not set — pairing will fail',
@@ -92,14 +92,24 @@ class _BandSettingsBody extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const AuthKeyScreen())),
             ),
             if (ble.isConnected) ...[
-              const Divider(height: 1),
-              _NavTile(
+              NavTile(
                 icon: Icons.link_off_rounded,
                 iconColor: AppColors.danger,
                 title: 'Disconnect',
                 titleColor: AppColors.danger,
                 subtitle: 'Stops auto-reconnect until you connect again',
-                onTap: () => ble.disconnect(),
+                onTap: () async {
+                  final ok = await confirmAction(
+                    context,
+                    title: 'Disconnect the band?',
+                    message: 'The app stops reconnecting on its own until you '
+                        'connect again. Nothing recorded is lost.',
+                    confirmLabel: 'Disconnect',
+                    destructive: true,
+                    icon: Icons.link_off_rounded,
+                  );
+                  if (ok) await ble.disconnect();
+                },
               ),
             ],
           ]),
@@ -109,8 +119,8 @@ class _BandSettingsBody extends StatelessWidget {
               child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
             )
           else ...[
-            _Section('Measurement'),
-            _Card(children: [
+            SectionLabel('Measurement'),
+            GroupCard(children: [
               _ChoiceTile<HrInterval>(
                 title: 'Automatic heart rate',
                 subtitle: 'How often the band measures on its own',
@@ -119,30 +129,26 @@ class _BandSettingsBody extends StatelessWidget {
                 labelOf: (v) => v.label,
                 onChanged: config.setHrInterval,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'All-day heart rate',
                 subtitle: 'Continuous background monitoring',
                 value: s.hrAllDayMonitoring,
                 onChanged: config.setHrAllDayMonitoring,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'Sleep-assisted heart rate',
                 subtitle: 'Denser sampling while you sleep — improves the '
                     'sleep stage estimate',
                 value: s.hrSleepAssisted,
                 onChanged: config.setHrSleepAssisted,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'All-day stress',
                 subtitle: 'Lets the band record its own stress samples',
                 value: s.stressMonitoring,
                 onChanged: config.setStressMonitoring,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'High heart-rate alert',
                 subtitle: s.hrHighAlertEnabled
                     ? 'Buzz above ${s.hrHighAlertBpm} bpm'
@@ -154,19 +160,18 @@ class _BandSettingsBody extends StatelessWidget {
             // Mi Band 6 has no low-HR alert on this protocol path, so none
             // is offered — see protocol-mb6.md §9.
 
-            _Section('Band buttons'),
-            _Card(children: [
+            SectionLabel('Band buttons'),
+            GroupCard(children: [
               _PermissionsTile(),
-              const Divider(height: 1),
               _DeclineTextTile(ble: ble),
             ]),
             // Reject/ignore on the wrist end or silence the call on the
             // phone (§12.1); find-phone rings it (§12.2). Neither needs a
             // switch — they work whenever the permissions above are granted.
 
-            _Section('Alerts'),
-            _Card(children: [
-              _NavTile(
+            SectionLabel('Alerts'),
+            GroupCard(children: [
+              NavTile(
                 icon: Icons.notifications_active_outlined,
                 iconColor: AppColors.spo2,
                 title: 'Notifications',
@@ -178,9 +183,9 @@ class _BandSettingsBody extends StatelessWidget {
               ),
             ]),
 
-            _Section('Experimental'),
-            _Card(children: [
-              _SwitchTile(
+            SectionLabel('Experimental'),
+            GroupCard(children: [
+              SwitchTile(
                 title: 'Automatic blood oxygen',
                 subtitle: 'Asks the band to sample SpO2 on its own. '
                     'Unverified on Mi Band 6 — the band may ignore it. '
@@ -188,8 +193,7 @@ class _BandSettingsBody extends StatelessWidget {
                 value: s.spo2AutoMonitoring,
                 onChanged: config.setSpo2AutoMonitoring,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'Quick replies on the band',
                 subtitle: 'Offer canned texts when declining a call from '
                     'the wrist. Unverified on Mi Band 6.',
@@ -197,13 +201,12 @@ class _BandSettingsBody extends StatelessWidget {
                 onChanged: config.setCannedRepliesEnabled,
               ),
               if (s.cannedRepliesEnabled) ...[
-                const Divider(height: 1),
                 _CannedRepliesTile(config: config),
               ],
             ]),
 
-            _Section('Display'),
-            _Card(children: [
+            SectionLabel('Display'),
+            GroupCard(children: [
               _ChoiceTile<TimeFormat>(
                 title: 'Time format',
                 value: s.timeFormat,
@@ -212,7 +215,6 @@ class _BandSettingsBody extends StatelessWidget {
                     v == TimeFormat.twentyFourHour ? '24-hour' : '12-hour',
                 onChanged: config.setTimeFormat,
               ),
-              const Divider(height: 1),
               _ChoiceTile<DistanceUnit>(
                 title: 'Units',
                 value: s.distanceUnit,
@@ -221,7 +223,6 @@ class _BandSettingsBody extends StatelessWidget {
                     v == DistanceUnit.metric ? 'Metric' : 'Imperial',
                 onChanged: config.setDistanceUnit,
               ),
-              const Divider(height: 1),
               _ChoiceTile<WearWrist>(
                 title: 'Worn on',
                 subtitle: 'Improves lift-to-wake accuracy',
@@ -230,7 +231,6 @@ class _BandSettingsBody extends StatelessWidget {
                 labelOf: (v) => v == WearWrist.left ? 'Left' : 'Right',
                 onChanged: config.setWearWrist,
               ),
-              const Divider(height: 1),
               _ChoiceTile<LiftWristMode>(
                 title: 'Lift wrist to wake',
                 value: s.liftWrist,
@@ -242,7 +242,6 @@ class _BandSettingsBody extends StatelessWidget {
                 },
                 onChanged: config.setLiftWrist,
               ),
-              const Divider(height: 1),
               _ChoiceTile<NightMode>(
                 title: 'Night mode',
                 subtitle: 'Dims the screen',
@@ -257,8 +256,8 @@ class _BandSettingsBody extends StatelessWidget {
               ),
             ]),
 
-            _Section('Overnight'),
-            _Card(children: [
+            SectionLabel('Overnight'),
+            GroupCard(children: [
               ListTile(
                 title: Text('Prepare for sleep', style: AppText.body),
                 subtitle: Text(
@@ -283,21 +282,19 @@ class _BandSettingsBody extends StatelessWidget {
               ),
             ]),
 
-            _Section('Goals & reminders'),
-            _Card(children: [
+            SectionLabel('Goals & reminders'),
+            GroupCard(children: [
               _StepGoalTile(
                 goal: s.stepGoal,
                 onChanged: config.setStepGoal,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'Celebrate reaching your goal',
                 subtitle: 'The band buzzes when you hit your step goal',
                 value: s.goalNotification,
                 onChanged: config.setGoalNotification,
               ),
-              const Divider(height: 1),
-              _SwitchTile(
+              SwitchTile(
                 title: 'Move reminders',
                 subtitle: s.inactivityEnabled
                     ? 'After ${s.inactivityThresholdMinutes} min of sitting'
@@ -305,7 +302,6 @@ class _BandSettingsBody extends StatelessWidget {
                 value: s.inactivityEnabled,
                 onChanged: config.setInactivityEnabled,
               ),
-              const Divider(height: 1),
               _ChoiceTile<DndMode>(
                 title: 'Do not disturb',
                 value: s.dnd,
@@ -319,17 +315,16 @@ class _BandSettingsBody extends StatelessWidget {
               ),
             ]),
           ],
-          _Section('Developer'),
-          _Card(children: [
-            _NavTile(
+          SectionLabel('Developer'),
+          GroupCard(children: [
+            NavTile(
               icon: Icons.terminal_rounded,
               title: 'Debug console',
               subtitle: 'Every frame the band sends and receives',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const DebugConsole())),
             ),
-            const Divider(height: 1),
-            _NavTile(
+            NavTile(
               icon: ble.isTestSessionRunning
                   ? Icons.hourglass_top_rounded
                   : Icons.science_outlined,
@@ -340,10 +335,19 @@ class _BandSettingsBody extends StatelessWidget {
               subtitle: ble.isTestSessionRunning
                   ? 'Running gates 0→6 — watch the console'
                   : 'Verify heart rate, battery and fetch on the band (wear it first)',
-              onTap: () => _onRunHardwareTest(context, ble),
+              onTap: () async {
+                final ok = await confirmAction(
+                  context,
+                  title: 'Run the hardware test?',
+                  message: 'Writes to the band and takes about a minute. Wear '
+                      'it, and keep the phone nearby.',
+                  confirmLabel: 'Run test',
+                  icon: Icons.science_outlined,
+                );
+                if (ok && context.mounted) _onRunHardwareTest(context, ble);
+              },
             ),
-            const Divider(height: 1),
-            _NavTile(
+            NavTile(
               icon: Icons.send_rounded,
               iconColor: AppColors.spo2,
               title: 'Send a test notification',
@@ -415,62 +419,6 @@ class _ErrorNotice extends StatelessWidget {
             ),
           ],
         ),
-      );
-}
-
-class _Section extends StatelessWidget {
-  const _Section(this.title);
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-        child: Text(title.toUpperCase(),
-            style: AppText.caption.copyWith(
-              color: AppColors.inkFaint,
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w700,
-            )),
-      );
-}
-
-class _Card extends StatelessWidget {
-  const _Card({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadii.lg),
-          boxShadow: AppShadows.card,
-        ),
-        child: Column(children: children),
-      );
-}
-
-class _SwitchTile extends StatelessWidget {
-  const _SwitchTile({
-    required this.title,
-    required this.value,
-    required this.onChanged,
-    this.subtitle,
-  });
-
-  final String title;
-  final String? subtitle;
-  final bool value;
-  final Future<bool> Function(bool) onChanged;
-
-  @override
-  Widget build(BuildContext context) => SwitchListTile(
-        value: value,
-        title: Text(title, style: AppText.body),
-        subtitle: subtitle == null
-            ? null
-            : Text(subtitle!,
-                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
-        onChanged: (v) => onChanged(v),
       );
 }
 
@@ -757,249 +705,4 @@ void _onRunHardwareTest(BuildContext context, BLEManager bleManager) {
     context,
     MaterialPageRoute(builder: (_) => const DebugConsole()),
   );
-}
-
-class _BandStatusCard extends StatelessWidget {
-  final BLEManager bleManager;
-  const _BandStatusCard({required this.bleManager});
-
-  @override
-  Widget build(BuildContext context) {
-    final connected = bleManager.isConnected;
-    final authState = bleManager.authState;
-    final device = bleManager.device;
-    final battery = bleManager.batteryLevel;
-
-    String authLabel;
-    Color authColor;
-    switch (authState) {
-      case AuthState.authenticating:
-        authLabel = 'Authenticating…';
-        authColor = AppColors.warning;
-        break;
-      case AuthState.authenticated:
-        authLabel = 'Authenticated';
-        authColor = AppColors.success;
-        break;
-      case AuthState.failed:
-        authLabel = 'Failed';
-        authColor = AppColors.danger;
-        break;
-      default:
-        authLabel = 'Not Authenticated';
-        authColor = AppColors.inkMuted;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        color: AppColors.surface,
-        boxShadow: AppShadows.card,
-        border: Border.all(
-          color: connected
-              ? AppColors.success.withValues(alpha: 0.3)
-              : AppColors.divider,
-        ),
-      ),
-      child: Column(
-        children: [
-          // ── Top row: name + battery ──────────────────────────────
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.watch, color: AppColors.inkMuted, size: 24),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      device?.platformName.isNotEmpty == true
-                          ? device!.platformName
-                          : 'Mi Band',
-                      style: TextStyle(
-                        color: AppColors.ink,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (device != null)
-                      Text(
-                        device.remoteId.str,
-                        style: TextStyle(
-                          color: AppColors.inkFaint,
-                          fontSize: 11,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              if (battery != null)
-                _BatteryWidget(level: battery)
-              else if (connected)
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: AppColors.inkFaint),
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-          Divider(color: AppColors.divider, height: 1),
-          const SizedBox(height: 16),
-
-          // ── Status rows ──────────────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: _StatusPill(
-                  label: 'Connection',
-                  value: connected ? 'Connected' : 'Disconnected',
-                  color: connected ? AppColors.success : AppColors.danger,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StatusPill(
-                  label: 'Auth',
-                  value: authLabel,
-                  color: authColor,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A row that opens another screen — same shape as [_ChoiceTile] so the
-/// merged list reads as one family.
-class _NavTile extends StatelessWidget {
-  const _NavTile({
-    required this.icon,
-    required this.title,
-    required this.onTap,
-    this.subtitle,
-    this.iconColor,
-    this.titleColor,
-    this.subtitleColor,
-  });
-
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Color? iconColor;
-  final Color? titleColor;
-  final Color? subtitleColor;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-        leading: Icon(icon, color: iconColor ?? AppColors.inkMuted, size: 22),
-        title: Text(title,
-            style: AppText.body.copyWith(color: titleColor ?? AppColors.ink)),
-        subtitle: subtitle == null
-            ? null
-            : Text(subtitle!,
-                style: AppText.caption
-                    .copyWith(color: subtitleColor ?? AppColors.inkMuted)),
-        trailing: Icon(Icons.chevron_right, color: AppColors.inkFaint),
-        onTap: onTap,
-      );
-}
-
-class _BatteryWidget extends StatelessWidget {
-  final int level;
-  const _BatteryWidget({required this.level});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = level > 50
-        ? AppColors.success
-        : level > 20
-            ? AppColors.warning
-            : AppColors.danger;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          level > 80
-              ? Icons.battery_full
-              : level > 50
-                  ? Icons.battery_4_bar
-                  : level > 20
-                      ? Icons.battery_2_bar
-                      : Icons.battery_1_bar,
-          color: color,
-          size: 20,
-        ),
-        const SizedBox(width: 2),
-        Text(
-          '$level%',
-          style: TextStyle(
-            color: color,
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  const _StatusPill({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: color.withValues(alpha: 0.7),
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
