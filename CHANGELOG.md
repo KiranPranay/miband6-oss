@@ -76,6 +76,9 @@ Walking the phone after the design pass, with the screens side by side.
   written with literal NUL bytes; grep skipped the file and `file` called it
   data. Same key, as escapes.
 - **The scanner's spinner was white on white** in light mode.
+- **An unknown battery looked like a dead one.** While the band was still
+  reconnecting the Profile card showed "--%" with the red low-battery icon;
+  unknown is now neutral grey.
 
 ### Fixed — after several weeks of real use
 

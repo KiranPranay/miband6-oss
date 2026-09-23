@@ -224,10 +224,14 @@ class _DeviceCard extends StatelessWidget {
       statusColor = AppColors.inkFaint;
     }
 
+    // Unknown is not empty: before the first battery read (or while
+    // reconnecting) the bar is neutral, not the red of a dying cell.
     final level = ble.batteryLevel ?? 0;
-    final Color batteryColor = level <= 15
-        ? AppColors.danger
-        : (level <= 35 ? AppColors.warning : AppColors.success);
+    final Color batteryColor = ble.batteryLevel == null
+        ? AppColors.inkFaint
+        : level <= 15
+            ? AppColors.danger
+            : (level <= 35 ? AppColors.warning : AppColors.success);
     final fill = (level / 100).clamp(0.0, 1.0);
 
     return AppCard(
