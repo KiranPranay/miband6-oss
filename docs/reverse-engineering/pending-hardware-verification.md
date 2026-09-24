@@ -432,7 +432,46 @@ from another line, press Decline on the band, and read `logcat` for
 and `CallControlHost: endCall -> true`, in that order. Then the same with
 Silence: `Band event: callIgnore [09]` and `CallStateHost: ringer silenced`.
 
-**Status**: pending a live call.
+**Result — VERIFIED, 2026-09-24 23:05, Pixel 9a / Android API 37, four live
+calls.** From `logcat` (Kotlin tags and the app's INFO lines):
+
+```
+23:05:01.478  CallStateHost: call state idle -> ringing: ringing
+23:05:02.140  Call: ringing from "<contact>" (no number) — alerting the band
+23:05:05.241  Band event: callIgnore [09]
+23:05:05.265  CallStateHost: ringer silenced for this call (was mode 2)
+23:05:13.583  CallStateHost: ringer restored to mode 2
+23:05:13.583  CallStateHost: call state ringing -> idle: ended
+23:05:13.585  Call: call ended — clearing the band
+
+23:05:27.679  CallStateHost: call state idle -> ringing: ringing
+23:05:28.213  Call: ringing from "<contact>" (no number) — alerting the band
+23:05:32.639  Band event: callReject [07]
+23:05:32.649  CallControlHost: endCall -> true
+23:05:32.896  CallStateHost: call state ringing -> idle: ended
+
+23:05:49.963  CallStateHost: call state idle -> offhook: outgoing
+23:05:49.981  Call: outgoing — nothing for the band
+23:05:55.624  CallStateHost: call state offhook -> idle: ended
+
+23:06:29.338  CallStateHost: call state idle -> ringing: ringing
+23:06:29.815  Call: ringing from "<contact>" (no number) — alerting the band
+23:06:42.976  CallStateHost: call state ringing -> offhook: answered
+23:06:42.982  Call: answered on the phone — clearing the band
+23:06:58.512  CallStateHost: call state offhook -> idle: ended
+```
+
+So: the band's `0x09` and `0x07` do arrive on `0x0010` and the phone acts on
+both within 25 ms; one alert per ringing call, ~0.6 s after RINGING (the
+grace for the dialer to name the caller); nothing on outgoing; cleared on
+answer and on end. User report: "all works, as intended". The earlier
+failure was therefore the re-sent alert replacing the screen under the
+button, plus the swallowed `SecurityException` on Silence — not event
+delivery.
+
+Observed limitation: for a saved contact the dialer's notification carries
+the name only, so `callerNumber` is null and decline-with-text (§13.3) has
+nothing to send to. Resolving name → number needs READ_CONTACTS; not done.
 
 ### P12.5 — What ringer-mode silence actually stops (2026-09-24)
 
@@ -442,7 +481,22 @@ re-evaluate, so the vibration pattern may continue until the call is answered
 or ends. The reference apps accept this. **Probe**: on the Pixel 9a, confirm
 whether vibration continues after Silence; record either way in §12.1.
 
-**Status**: pending.
+**Status**: the user reports the ringtone stopped; whether vibration
+continued was not asked. Still open.
+
+### P12.6 — Answering from the wrist (2026-09-24)
+
+Asked: does the firmware support answering? **No.** The legacy Huami device
+event vocabulary (**GB** `HuamiDeviceEvent.java:21-37`) has `CALL_REJECT`
+(`0x07`) and `CALL_IGNORE` (`0x09`) and no accept code; `HuamiSupport` never
+emits `GBDeviceEventCallControl.Event.ACCEPT`/`START` (only the Garmin,
+Fossil HR and Huawei drivers do). The band's own call screen offers those two
+buttons and no third. Mi Band 6 has no microphone or speaker, so "answer" could
+only ever mean "pick up on the phone from the wrist", and the band provides no
+event to hang that on. The phone side is capable — `TelecomManager.acceptRingingCall()`
+with `ANSWER_PHONE_CALLS`, which Notify (`i9/j.java:1310`) and Mi Fit
+(`receiver/OooOOO.java`) use for Amazfit watches with Bluetooth calling — but
+nothing on this band can trigger it. Closed.
 
 ## P13 — Canned replies, 2026-09-23
 
