@@ -53,22 +53,6 @@ object NotificationBridge {
         }
     }
 
-    /**
-     * The incoming-call notification went away: end the band's call alert.
-     * Not queued when the channel is absent — a stale "call ended" delivered
-     * minutes later would clear a *newer* call's screen.
-     */
-    fun dispatchCallEnded(ctx: Context, pkg: String) {
-        val target = channel ?: return
-        main.post {
-            try {
-                target.invokeMethod("onCallEnded", mapOf("package" to pkg))
-            } catch (e: Exception) {
-                Log.e(TAG, "invokeMethod(onCallEnded) failed", e)
-            }
-        }
-    }
-
     fun dispatch(ctx: Context, pkg: String, title: String, text: String, isCall: Boolean = false) {
         val payload = mapOf(
             // CATEGORY_CALL, so Dart can record the caller for decline-with-text

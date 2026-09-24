@@ -71,7 +71,8 @@ line saying where its numbers came from.
 | SpO2 history | ⚠️ parser hardware-verified; only shown when actually measured that night |
 | Sleep sessions, duration, efficiency | ✅ validated on 56 real nights; sessions anchor on the band's flag *or* corroborated stillness ([findings-26](docs/reverse-engineering/findings-26.md)) |
 | Deep sleep | ⚠️ **estimated** — two-process model, front-loaded by construction, labelled "est." everywhere ([findings-25](docs/reverse-engineering/findings-25.md)) |
-| Band buttons → phone (decline, silence, find my phone) | ✅ hardware-subscribed post-auth; needs phone permissions ([§12](docs/reverse-engineering/protocol-mb6.md)) |
+| Incoming calls on the band | ✅ once per ringing call, from telephony state — never from the dialer's notification ([§12.4](docs/reverse-engineering/protocol-mb6.md)) |
+| Band buttons → phone (decline, silence, find my phone) | ✅ hardware-subscribed post-auth; needs phone permissions; Silence needs Do Not Disturb access ([§12.1](docs/reverse-engineering/protocol-mb6.md)) |
 | Decline with a text | ✅ phone-side; sends when the call notification carried a number |
 | Automatic SpO2 (band samples on its own) | ⚠️ **experimental, off by default** — a config bit the band may ignore ([P14.2](docs/reverse-engineering/pending-hardware-verification.md)); no phone-triggered measurement exists on this firmware path |
 | Quick replies on the band | ⚠️ **experimental, off by default** — the receive path is disabled upstream as unsafe ([P13.1](docs/reverse-engineering/pending-hardware-verification.md)) |

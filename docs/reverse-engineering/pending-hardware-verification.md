@@ -419,6 +419,31 @@ stores nothing from the band.
       real-time determination, not a reconstruction. If they disagree, record
       which way and why before choosing.
 
+### P12.4 — Reject and Ignore round trip on a live call (2026-09-24)
+
+**Reported**: with the notification-driven design, Decline and Silence on the
+band did nothing. Silence is explained (the phone side threw and swallowed a
+`SecurityException`, §12.1). Decline is not yet: `0x07` → `TelecomManager.endCall()`
+is the Gadgetbridge path and the permission is granted, so either the event
+never reached the phone or it arrived against a screen that had just been
+re-sent. **Probe**: with the telephony-driven session installed, ring the phone
+from another line, press Decline on the band, and read `logcat` for
+`CallStateHost: call state idle -> ringing`, `I/flutter … Band event: callReject [07]`
+and `CallControlHost: endCall -> true`, in that order. Then the same with
+Silence: `Band event: callIgnore [09]` and `CallStateHost: ringer silenced`.
+
+**Status**: pending a live call.
+
+### P12.5 — What ringer-mode silence actually stops (2026-09-24)
+
+Setting `RINGER_MODE_SILENT` mutes `STREAM_RING`, so the ringtone goes quiet.
+Telecom's `Ringer` decides whether to vibrate when ringing *starts* and does not
+re-evaluate, so the vibration pattern may continue until the call is answered
+or ends. The reference apps accept this. **Probe**: on the Pixel 9a, confirm
+whether vibration continues after Silence; record either way in §12.1.
+
+**Status**: pending.
+
 ## P13 — Canned replies, 2026-09-23
 
 - [ ] **P13.1 Does the band accept canned messages on endpoint `0x0013`?**

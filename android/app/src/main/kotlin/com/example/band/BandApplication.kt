@@ -57,6 +57,12 @@ class BandApplication : FlutterApplication() {
                 this,
                 MethodChannel(engine.dartExecutor.binaryMessenger, CallControlHost.CHANNEL),
             )
+            // And the phone's call state, which is what decides when the band
+            // is told about a call at all.
+            CallStateHost.install(
+                this,
+                MethodChannel(engine.dartExecutor.binaryMessenger, CallStateHost.CHANNEL),
+            )
             Log.i(TAG, "Warm FlutterEngine started and cached as '$ENGINE_ID'")
         } catch (e: Exception) {
             // Never take the app down over this: without the warm engine the app

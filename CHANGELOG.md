@@ -9,6 +9,32 @@ second one matters to anyone whose history just moved.
 
 ## [Unreleased]
 
+### Fixed — calls, 2026-09-24
+
+- **The band was driven by the dialer's notification, not by the call.** It
+  re-sent "incoming call" on every post of the CATEGORY_CALL notification —
+  which the dialer posts for outgoing calls and re-posts on every timer tick,
+  hold and audio-route change. So the band buzzed when you dialled, buzzed
+  again mid-conversation, and its Decline and Silence were pressed against a
+  screen that had just been replaced. Call state now comes from telephony,
+  as in Gadgetbridge, Mi Fit and Notify: one alert per ringing call, cleared
+  when answered or ended, nothing for outgoing. The notification only lends
+  the caller's name. See findings-27 and protocol §12.4.
+- **Silence on the band never did anything.** Both phone-side attempts
+  (`TelecomManager.silenceRinger`, then a ring-stream mute) throw for an app
+  that is not the dialer, and the exceptions were swallowed. It now does what
+  every companion app does — ringer mode to silent for the rest of the call,
+  restored when it ends — which needs Do Not Disturb access. Settings › Band
+  buttons has the row and the reason.
+- Decline is re-tested on a live call as probe P12.4; the phone-side path is
+  unchanged (`TelecomManager.endCall`).
+- **Two handshakes on one link at start-up.** Three connect triggers fire
+  within milliseconds of launch and each issued its own GATT connect; the
+  second re-ran the sign-key auth on the already-connected link and the band
+  refused it (status 0x25), costing a reconnect. Concurrent triggers now
+  share one attempt, and connecting to a band that is already connected is a
+  no-op.
+
 ### Added — overnight, 2026-09-23
 
 - **Deep sleep is back, as a labelled estimate.** The findings-24 detector was

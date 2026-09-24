@@ -146,7 +146,24 @@ extension ConnectionSupervisor on BLEManager {
   /// One connection attempt. Prefers a direct connect by MAC — the band's
   /// address is known after the first pairing, and scanning first is both
   /// slower and less reliable when the band is advertising infrequently.
-  Future<void> _attemptConnect() async {
+  ///
+  /// Concurrent callers share the attempt in flight. The `isConnected` check
+  /// alone is not enough: every trigger passes it before the first GATT
+  /// connect has completed, and the adapter await below is a window in which
+  /// the others catch up.
+  Future<void> _attemptConnect() {
+    final inFlight = _connectAttemptInFlight;
+    if (inFlight != null) {
+      _logger.d('Supervisor: connect attempt already in flight');
+      return inFlight;
+    }
+    final attempt = _attemptConnectOnce()
+        .whenComplete(() => _connectAttemptInFlight = null);
+    _connectAttemptInFlight = attempt;
+    return attempt;
+  }
+
+  Future<void> _attemptConnectOnce() async {
     if (!_userWantsConnected || _userDisconnected) return;
     if (isConnected) return;
 

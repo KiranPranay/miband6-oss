@@ -396,6 +396,10 @@ It inherits `HuamiSupport.onSetCallState` → `AmazfitBipTextNotificationStrateg
 
 Notify does byte-for-byte the same (`y5/q.java w()`, `y5/a0.java`).
 
+**When** these are written matters as much as the bytes: once per ringing
+call, on the phone's telephony state — never on the dialer's notification.
+See §12.4.
+
 ### 8.4 Icon ids (`HuamiIcon.java`)
 
 `0` WeChat · `1` QQ · `3` Facebook · `4` Twitter · `6` Snapchat · `7` WhatsApp ·
@@ -608,9 +612,27 @@ GB maps `0x07` to `TelecomManager.endCall()` and `0x09` to a mute broadcast
 (**GB** `GBDeviceEventCallControl.java:43-57`, `GBCallControlReceiver.java:80-85`;
 `tm.endCall()` at `:83`; pre-API-28 reflective `ITelephony.endCall()` at `:53-73`).
 
+What the mute broadcast actually does (**GB** `PhoneCallReceiver.java`,
+`MUTE_CALL` branch): only if the phone is `CALL_STATE_RINGING`, save
+`AudioManager.getRingerMode()`, set `RINGER_MODE_SILENT`, and restore the saved
+mode when the state returns to `IDLE`. Notify does the same on Android 10+
+(`i9/j.java G()`: `setRingerMode(0)` with a 90 s fallback restore); below 10 it
+also tries the hidden `ITelephony.silenceRinger()`. Mi Fit's
+`IncomingCallAlertActivity` likewise goes through the ringer mode. None of them
+use `TelecomManager.silenceRinger()`, which needs `MODIFY_PHONE_STATE` — a
+signature permission. And since Android N, changing the ringer mode to silent
+(or muting `STREAM_RING` far enough to flip it) throws
+`SecurityException: Not allowed to change Do Not Disturb state` unless the app
+holds **Notification Policy ("Do Not Disturb") access**, granted on a system
+page rather than through a runtime dialog.
+
 Ours: `CallControlHost.kt` — `endCall` via `TelecomManager.endCall()`
-(`ANSWER_PHONE_CALLS`, API 28+); `silenceRinger` via `TelecomManager.silenceRinger()`
-with a `STREAM_RING` mute fallback. Both return whether the action happened.
+(`ANSWER_PHONE_CALLS`, API 28+); `silenceRinger` delegates to
+`CallStateHost.silence()`: ringer mode → silent while ringing, restored on
+`IDLE`, needs DND access (Settings › Band buttons › *Silence from the band*).
+Both return whether the action happened. The earlier version tried
+`TelecomManager.silenceRinger()` then a `STREAM_RING` mute; both threw and were
+swallowed, so Silence on the band never did anything.
 
 ### 12.2 Find-phone acknowledgement
 
@@ -623,6 +645,37 @@ On `0x08` GB writes `COMMAND_ACK_FIND_PHONE_IN_PROGRESS` to `0x0003`
 
 GB's own comment on the call site reads `// FIXME: premature`. Ours sends the
 same bytes and starts ringing the phone; `0x0f` stops it.
+
+### 12.4 Call state comes from telephony, not from the dialer's notification
+
+Every reference implementation decides "a call is ringing" from
+`TelephonyManager` call state, never from a notification:
+
+* **GB** `PhoneCallReceiver.onCallStateChanged` — `RINGING` → `CALL_INCOMING`;
+  `OFFHOOK` after `RINGING` → `CALL_START`, otherwise `CALL_OUTGOING`; `IDLE` →
+  `CALL_END`; the same state twice is ignored. `HuamiSupport.onSetCallState`
+  (`:1222-1238`) writes the alert only for `CALL_INCOMING`, and `03 00` on
+  `CALL_START`/`CALL_END`. `CALL_OUTGOING` does nothing.
+* **Mi Fit** `com.xiaomi.hm.health.receiver.PhoneStateReceiver` — the
+  `PHONE_STATE` broadcast: `EXTRA_STATE_RINGING` → alert (after the
+  user's configurable delay), `OFFHOOK`/`IDLE` → stop.
+* **Notify** `i9/j.java` — a `PhoneStateListener.onCallStateChanged`, same
+  three states.
+
+Our first version keyed off the dialer's `CATEGORY_CALL` notification instead,
+and re-sent `03 01 <caller>` on every post of it. That notification is posted
+for outgoing calls, and re-posted every time the call timer ticks, the call
+goes on hold or the audio route changes — so the band buzzed on dialling and
+kept buzzing mid-conversation, each buzz replacing the screen whose buttons had
+just been pressed. See findings-27.
+
+Now: `CallStateHost.kt` registers a `TelephonyCallback.CallStateListener`
+(API 31+; `PhoneStateListener` below) on the process-lifetime engine and
+reports transitions as `ringing` / `answered` / `outgoing` / `ended` on
+`band/call_state`. `CallSession` (Dart) writes the alert once per `ringing`,
+and `03 00` on `answered` or `ended`. The notification is consulted only for
+the caller's name and number, because the telephony callback carries no number
+on API 31+. Needs `READ_PHONE_STATE`.
 
 ### 12.3 Silent-mode echo (spec only — not sent by us)
 

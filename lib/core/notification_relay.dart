@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ble_manager.dart';
+import 'call_session.dart';
 import 'logger.dart';
 
 /// A user-facing installed app (for the notification picker).
@@ -24,6 +25,10 @@ enum RelayDecision {
   bandNotReady,
   duplicate,
   screenOn,
+
+  /// A CATEGORY_CALL notification: handed to the [CallSession] for the
+  /// caller's name, never forwarded as a message. See `call_session.dart`.
+  callRouted,
 }
 
 /// Bridges captured Android notifications to the band.
@@ -71,8 +76,16 @@ class NotificationRelay extends ChangeNotifier {
   String? _lastDecisionApp;
   DateTime? _lastDecisionAt;
 
+  /// When the band is told about a call, and once. Fed by telephony through
+  /// `CallControl.listenCallState`; the dialer's notification only names the
+  /// caller.
+  late final CallSession callSession =
+      CallSession(sink: _BandCallSink(this), logger: _logger);
+
   NotificationRelay(BLEManager ble, this._logger) : _ble = ble {
     _channel.setMethodCallHandler(_onCall);
+    ble.callControl.listenCallState(_onPhoneCallState);
+    ble.callControl.startCallState();
     _load();
   }
 
@@ -124,16 +137,23 @@ class NotificationRelay extends ChangeNotifier {
         text: (m['text'] ?? '').toString(),
         isCall: m['isCall'] == true,
       );
-    } else if (call.method == 'onCallEnded') {
-      // The phone's call notification is gone — answered, ended or declined
-      // there. Clear the band's call screen (§4 `03 00`) and forget the number.
-      _ble?.lastIncomingCallNumber = null;
-      if (_bandReady) {
-        _logger.i('Notif relay: call ended on the phone — clearing the band');
-        await _ble!.alertManager.stopCall();
-      }
     }
     return null;
+  }
+
+  void _onPhoneCallState(String event) {
+    final e = PhoneCallEvent.parse(event);
+    if (e == null) {
+      _logger.e('Call: unknown phone event "$event"');
+      return;
+    }
+    if (!_enabled && e == PhoneCallEvent.ringing) {
+      _logger.i('Call: ringing, but forwarding is off');
+      return;
+    }
+    callSession.onPhoneEvent(e);
+    // Decline-with-text reads the number from the band's owner.
+    _ble?.lastIncomingCallNumber = callSession.callerNumber;
   }
 
   /// Decide on and possibly forward one notification.
@@ -150,26 +170,16 @@ class NotificationRelay extends ChangeNotifier {
   }) async {
     final label = app.isEmpty ? package : app;
 
-    // An incoming call is routed as a *call*, not as an app notification.
-    //
-    // The band's call alert (protocol-mb6.md §4, ANS category 3) is what gives
-    // the wrist its reject/ignore buttons — those are the presses that arrive
-    // on 0x0010 as CALL_REJECT / CALL_IGNORE (§12) and end or silence the call
-    // on the phone. Sent as a plain notification the band shows text with no
-    // buttons, and nothing on the wrist can act on it.
-    //
-    // Calls bypass the per-app selection: a user who turned the relay on and
-    // is being rung wants to know, whichever dialer produced the notification.
+    // A call notification never reaches the band on its own. Telephony says
+    // when a call is ringing (CallStateHost.kt → CallSession); the dialer's
+    // notification only tells us who is calling, because the telephony
+    // callback carries no number on modern Android. It is re-posted on every
+    // timer tick and hold, and posted for outgoing calls too — alerting on it
+    // is exactly the bug this replaced.
     if (isCall) {
-      final number = _extractNumber(title) ?? _extractNumber(text);
-      _ble?.lastIncomingCallNumber = number;
-      if (!_enabled) return _record(RelayDecision.relayDisabled, label);
-      if (!_bandReady) return _record(RelayDecision.bandNotReady, label);
-      final caller = title.isNotEmpty ? title : (number ?? 'Incoming call');
-      _logger.i('Notif relay: incoming call from "$caller"'
-          '${number != null ? ' (number captured)' : ' (no number in notification)'}');
-      await _ble!.alertManager.sendIncomingCall(caller);
-      return _record(RelayDecision.forwarded, label);
+      callSession.onCallNotification(title: title, text: text);
+      _ble?.lastIncomingCallNumber = callSession.callerNumber;
+      return _record(RelayDecision.callRouted, label);
     }
 
     final decision = await _decide(package, label, title, text);
@@ -207,13 +217,6 @@ class NotificationRelay extends ChangeNotifier {
   /// A dialable number from notification text, or null. Dialers show a saved
   /// contact's *name* rather than the number, in which case there is nothing to
   /// capture and decline-with-text has no target — the log says so.
-  static String? _extractNumber(String s) {
-    final m = RegExp(r'\+?[0-9][0-9 \-()]{6,}[0-9]').firstMatch(s);
-    if (m == null) return null;
-    final digits = m.group(0)!.replaceAll(RegExp(r'[^0-9+]'), '');
-    return digits.length >= 7 ? digits : null;
-  }
-
   Future<RelayDecision> _decide(
       String package, String label, String title, String text) async {
     if (!_enabled) return RelayDecision.relayDisabled;
@@ -303,7 +306,8 @@ class NotificationRelay extends ChangeNotifier {
     _loadingApps = true;
     notifyListeners();
     try {
-      final raw = await _channel.invokeMethod<List<dynamic>>('getInstalledApps');
+      final raw =
+          await _channel.invokeMethod<List<dynamic>>('getInstalledApps');
       _installedApps = (raw ?? [])
           .map((e) => AppInfo.fromMap((e as Map).cast<String, dynamic>()))
           .toList();
@@ -370,4 +374,20 @@ class NotificationRelay extends ChangeNotifier {
   /// listener entirely, so it isolates the BLE half of the path from the
   /// Android half.
   void sendTest() => _ble?.alertManager.sendTest();
+}
+
+/// The band as a [CallSink]: ANS call alert on, ANS call alert off.
+class _BandCallSink implements CallSink {
+  _BandCallSink(this._relay);
+  final NotificationRelay _relay;
+
+  @override
+  bool get ready => _relay._bandReady;
+
+  @override
+  Future<void> showIncoming(String caller) =>
+      _relay._ble!.alertManager.sendIncomingCall(caller);
+
+  @override
+  Future<void> clear() => _relay._ble!.alertManager.stopCall();
 }

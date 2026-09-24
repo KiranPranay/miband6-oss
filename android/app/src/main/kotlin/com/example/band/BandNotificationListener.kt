@@ -55,7 +55,8 @@ class BandNotificationListener : NotificationListenerService() {
 
             // Ongoing notifications are usually media players and foreground
             // services. Calls are also FLAG_ONGOING, so let the call category
-            // through — an incoming call is the single most useful alert.
+            // through — not to alert the band (call state comes from telephony,
+            // see CallStateHost) but because its title is the caller's name.
             val isCall = n.category == Notification.CATEGORY_CALL
             if (!isCall && n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
 
@@ -82,22 +83,6 @@ class BandNotificationListener : NotificationListenerService() {
         }
     }
 
-    /**
-     * A removed CATEGORY_CALL notification means the call ended, was answered,
-     * or was declined on the phone. The band's incoming-call screen does not
-     * clear itself, so tell Dart, which sends the ANS "stop" frame
-     * (protocol-mb6.md §4: `03 00` to 0x2A46).
-     */
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        try {
-            val n = sbn?.notification ?: return
-            if (n.category == Notification.CATEGORY_CALL) {
-                NotificationBridge.dispatchCallEnded(applicationContext, sbn.packageName ?: "")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "onNotificationRemoved failed", e)
-        }
-    }
 
     /**
      * Best-effort body text, in decreasing order of usefulness.

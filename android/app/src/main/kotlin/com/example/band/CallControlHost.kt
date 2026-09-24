@@ -60,6 +60,9 @@ object CallControlHost {
                         "answerPhoneCalls" to has(app, Manifest.permission.ANSWER_PHONE_CALLS),
                         "readPhoneState" to has(app, Manifest.permission.READ_PHONE_STATE),
                         "sendSms" to has(app, Manifest.permission.SEND_SMS),
+                        // Not a runtime permission: a grant from the Do Not
+                        // Disturb access page. Needed to mute the ringer.
+                        "dndAccess" to CallStateHost.hasDndAccess(app),
                     ),
                 )
 
@@ -142,36 +145,14 @@ object CallControlHost {
     /**
      * Silences the ringer for the current incoming call.
      *
-     * `TelecomManager.silenceRinger()` (API 21+, needs MODIFY_PHONE_STATE which
-     * third-party apps cannot hold) is tried first because it is scoped to the
-     * call; the fallback mutes STREAM_RING, which OEM dialers honour and which
-     * the user's next volume press restores.
+     * `TelecomManager.silenceRinger()` needs MODIFY_PHONE_STATE, which a
+     * third-party app cannot hold, and muting STREAM_RING throws the same
+     * "not allowed to change Do Not Disturb state" once the mute would flip
+     * the ringer mode — which is why this never worked. [CallStateHost] does
+     * what the reference apps do: ringer mode → silent for this call, put
+     * back when the call ends. Needs Do Not Disturb access.
      */
-    private fun silenceRinger(ctx: Context): Boolean {
-        try {
-            val tm = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            tm.silenceRinger()
-            Log.i(TAG, "silenceRinger via TelecomManager")
-            return true
-        } catch (e: SecurityException) {
-            // expected for third-party apps — fall through
-        } catch (e: Exception) {
-            Log.w(TAG, "TelecomManager.silenceRinger failed", e)
-        }
-        return try {
-            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.adjustStreamVolume(
-                AudioManager.STREAM_RING,
-                AudioManager.ADJUST_MUTE,
-                0,
-            )
-            Log.i(TAG, "silenceRinger via STREAM_RING mute")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "silenceRinger failed", e)
-            false
-        }
-    }
+    private fun silenceRinger(ctx: Context): Boolean = CallStateHost.silence(ctx)
 
     private fun sendSms(ctx: Context, number: String, text: String): Boolean {
         if (!has(ctx, Manifest.permission.SEND_SMS)) {

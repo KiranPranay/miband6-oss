@@ -75,6 +75,14 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   /// set the battery level) but they accumulate for the life of the process.
   StreamSubscription<List<int>>? _battSubscription;
   final List<StreamSubscription<List<int>>> _initCharSubs = [];
+
+  /// The supervisor's current connection attempt, while one is running.
+  /// Three triggers fire within milliseconds of start-up — the initial
+  /// attempt, the adapter-state replay, the heartbeat — and each used to
+  /// issue its own GATT connect; two then ran the sign-key handshake on the
+  /// same link and the band refused the second (status 0x25). See
+  /// `_attemptConnect`.
+  Future<void>? _connectAttemptInFlight;
   Timer? _authTimeoutTimer;
   Timer? _reconnectTimer;
   Timer? _hrKeepAliveTimer;
@@ -508,6 +516,13 @@ class BLEManager extends ChangeNotifier implements BandCommandWriter {
   // ---------------------------------------------------------------------------
 
   Future<void> connect(BluetoothDevice target) async {
+    if (_device?.remoteId == target.remoteId && isConnected) {
+      // Re-subscribing to `connectionState` while connected replays the
+      // `connected` value at once, which would run `_handleConnected` — and
+      // the auth handshake — a second time on a link that already has one.
+      _logger.i("Already connected to ${target.remoteId} — not reconnecting.");
+      return;
+    }
     _userDisconnected = false;
     _logger.i("Connecting to ${target.remoteId}...");
     _device = target;

@@ -163,6 +163,7 @@ class _BandSettingsBody extends StatelessWidget {
             SectionLabel('Band buttons'),
             GroupCard(children: [
               _PermissionsTile(),
+              const _DndAccessTile(),
               _DeclineTextTile(ble: ble),
             ]),
             // Reject/ignore on the wrist end or silence the call on the
@@ -533,25 +534,31 @@ class _PermissionsTileState extends State<_PermissionsTile> {
   }
 
   Future<void> _request() async {
+    final ble = context.read<BLEManager>();
     await [
       Permission.phone,
       Permission.sms,
     ].request();
+    // The telephony listener could not register without READ_PHONE_STATE;
+    // now it can.
+    await ble.callControl.startCallState();
     await _refresh();
   }
 
   @override
   Widget build(BuildContext context) {
-    final calls = _granted['answerPhoneCalls'] == true;
+    final calls = _granted['answerPhoneCalls'] == true &&
+        _granted['readPhoneState'] == true;
     final sms = _granted['sendSms'] == true;
     final all = calls && sms;
     return ListTile(
       title: Text('Phone permissions', style: AppText.body),
       subtitle: Text(
         all
-            ? 'Granted — the band can decline, silence and reply to calls'
-            : 'Needed for the band\'s call buttons to act on the phone: '
-                '${calls ? '' : 'phone calls'}'
+            ? 'Granted — the band shows who is calling, and can decline '
+                'and reply'
+            : 'Needed to show calls on the band and act on its buttons: '
+                '${calls ? '' : 'phone'}'
                 '${!calls && !sms ? ', ' : ''}'
                 '${sms ? '' : 'SMS'}',
         style: AppText.caption.copyWith(color: AppColors.inkMuted),
@@ -559,6 +566,67 @@ class _PermissionsTileState extends State<_PermissionsTile> {
       trailing: all
           ? Icon(Icons.check_circle_rounded, color: AppColors.success)
           : TextButton(onPressed: _request, child: const Text('Grant')),
+    );
+  }
+}
+
+/// "Silence" on the band mutes the ringer by switching the ringer mode for
+/// the rest of the call, which Android gates behind Do Not Disturb access —
+/// a grant on a system page, not a runtime permission dialog.
+class _DndAccessTile extends StatefulWidget {
+  const _DndAccessTile();
+
+  @override
+  State<_DndAccessTile> createState() => _DndAccessTileState();
+}
+
+class _DndAccessTileState extends State<_DndAccessTile>
+    with WidgetsBindingObserver {
+  bool? _granted;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back from the system page — re-check.
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final g = await context.read<BLEManager>().callControl.permissions();
+    if (mounted) setState(() => _granted = g['dndAccess'] == true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final granted = _granted == true;
+    return ListTile(
+      title: Text('Silence from the band', style: AppText.body),
+      subtitle: Text(
+        granted
+            ? 'Do Not Disturb access granted — Silence on the band mutes '
+                'the ringer for the rest of the call'
+            : 'Needs Do Not Disturb access to mute the ringer. Android '
+                'allows no other way for an app that is not your dialer.',
+        style: AppText.caption.copyWith(color: AppColors.inkMuted),
+      ),
+      trailing: granted
+          ? Icon(Icons.check_circle_rounded, color: AppColors.success)
+          : TextButton(
+              onPressed: () =>
+                  context.read<BLEManager>().callControl.openDndSettings(),
+              child: const Text('Grant')),
     );
   }
 }
